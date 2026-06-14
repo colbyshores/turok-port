@@ -1,0 +1,3 @@
+dos2unix dosvers/spec > spec
+dos2unix dosvers/makefile > makefile
+make

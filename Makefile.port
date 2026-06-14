@@ -1,0 +1,115 @@
+# Makefile.port — Turok (N64) PC host build.
+#
+# Stage M0: compile the original tengine game C against the vendored portable
+# libultra. The host build is the GROUND TRUTH (see CLAUDE.md): it iterates ~100x
+# faster than the 3DS and every bug reproduces identically there.
+#
+#   make -f Makefile.port            # compile all game TUs to build_port/obj/*.o
+#   make -f Makefile.port m0-report  # compile sweep: how many TUs build clean
+#   make -f Makefile.port clean
+#
+# Linking into a runnable binary is M1 (needs the port/ driver + libultra shims:
+# os_shim.c, turok_main.c, romdata.c, turok_rcp.c — not yet written).
+
+# ---- toolchain -------------------------------------------------------------
+CC      := gcc
+# -m32: the N64 game assumes 32-bit pointers (u32 holds addresses; segment math,
+# `ptr | int`, pointer switch-cases). Matching the width avoids a class of UB.
+ARCH    := -m32
+
+# ---- paths -----------------------------------------------------------------
+# NOTE: no inline comments on these value lines — a trailing space would corrupt
+# concatenations like $(ULTRALIB)/PR into a stray gcc argument.
+GAME_DIR   := src/PR/tengine
+ULTRALIB   := lib/ultralib/include
+PORT_INC   := port/include
+BUILD      := build_port
+OBJ        := $(BUILD)/obj
+
+# ---- defines ---------------------------------------------------------------
+# PLATFORM_PORT gates the port shims. F3DEX_GBI selects Turok's microcode family.
+# SHIP_IT/_FINALROM/NDEBUG match the retail config (no debug/rmon/assert paths).
+DEFINES := -DPLATFORM_PORT=1 -D_LANGUAGE_C=1 -D_MIPS_SZLONG=32 \
+           -DF3DEX_GBI -DN_MICRO -D_FINALROM -DNDEBUG -DSHIP_IT
+
+INCLUDES := -I$(GAME_DIR) -I$(ULTRALIB) -I$(ULTRALIB)/PR -I$(PORT_INC)
+
+# Force-include the port compat shim into every game TU (NULL==0 etc.) without
+# touching the game sources.
+FORCEINC := -include $(PORT_INC)/turok_port.h
+
+# IDO was lenient; modern GCC is not. Silence the legacy-C noise rather than edit
+# 137K lines of pristine game source.
+WARN := -w -fcommon -fno-builtin -fno-strict-aliasing -fno-stack-protector -fno-pie \
+        -Wno-implicit-function-declaration -Wno-int-conversion
+
+OPT    ?= -O1
+CFLAGS := $(ARCH) $(OPT) -g $(DEFINES) $(INCLUDES) $(FORCEINC) $(WARN)
+
+# ---- sources ---------------------------------------------------------------
+# All game TUs. coll.c is DEFERRED (M5/collision): it is partly-stale against the
+# current CCollisionInfo2 layout and is not on the M0->M2 (title screen) path.
+ALL_SRCS  := $(wildcard $(GAME_DIR)/*.c)
+DEFER     := $(GAME_DIR)/coll.c
+SRCS      := $(filter-out $(DEFER),$(ALL_SRCS))
+OBJS      := $(patsubst $(GAME_DIR)/%.c,$(OBJ)/%.o,$(SRCS))
+
+# Port layer (M1): host driver + libultra/audio shims + ROM seam. These include ONLY
+# <ultra64.h> + port headers (NOT game headers), and libc headers must precede ultra64.h.
+PORT_SRCS := $(wildcard port/src/*.c)
+PORT_OBJS := $(patsubst port/src/%.c,$(OBJ)/port_%.o,$(PORT_SRCS))
+
+# libultra gu (matrix utilities) — only the sources defining the symbols the game uses
+# (guMtxIdent/L2F/F2L, guOrtho, guPerspectiveF, guLookAtF) + their helpers.
+GU_NAMES  := mtxutil ortho perspective lookat lookatref
+GU_SRCS   := $(addprefix lib/ultralib/src/gu/,$(addsuffix .c,$(GU_NAMES)))
+GU_OBJS   := $(patsubst lib/ultralib/src/gu/%.c,$(OBJ)/gu_%.o,$(GU_SRCS))
+
+# Port compile flags: ultra+port includes, no game -I, no force-include.
+PORT_INCLUDES := -Ilib/ultralib/include -Ilib/ultralib/include/PRinternal -Iport/include
+PORT_CFLAGS   := $(ARCH) $(OPT) -g -DPLATFORM_PORT=1 -D_LANGUAGE_C=1 -D_MIPS_SZLONG=32 \
+                 -DF3DEX_GBI -DNDEBUG $(PORT_INCLUDES) $(WARN)
+# gu sources need PR/ on the path (guint.h -> mbi.h) and don't pull libc, so shadowing is OK.
+GU_CFLAGS     := $(PORT_CFLAGS) -Ilib/ultralib/include/PR
+
+# Link flags: -m32, no PIE (absolute addressing, avoids GOT), no stack protector.
+LDFLAGS := $(ARCH) -no-pie -fno-pie
+LDLIBS  := -lm
+BIN     := $(BUILD)/turok
+
+# ---- rules -----------------------------------------------------------------
+.PHONY: all link clean m0-report
+all: $(OBJS)
+	@echo "M0: compiled $(words $(OBJS)) game TUs -> $(OBJ)/"
+
+# M1: link the full host binary (game + port layer + gu).
+link: $(BIN)
+$(BIN): $(OBJS) $(PORT_OBJS) $(GU_OBJS)
+	@echo "M1: linking $(words $(OBJS)) game + $(words $(PORT_OBJS)) port + $(words $(GU_OBJS)) gu objects..."
+	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
+	@echo "M1: linked -> $(BIN)"
+
+$(OBJ)/%.o: $(GAME_DIR)/%.c | $(OBJ)
+	@$(CC) $(CFLAGS) -c $< -o $@ && echo "  CC  $<" || echo "  FAIL $<"
+
+$(OBJ)/port_%.o: port/src/%.c | $(OBJ)
+	@$(CC) $(PORT_CFLAGS) -c $< -o $@ && echo "  CC  port/$<" || echo "  FAIL port/$<"
+
+$(OBJ)/gu_%.o: lib/ultralib/src/gu/%.c | $(OBJ)
+	@$(CC) $(GU_CFLAGS) -c $< -o $@ && echo "  CC  gu/$<" || echo "  FAIL gu/$<"
+
+$(OBJ):
+	@mkdir -p $(OBJ)
+
+# Diagnostic: sweep every game TU (including deferred) and tally pass/fail.
+m0-report:
+	@pass=0; fail=0; bad=""; \
+	for f in $(ALL_SRCS); do \
+	  if $(CC) $(CFLAGS) -c $$f -o /dev/null 2>/dev/null; then pass=$$((pass+1)); \
+	  else fail=$$((fail+1)); bad="$$bad $$(basename $$f)"; fi; \
+	done; \
+	echo "M0 sweep: $$pass/$$(( pass + fail )) tengine TUs compile clean"; \
+	[ -n "$$bad" ] && echo "  not-clean:$$bad" || echo "  all clean"
+
+clean:
+	rm -rf $(BUILD)

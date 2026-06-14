@@ -1,0 +1,124 @@
+// bossflgs.h
+/////////////////////////////////////////////////////////////////////////////
+
+#ifndef __BOSSFLGS_H__
+#define __BOSSFLGS_H__
+
+#include "defs.h"
+
+
+// levels - used for return value in function "CEngineApp__Level" (0 = not boss level)
+enum BossLevels
+{
+	LONGHUNTER_BOSS_LEVEL = 1,
+	MANTIS_BOSS_LEVEL,
+	TREX_BOSS_LEVEL,
+	CAMPAIGNER_BOSS_LEVEL
+} ;
+
+// Boss level id's
+#define LONGHUNTER_BOSS_START_WARP_ID	2998	// Start
+#define LONGHUNTER_BOSS_END_WARP_ID		2999	// Restart pt
+#define MANTIS_BOSS_WARP_ID				4999
+#define TREX_BOSS_WARP_ID					8997
+#define CAMPAIGNER_BOSS_HALL_WARP_ID  	8998
+#define CAMPAIGNER_BOSS_WARP_ID 			8999
+
+// Id's to warp to after killing boss
+#define KILLED_LONGHUNTER_BOSS_WARP_ID	2997
+#define KILLED_MANTIS_BOSS_WARP_ID		4998
+#define KILLED_TREX_BOSS_WARP_ID			8998
+#define KILLED_CAMPAIGNER_BOSS_WARP_ID 8999
+
+
+// Boss info flags - used to keep track of boss status
+#define BOSS_FLAG_RESET_LEVEL							(1<<0)
+																
+#define BOSS_FLAG_LONGHUNTER_DEAD					(1<<1)
+#define BOSS_FLAG_HUMVEE1_DEAD						(1<<2)
+#define BOSS_FLAG_HUMVEE2_DEAD						(1<<3)
+#define BOSS_FLAG_LONGHUNTER_SWITCH_PRESSED		(1<<4)
+#define BOSS_FLAG_LONGHUNTER_FORCEFIELD_GONE		(1<<5)
+#define BOSS_FLAG_LONGHUNTER_GENERATED_KEY		(1<<6)
+#define BOSS_FLAG_LONGHUNTER_START_HUMVEE1		(1<<7)
+#define BOSS_FLAG_LONGHUNTER_START_HUMVEE2		(1<<8)
+#define BOSS_FLAG_LONGHUNTER_START_LONGHUNTER	(1<<9)
+																
+																
+#define BOSS_FLAG_MANTIS_DEAD							(1<<10)
+#define BOSS_FLAG_MANTIS_CACOON_OPEN				(1<<11)
+#define BOSS_FLAG_MANTIS_CRYSTAL_STARTED			(1<<12)
+#define BOSS_FLAG_MANTIS_CRYSTAL_DOWN				(1<<13)
+																
+#define BOSS_FLAG_TREX_DEAD							(1<<14)
+#define BOSS_FLAG_TREX_ELEVATOR_RISEN				(1<<15)
+#define BOSS_FLAG_TREX_ELEVATOR_GONE				(1<<16)
+																
+#define BOSS_FLAG_CAMPAIGNER_DEAD					(1<<17)
+
+
+#define LONGHUNTER_BOSS_FLAGS	  (BOSS_FLAG_LONGHUNTER_DEAD					\
+										 |	BOSS_FLAG_HUMVEE1_DEAD						\
+										 |	BOSS_FLAG_HUMVEE2_DEAD						\
+										 |	BOSS_FLAG_LONGHUNTER_SWITCH_PRESSED		\
+										 |	BOSS_FLAG_LONGHUNTER_FORCEFIELD_GONE	\
+										 |	BOSS_FLAG_LONGHUNTER_GENERATED_KEY		\
+										 |	BOSS_FLAG_LONGHUNTER_START_HUMVEE1		\
+										 |	BOSS_FLAG_LONGHUNTER_START_HUMVEE2		\
+										 |	BOSS_FLAG_LONGHUNTER_START_LONGHUNTER)
+
+
+#define MANTIS_BOSS_FLAGS		  (BOSS_FLAG_MANTIS_DEAD						\
+										 |	BOSS_FLAG_MANTIS_CACOON_OPEN				\
+										 |	BOSS_FLAG_MANTIS_CRYSTAL_STARTED			\
+										 |	BOSS_FLAG_MANTIS_CRYSTAL_DOWN)			\
+
+#define TREX_BOSS_FLAGS			  (BOSS_FLAG_TREX_DEAD							\
+										 | BOSS_FLAG_TREX_ELEVATOR_RISEN				\
+										 |	BOSS_FLAG_TREX_ELEVATOR_GONE)				\
+
+#define CAMPAIGNER_BOSS_FLAGS		BOSS_FLAG_CAMPAIGNER_DEAD
+
+
+// Longhunter level id's
+#define LONGHUNT_LEVEL_SWITCH1_ID 		101
+#define LONGHUNT_LEVEL_SWITCH2_ID 		102
+#define LONGHUNT_LEVEL_SWITCH3_ID 		103
+#define LONGHUNT_LEVEL_SWITCH4_ID 		104
+#define LONGHUNT_LEVEL_SWITCH5_ID 		105
+#define LONGHUNT_LEVEL_SWITCH6_ID 		106
+#define LONGHUNT_LEVEL_SWITCH7_ID 		107
+#define LONGHUNT_LEVEL_SWITCH8_ID 		108
+#define LONGHUNT_LEVEL_DAM_WALL1_ID		11
+#define LONGHUNT_LEVEL_DAM_WALL2_ID		12
+#define LONGHUNT_LEVEL_DAM_WALL3_ID		13
+#define LONGHUNT_LEVEL_DAM_WALL4_ID		14
+#define LONGHUNT_LEVEL_WATER1_ID			11
+#define LONGHUNT_LEVEL_WATER2_ID			12
+#define LONGHUNT_LEVEL_WATER3_ID			13
+#define LONGHUNT_LEVEL_WATER4_ID			14
+#define LONGHUNT_LEVEL_ELEVATOR_ID		100
+#define LONGHUNT_LEVEL_FORCEFIELD_ID	150
+
+// Mantis level id's
+#define MANTIS_LEVEL_WALL1_ID				1
+#define MANTIS_LEVEL_WALL2_ID				2
+#define MANTIS_LEVEL_WALL3_ID				3
+#define MANTIS_LEVEL_WALL4_ID				4
+#define MANTIS_LEVEL_COCOON_ID			100
+#define MANTIS_LEVEL_PILLARS_ID			64
+#define MANTIS_LEVEL_UP_WALLS_ID			50
+#define MANTIS_LEVEL_CRYSTAL_ID			200
+
+
+// Trex level id's
+#define TREX_LEVEL_CRUSHERS_START_ID	50
+#define TREX_LEVEL_PLATFORM1_ID			101
+#define TREX_LEVEL_PLATFORM2_ID			102
+#define TREX_LEVEL_PLATFORM3_ID			103
+#define TREX_LEVEL_PLATFORM4_ID			104
+#define TREX_LEVEL_PLATFORM5_ID			105
+
+
+/////////////////////////////////////////////////////////////////////////////
+#endif // __BOSSFLGS_H__

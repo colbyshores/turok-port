@@ -1,0 +1,1911 @@
+// aistruc.h
+
+#ifndef _INC_AISTRUC
+#define _INC_AISTRUC
+
+/////////////////////////////////////////////////////////////////////////////
+
+#ifdef WIN32
+#include "graphic.h"
+#else
+#include "graphu64.h"
+#endif
+
+/////////////////////////////////////////////////////////////////////////////
+
+#ifdef WIN32
+
+// don't fuss when functions are automatically made inline
+#pragma warning(disable : 4711)
+
+// forward declarations
+class CObjectInstance;
+class CVariation;
+
+#endif
+
+struct CGameObjectInstance_t;
+struct CGameRegion_t;
+
+
+// gravity settings for u64
+#define GRAVITY_EARTH					(-32.174*SCALING_FACTOR*15)
+#define GRAVITY_ACCELERATION			(-12*SCALING_FACTOR*15)
+#define GRAVITY_WATER_ACCELERATION	(-1.8*SCALING_FACTOR*15)
+
+//#define GRAVITY_ACCELERATION			-5					// in feet/sec^2
+//#define GRAVITY_WATER_ACCELERATION	-0.7	//-1.1	//-1.5				// in feet/sec^2
+
+/////////////////////////////////////////////////////////////////////////////
+
+#define	AI_OBJECT_CHARACTER_PLAYER							0
+#define	AI_OBJECT_CHARACTER_RAPTOR							1
+#define	AI_OBJECT_CHARACTER_HUMAN1							2
+#define	AI_OBJECT_CHARACTER_SABERTIGER					3
+#define	AI_OBJECT_CHARACTER_DIMETRODON					4
+#define	AI_OBJECT_CHARACTER_TRICERATOPS					5
+#define	AI_OBJECT_CHARACTER_MOSCHOPS						6
+#define	AI_OBJECT_CHARACTER_PTERANODON					7
+#define	AI_OBJECT_CHARACTER_SUBTERRANEAN					8
+#define	AI_OBJECT_CHARACTER_LEAPER							9
+#define	AI_OBJECT_CHARACTER_ALIEN							10
+#define	AI_OBJECT_CHARACTER_HULK							11
+#define	AI_OBJECT_CHARACTER_ROBOT							12
+#define	AI_OBJECT_CHARACTER_BADFISH						13
+#define	AI_OBJECT_CHARACTER_GOODFISH						14
+#define	AI_OBJECT_CHARACTER_SLUDGEBOY						15
+#define	AI_OBJECT_CHARACTER_PLANT							16
+#define	AI_OBJECT_CHARACTER_ANCIENTWARRIOR				17
+#define	AI_OBJECT_CHARACTER_HIGHPRIEST					18
+#define	AI_OBJECT_CHARACTER_PLAYER_WARP_DESTINATION	19
+#define	AI_OBJECT_CHARACTER_GENERICRED					20
+#define	AI_OBJECT_CHARACTER_GENERICGREEN					21
+#define	AI_OBJECT_CHARACTER_GENERICMETAL					22
+
+// Boss objects
+#define	AI_OBJECT_CHARACTER_MANTIS_BOSS					1000
+#define	AI_OBJECT_CHARACTER_TREX_BOSS						1001
+#define	AI_OBJECT_CHARACTER_CAMPAIGNER_BOSS				1002
+#define	AI_OBJECT_CHARACTER_LONGHUNTER_BOSS				1003
+#define	AI_OBJECT_CHARACTER_HUMVEE_BOSS					1004
+
+// Turret objects
+#define	AI_OBJECT_CEILING_TURRET  							2000
+#define	AI_OBJECT_BUNKER_TURRET								2001
+
+
+#define AI_SPECIES_RAPTOR			(1<<0)		// raptor dinosaur
+#define AI_SPECIES_HUMAN1			(1<<1)		// human being type 1
+#define AI_SPECIES_SABERTIGER		(1<<2)		// saber tooth tiger
+#define AI_SPECIES_DIMETRODON		(1<<3)		// dimetrodon
+#define AI_SPECIES_TRICERATOPS	(1<<4)		// triceratops
+#define AI_SPECIES_MOSCHOPS		(1<<5)		// moschops
+#define AI_SPECIES_PTERANODON		(1<<6)		// pteranodon
+#define AI_SPECIES_SUBTERRANEAN	(1<<7)		// subterranean
+#define AI_SPECIES_LEAPER			(1<<8)		// leaper
+#define AI_SPECIES_ALIEN			(1<<9)		// alien
+#define AI_SPECIES_HULK				(1<<10)		// hulk
+#define AI_SPECIES_ROBOT			(1<<11)		// robot
+#define AI_SPECIES_MANTIS_BOSS	(1<<12)		// mantis boss
+
+#define AI_OBJECT_WEAPON_START					100
+#define AI_OBJECT_WEAPON_KNIFE					100
+#define AI_OBJECT_WEAPON_TOMAHAWK				101
+#define AI_OBJECT_WEAPON_TEKBOW					102
+#define AI_OBJECT_WEAPON_SEMIAUTOMATICPISTOL	103
+#define AI_OBJECT_WEAPON_ASSAULTRIFLE			104
+#define AI_OBJECT_WEAPON_MACHINEGUN				105
+#define AI_OBJECT_WEAPON_RIOTSHOTGUN			106
+#define AI_OBJECT_WEAPON_AUTOMATICSHOTGUN		107
+#define AI_OBJECT_WEAPON_MINIGUN					108
+#define AI_OBJECT_WEAPON_GRENADE_LAUNCHER		109
+#define AI_OBJECT_WEAPON_TECHWEAPON1			110
+#define AI_OBJECT_WEAPON_TECHWEAPON2			111
+#define AI_OBJECT_WEAPON_ROCKET					112
+#define AI_OBJECT_WEAPON_SHOCKWAVE				113
+#define AI_OBJECT_WEAPON_CHRONOSCEPTER			114
+#define AI_OBJECT_WEAPON_END						114
+#define AI_OBJECT_WEAPON_TOTAL					((AI_OBJECT_WEAPON_END-AI_OBJECT_WEAPON_START)+1)
+
+#define AI_OBJECT_STATIC_NOWELD					200
+#define AI_OBJECT_STATIC_GRASS					201
+#define AI_OBJECT_STATIC_DIRT						202
+#define AI_OBJECT_STATIC_WATERSURFACE			203
+#define AI_OBJECT_STATIC_STEEL					204
+#define AI_OBJECT_STATIC_STONE					205
+#define AI_OBJECT_STATIC_WOOD						206
+#define AI_OBJECT_STATIC_FOLIAGE					207
+#define AI_OBJECT_STATIC_FLESH					208
+#define AI_OBJECT_STATIC_ALIENFLESH				209
+#define AI_OBJECT_STATIC_WATERFLOOR				210
+
+#define AI_OBJECT_DEVICE_START					300
+#define AI_OBJECT_DEVICE_DOOR						300
+#define AI_OBJECT_DEVICE_ACTION					301
+#define AI_OBJECT_DEVICE_STATUE					302
+#define AI_OBJECT_DEVICE_TIMERACTION			303
+#define AI_OBJECT_DEVICE_CONSTANTACTION 		304
+#define AI_OBJECT_DEVICE_WALL						305
+#define AI_OBJECT_DEVICE_ARROWTARGET 			306
+#define AI_OBJECT_DEVICE_SPINDOOR				307
+#define AI_OBJECT_DEVICE_LASER					308
+#define AI_OBJECT_DEVICE_EXPTARGET				309
+#define AI_OBJECT_DEVICE_ELEVATOR  				310
+#define AI_OBJECT_DEVICE_PLATFORM 				311
+#define AI_OBJECT_DEVICE_DEATHELEVATOR 		312
+#define AI_OBJECT_DEVICE_TREXELEVATOR	 		313
+#define AI_OBJECT_DEVICE_TREXPLATFORM	 		314
+#define AI_OBJECT_DEVICE_LONGHUNTER_SWITCH	315
+#define AI_OBJECT_DEVICE_COLLAPSINGPLATFORM	316
+#define AI_OBJECT_DEVICE_PORTAL					317
+#define AI_OBJECT_DEVICE_LOCK						318
+#define AI_OBJECT_DEVICE_DRAIN					319
+#define AI_OBJECT_DEVICE_FLOOD					320
+#define AI_OBJECT_DEVICE_GATE						321
+#define AI_OBJECT_CINEMA_TUROK_ARROW 			322
+#define AI_OBJECT_DEVICE_CRYSTAL					323
+#define AI_OBJECT_DEVICE_SPINELEVATOR			324
+#define AI_OBJECT_DEVICE_KEYFLOOR				325
+#define AI_OBJECT_DEVICE_SPINPLATFORM			326
+#define AI_OBJECT_DEVICE_FADEINFADEOUT			327
+#define AI_OBJECT_DEVICE_PRESSUREACTION		328
+#define AI_OBJECT_DEVICE_FOOTELEVATOR			329
+#define AI_OBJECT_DEVICE_PICKUP_GERATOR		330
+#define AI_OBJECT_DEVICE_ANIMOFFSCREENACTION	331
+#define AI_OBJECT_DEVICE_END						332
+
+#define AI_OBJECT_PICKUP_START					400
+#define AI_OBJECT_PICKUP_HEALTH_2				400
+#define AI_OBJECT_PICKUP_HEALTH_10				401
+#define AI_OBJECT_PICKUP_HEALTH_25				402
+#define AI_OBJECT_PICKUP_HEALTH_100				403
+#define AI_OBJECT_PICKUP_HEALTH_100PLUS		404
+#define AI_OBJECT_PICKUP_MORTAL_WOUND			405
+#define AI_OBJECT_PICKUP_BACKPACK				406
+#define AI_OBJECT_PICKUP_SPIRITUAL				407
+#define AI_OBJECT_PICKUP_MAP						408
+#define AI_OBJECT_PICKUP_PISTOL					409
+#define AI_OBJECT_PICKUP_RIFLE					410
+#define AI_OBJECT_PICKUP_RIOTSHOTGUN			411
+#define AI_OBJECT_PICKUP_AUTOSHOTGUN			412
+#define AI_OBJECT_PICKUP_MINIGUN					413
+#define AI_OBJECT_PICKUP_GRENADELAUNCHER		414
+#define AI_OBJECT_PICKUP_MACHINEGUN				415
+#define AI_OBJECT_PICKUP_TECHWEAPON1			416
+#define AI_OBJECT_PICKUP_ROCKET					417
+#define AI_OBJECT_PICKUP_SHOCKWAVE				418
+#define AI_OBJECT_PICKUP_TECHWEAPON2			419
+#define AI_OBJECT_PICKUP_AMMO_ARROWS			420
+#define AI_OBJECT_PICKUP_AMMO_EXPARROWSSMALL	421
+#define AI_OBJECT_PICKUP_AMMO_EXPARROWSLARGE	422
+#define AI_OBJECT_PICKUP_AMMO_BULLETCLIP		423
+#define AI_OBJECT_PICKUP_AMMO_BULLETBOX		424
+#define AI_OBJECT_PICKUP_AMMO_SHOTGUN			425
+#define AI_OBJECT_PICKUP_AMMO_SHOTGUNBOX		426
+#define AI_OBJECT_PICKUP_AMMO_EXPSHOTGUN		427
+#define AI_OBJECT_PICKUP_AMMO_EXPSHOTGUNBOX	428
+#define AI_OBJECT_PICKUP_AMMO_MINIGUN			429
+#define AI_OBJECT_PICKUP_AMMO_GRENADES			430
+#define AI_OBJECT_PICKUP_AMMO_GRENADEBOX		431
+#define AI_OBJECT_PICKUP_AMMO_TECHSMALL		432
+#define AI_OBJECT_PICKUP_AMMO_TECHLARGE		433
+#define AI_OBJECT_PICKUP_AMMO_ROCKETS			434
+#define AI_OBJECT_PICKUP_AMMO_SHOCKWAVE		435
+#define AI_OBJECT_PICKUP_AMMO_TECHWEAPON2	  	436
+#define AI_OBJECT_PICKUP_ARMOR_TEK			  	437
+#define AI_OBJECT_PICKUP_SMALL_TOKEN		  	438
+#define AI_OBJECT_PICKUP_LARGE_TOKEN		  	439
+#define AI_OBJECT_PICKUP_KEY2					  	440
+#define AI_OBJECT_PICKUP_KEY3					  	441
+#define AI_OBJECT_PICKUP_KEY4					  	442
+#define AI_OBJECT_PICKUP_KEY5					  	443
+#define AI_OBJECT_PICKUP_KEY6					  	444
+#define AI_OBJECT_PICKUP_KEY7					  	445
+#define AI_OBJECT_PICKUP_KEY8					  	446
+#define AI_OBJECT_PICKUP_CHRONOSCEPTOR1	  	447
+#define AI_OBJECT_PICKUP_TEKBOW				  	448
+#define AI_OBJECT_PICKUP_KEY8MANTIS			  	449
+#define AI_OBJECT_PICKUP_CHRONOSCEPTOR2	  	450
+#define AI_OBJECT_PICKUP_CHRONOSCEPTOR3	  	451
+#define AI_OBJECT_PICKUP_CHRONOSCEPTOR4	  	452
+#define AI_OBJECT_PICKUP_CHRONOSCEPTOR5	  	453
+#define AI_OBJECT_PICKUP_CHRONOSCEPTOR6	  	454
+#define AI_OBJECT_PICKUP_CHRONOSCEPTOR7	  	455
+#define AI_OBJECT_PICKUP_CHRONOSCEPTOR8	  	456
+#define AI_OBJECT_PICKUP_END						457
+
+#define AI_OBJECT_WARP_START						600
+#define AI_OBJECT_WARP_DYNAMIC					600
+#define AI_OBJECT_WARP_END							600
+
+#define AI_OBJECT_BOUNCY_START					700
+#define AI_OBJECT_BOUNCY_ROCK						700
+#define AI_OBJECT_BOUNCY_ALIEN_HEAD				701
+#define AI_OBJECT_BOUNCY_ALIEN_HAND				702
+#define AI_OBJECT_BOUNCY_ALIEN_FOOT				703
+#define AI_OBJECT_BOUNCY_ALIEN_TORSO			704
+#define AI_OBJECT_BOUNCY_LEAPER_HEAD 			705
+#define AI_OBJECT_BOUNCY_LEAPER_HAND 			706
+#define AI_OBJECT_BOUNCY_LEAPER_FOOT 			707
+#define AI_OBJECT_BOUNCY_LEAPER_TORSO			708
+#define AI_OBJECT_BOUNCY_END						709
+
+#define AI_OBJECT_MORPH_START						800
+#define AI_OBJECT_MORPHER							800
+#define AI_OBJECT_MORPH_END						800
+
+// ai animations
+#define AI_ANIM_IDLE									0				// ai idles (stands in same spot)
+#define AI_ANIM_WALK									1				// ai walks forward
+#define AI_ANIM_RUN									2				// ai runs forward
+#define AI_ANIM_TURNL90								3				// ai does a normal turn left
+#define AI_ANIM_TURNR90								4				// ai does a normal turn right
+#define AI_ANIM_GETATTENTION						5				// ai gets attention
+#define AI_ANIM_TURN180								6				// ai does a 180 degree turn
+#define AI_ANIM_WTURNL90							7				// ai does a walking turn left  90 degrees
+#define AI_ANIM_WTURNR90							8				// ai does a walking turn right 90 degrees
+#define AI_ANIM_WTURN180							9				// ai does a walking 180 degree turn
+#define AI_ANIM_RTURNL90							10				// ai does a running turn left  90 degrees
+#define AI_ANIM_RTURNR90							11				// ai does a running turn right 90 degrees
+#define AI_ANIM_RTURN180							12				// ai does a running 180 degree turn
+#define AI_ANIM_IDLE_INTEL1						13				// ai looks intelligent 1
+#define AI_ANIM_IDLE_INTEL2						14				// ai looks intelligent 2
+#define AI_ANIM_EVADE_LEFT							15				// ai evades to the left
+#define AI_ANIM_EVADE_RIGHT						16				// ai evades to the right
+#define AI_ANIM_EVADE_CROUCH						17				// ai evades by crouching
+#define AI_ANIM_ATTACK_STRONG1					18				// ai attacks with head
+#define AI_ANIM_ATTACK_STRONG2					19				// ai attacks with jaws 1
+#define AI_ANIM_ATTACK_STRONG3					20				// ai attacks with jaws 2
+#define AI_ANIM_ATTACK_STRONG4					21				// ai attacks with claws
+#define AI_ANIM_ATTACK_STRONG5					22				// ai attacks with feet
+#define AI_ANIM_ATTACK_STRONG6					23				// ai attacks with weapon close
+#define AI_ANIM_ATTACK_WEAPON_PROJECTILE		24				// ai attacks with weapon projectile
+#define AI_ANIM_ATTACK_STRONG7					25				// ai attacks with special 1
+#define AI_ANIM_ATTACK_STRONG8					26				// ai attacks with special 2
+#define AI_ANIM_ATTACK_STRONG9					27				// ai attacks with special 3
+#define AI_ANIM_IMPACT_NORMAL						28				// impact hit
+#define AI_ANIM_IMPACT_STUNNED					29				// impact causing stunned state
+#define AI_ANIM_IMPACT_EXPLODE_LEFT				30				// explosion impact
+#define AI_ANIM_IMPACT_EXPLODE_RIGHT			31				// explosion impact
+#define AI_ANIM_IMPACT_EXPLODE_FORWARD			32				// explosion impact
+#define AI_ANIM_IMPACT_EXPLODE_BACKWARD		33				// explosion impact
+#define AI_ANIM_DEATH_NORMAL						34				// normal death
+#define AI_ANIM_DEATH_VIOLENT						35				// violent death
+#define AI_ANIM_DEATH_HIGH_FALL					36				// death from falling a long way
+#define AI_ANIM_DEATH_WIPEOUT						37				// death while ai is running
+#define AI_ANIM_RAGE									38				// ai does rage animation
+// ai weapon animations types
+#define AI_ANIM_WEAPON_IDLE						39
+#define AI_ANIM_WEAPON_WALK						40
+#define AI_ANIM_WEAPON_RUN							41
+#define AI_ANIM_WEAPON_SLASHLEFT					42
+#define AI_ANIM_WEAPON_SLASHRIGHT				43
+#define AI_ANIM_WEAPON_STAB						44
+#define AI_ANIM_WEAPON_FIRE1						45
+#define AI_ANIM_WEAPON_FIRE2						46
+#define AI_ANIM_WEAPON_ONSCREEN					47
+#define AI_ANIM_WEAPON_OFFSCREEN					48
+#define AI_ANIM_WEAPON_GUNKICKBACK				49
+#define AI_ANIM_WEAPON_GUNKICKLEFT				50
+#define AI_ANIM_WEAPON_GUNKICKRIGHT				51
+#define AI_ANIM_WEAPON_GUNKICKUP					52
+#define AI_ANIM_WEAPON_GUNKICKDOWN				53
+// ai animations
+#define AI_ANIM_ATTACK_STRONG10					54				// ai attacks with special 4
+#define AI_ANIM_ATTACK_STRONG11					55				// ai attacks with special 5
+#define AI_ANIM_ATTACK_STRONG12					56				// ai attacks with special 6
+#define AI_ANIM_ATTACK_STRONG13					57				// ai attacks with special 7
+#define AI_ANIM_ATTACK_STRONG14					58				// ai attacks with special 8
+#define AI_ANIM_ATTACK_WEAPON_PROJECTILE2		59				// ai attacks with weapon projectile 2
+#define AI_ANIM_IMPACT_EXPLODE_DEAD1			60
+#define AI_ANIM_IMPACT_EXPLODE_DEAD2			61
+
+// mantis anim types
+#define AI_ANIM_BOSS_MANTIS_IDLE_CEILING				62
+#define AI_ANIM_BOSS_MANTIS_IDLE_FLOOR					63
+#define AI_ANIM_BOSS_MANTIS_IDLE_LEFT_WALL			64
+#define AI_ANIM_BOSS_MANTIS_IDLE_RIGHT_WALL			65
+#define AI_ANIM_BOSS_MANTIS_LOOK							66
+
+#define AI_ANIM_BOSS_MANTIS_TURN_CEILING_LEFT90		67
+#define AI_ANIM_BOSS_MANTIS_TURN_CEILING_RIGHT90  	68
+#define AI_ANIM_BOSS_MANTIS_TURN_FLOOR_LEFT90	  	69
+#define AI_ANIM_BOSS_MANTIS_TURN_FLOOR_RIGHT90		70
+
+#define AI_ANIM_BOSS_MANTIS_BREAK_FLOOR				71
+#define AI_ANIM_BOSS_MANTIS_DEATH_FLOOR				72
+#define AI_ANIM_BOSS_MANTIS_PHASE_FLOOR				73
+#define AI_ANIM_BOSS_MANTIS_RAGE_FLOOR					74
+
+#define AI_ANIM_BOSS_MANTIS_WALK_CEILING				75
+#define AI_ANIM_BOSS_MANTIS_WALK_FLOOR					76
+
+#define AI_ANIM_BOSS_MANTIS_JUMP_CEILING_TO_FLOOR	77
+
+#define AI_ANIM_BOSS_MANTIS_JUMP_FLOOR_A				78
+#define AI_ANIM_BOSS_MANTIS_JUMP_FLOOR_B				79
+#define AI_ANIM_BOSS_MANTIS_JUMP_FLOOR_C				80
+#define AI_ANIM_BOSS_MANTIS_JUMP_FLOOR					81
+
+#define AI_ANIM_BOSS_MANTIS_JUMP_FLOOR_TO_CEILING_A	82
+
+#define AI_ANIM_BOSS_MANTIS_JUMP_FLOOR_TO_LEFT_WALL_A	83
+#define AI_ANIM_BOSS_MANTIS_JUMP_FLOOR_TO_LEFT_WALL_B	84
+#define AI_ANIM_BOSS_MANTIS_JUMP_FLOOR_TO_LEFT_WALL_C	85
+#define AI_ANIM_BOSS_MANTIS_JUMP_FLOOR_TO_LEFT_WALL	86
+
+#define AI_ANIM_BOSS_MANTIS_JUMP_FLOOR_TO_RIGHT_WALL_A	87
+#define AI_ANIM_BOSS_MANTIS_JUMP_FLOOR_TO_RIGHT_WALL_B	88
+#define AI_ANIM_BOSS_MANTIS_JUMP_FLOOR_TO_RIGHT_WALL_C	89
+#define AI_ANIM_BOSS_MANTIS_JUMP_FLOOR_TO_RIGHT_WALL		90
+
+#define AI_ANIM_BOSS_MANTIS_JUMP_LEFT_WALL_TO_CEILING			91
+#define AI_ANIM_BOSS_MANTIS_JUMP_LEFT_WALL_TO_FLOOR			92
+#define AI_ANIM_BOSS_MANTIS_JUMP_LEFT_WALL_TO_RIGHT_WALL_A	93
+#define AI_ANIM_BOSS_MANTIS_JUMP_LEFT_WALL_TO_RIGHT_WALL_B	94
+#define AI_ANIM_BOSS_MANTIS_JUMP_LEFT_WALL_TO_RIGHT_WALL_C	95
+#define AI_ANIM_BOSS_MANTIS_JUMP_LEFT_WALL_TO_RIGHT_WALL		96
+
+#define AI_ANIM_BOSS_MANTIS_JUMP_RIGHT_WALL_TO_CEILING		97
+#define AI_ANIM_BOSS_MANTIS_JUMP_RIGHT_WALL_TO_FLOOR			98
+#define AI_ANIM_BOSS_MANTIS_JUMP_RIGHT_WALL_TO_LEFT_WALL_A	99
+#define AI_ANIM_BOSS_MANTIS_JUMP_RIGHT_WALL_TO_LEFT_WALL_B	100
+#define AI_ANIM_BOSS_MANTIS_JUMP_RIGHT_WALL_TO_LEFT_WALL_C	101
+#define AI_ANIM_BOSS_MANTIS_JUMP_RIGHT_WALL_TO_LEFT_WALL		102
+
+#define AI_ANIM_BOSS_MANTIS_BLAST_FLOOR			103
+#define AI_ANIM_BOSS_MANTIS_RAIN_CEILING			104
+#define AI_ANIM_BOSS_MANTIS_SPIT_CEILING			105
+#define AI_ANIM_BOSS_MANTIS_SPIT_FLOOR				106
+
+#define AI_ANIM_BOSS_MANTIS_SPIT_LEFT_WALL		107
+#define AI_ANIM_BOSS_MANTIS_SPIT_LEFT_WALL2		108
+
+#define AI_ANIM_BOSS_MANTIS_SPIT_RIGHT_WALL		109
+#define AI_ANIM_BOSS_MANTIS_SPIT_RIGHT_WALL2		110
+
+#define AI_ANIM_BOSS_MANTIS_SWIPE_FLOOR			111
+
+#define AI_ANIM_BOSS_MANTIS_JUMP_FLOOR_TO_CEILING_B	112
+#define AI_ANIM_BOSS_MANTIS_JUMP_FLOOR_TO_CEILING_C	113
+
+#define AI_ANIM_BOSS_MANTIS_EXPLODE_FLOOR_BACK			114
+#define AI_ANIM_BOSS_MANTIS_EXPLODE_FLOOR_FRONT			115
+#define AI_ANIM_BOSS_MANTIS_EXPLODE_FLOOR_LEFT			116
+#define AI_ANIM_BOSS_MANTIS_EXPLODE_FLOOR_RIGHT			117
+#define AI_ANIM_BOSS_MANTIS_EXPLODE_CEILING				118
+#define AI_ANIM_BOSS_MANTIS_EXPLODE_LEFT_WALL			119
+#define AI_ANIM_BOSS_MANTIS_EXPLODE_RIGHT_WALL			120
+
+#define AI_ANIM_ATTACK_WEAPON_PROJECTILE3		121				// ai attacks with weapon projectile 3
+#define AI_ANIM_ATTACK_WEAPON_PROJECTILE4		122				// ai attacks with weapon projectile 4
+#define AI_ANIM_ATTACK_WEAPON_PROJECTILE5		123				// ai attacks with weapon projectile 5
+#define AI_ANIM_ATTACK_WEAPON_PROJECTILE6		124				// ai attacks with weapon projectile 6
+
+#define AI_ANIM_IMPACT_EXPLODE_LEFT_LAND			125				// explosion impact
+#define AI_ANIM_IMPACT_EXPLODE_RIGHT_LAND			126				// explosion impact
+#define AI_ANIM_IMPACT_EXPLODE_FORWARD_LAND		127				// explosion impact
+#define AI_ANIM_IMPACT_EXPLODE_BACKWARD_LAND		128				// explosion impact
+
+#define AI_ANIM_IDLE2									129				// ai idles (stands in same spot)
+#define AI_ANIM_WALK2									130				// ai walks forward
+#define AI_ANIM_RUN2										131				// ai runs forward
+#define AI_ANIM_TURNL902								132				// ai does a normal turn left
+#define AI_ANIM_TURNR902								133				// ai does a normal turn right
+#define AI_ANIM_TURN1802								134				// ai does a 180 degree turn
+#define AI_ANIM_WTURNL902								135				// ai does a walking turn left  90 degrees
+#define AI_ANIM_WTURNR902								136				// ai does a walking turn right 90 degrees
+#define AI_ANIM_WTURN1802								137				// ai does a walking 180 degree turn
+#define AI_ANIM_RTURNL902								138				// ai does a running turn left  90 degrees
+#define AI_ANIM_RTURNR902								139				// ai does a running turn right 90 degrees
+#define AI_ANIM_RTURN1802								140				// ai does a running 180 degree turn
+
+#define AI_ANIM_ATTACK_WEAPON_PROJECTILE7			141				// ai attacks with weapon projectile 7
+#define AI_ANIM_ATTACK_WEAPON_PROJECTILE8			142				// ai attacks with weapon projectile 8
+#define AI_ANIM_DEATH_NORMAL2							143				// normal death 2
+#define AI_ANIM_DEATH_VIOLENT2						144				// violent death 2
+#define AI_ANIM_DEATH_WIPEOUT2						145				// death while ai is running 2
+#define AI_ANIM_DEATH_FLYINGFALL						146
+#define AI_ANIM_DEATH_FLYINGCRASHLAND				147
+#define AI_ANIM_DEATH_VIOLENTLESSCHANCE			148				// violent death (less chance)
+#define AI_ANIM_DEATH_VIOLENT2LESSCHANCE			149				// violent death 2 (less chance)
+#define AI_ANIM_ATTACK_WEAPON_PROJECTILE9			150				// ai attacks with weapon projectile 9
+#define AI_ANIM_ATTACK_WEAPON_PROJECTILE10		151				// ai attacks with weapon projectile 10
+
+#define AI_ANIM_INTERACTIVE_ANIMATION1						200
+#define AI_ANIM_INTERACTIVE_ANIMATION2						201
+#define AI_ANIM_INTERACTIVE_ANIMATION3						202
+#define AI_ANIM_INTERACTIVE_ANIMATION4						203
+#define AI_ANIM_INTERACTIVE_ANIMATION5						204
+#define AI_ANIM_INTERACTIVE_ANIMATION6						205
+#define AI_ANIM_INTERACTIVE_ANIMATION7						206
+#define AI_ANIM_INTERACTIVE_ANIMATION8						207
+#define AI_ANIM_INTERACTIVE_ANIMATION9						208
+#define AI_ANIM_INTERACTIVE_ANIMATION10					209
+#define AI_ANIM_INTERACTIVE_ANIMATION11					210
+#define AI_ANIM_INTERACTIVE_ANIMATION12					211
+#define AI_ANIM_INTERACTIVE_ANIMATION13					212
+#define AI_ANIM_INTERACTIVE_ANIMATION14					213
+#define AI_ANIM_INTERACTIVE_ANIMATION15					214
+#define AI_ANIM_INTERACTIVE_ANIMATION16					215
+#define AI_ANIM_INTERACTIVE_ANIMATION17					216
+#define AI_ANIM_INTERACTIVE_ANIMATION18					217
+#define AI_ANIM_INTERACTIVE_ANIMATION19					218
+#define AI_ANIM_INTERACTIVE_ANIMATION20					219
+#define AI_ANIM_INTERACTIVE_ANIMATION21					220
+#define AI_ANIM_INTERACTIVE_ANIMATION22					221
+#define AI_ANIM_INTERACTIVE_ANIMATION23					222
+#define AI_ANIM_INTERACTIVE_ANIMATION24					223
+#define AI_ANIM_INTERACTIVE_ANIMATION25					224
+#define AI_ANIM_INTERACTIVE_ANIMATION26					225
+#define AI_ANIM_INTERACTIVE_ANIMATION27					226
+#define AI_ANIM_INTERACTIVE_ANIMATION28					227
+#define AI_ANIM_INTERACTIVE_ANIMATION29					228
+#define AI_ANIM_INTERACTIVE_ANIMATION30					229
+
+// absolute anims do not accumulate translation (wrong collision, but exact placement of graphic)
+#define AI_ABSOLUTE_ANIM_START								230
+#define AI_ANIM_INTERACTIVE_ABS_31							230
+#define AI_ANIM_INTERACTIVE_ABS_32							231
+#define AI_ANIM_INTERACTIVE_ABS_33							232
+#define AI_ANIM_INTERACTIVE_ABS_34							233
+#define AI_ANIM_INTERACTIVE_ABS_35							234
+#define AI_ANIM_INTERACTIVE_ABS_36							235
+#define AI_ANIM_INTERACTIVE_ABS_37							236
+#define AI_ANIM_INTERACTIVE_ABS_38							237
+#define AI_ANIM_INTERACTIVE_ABS_39							238
+#define AI_ANIM_INTERACTIVE_ABS_40							239
+#define AI_ANIM_INTERACTIVE_ABS_41							240
+#define AI_ANIM_INTERACTIVE_ABS_42							241
+#define AI_ANIM_INTERACTIVE_ABS_43							242
+#define AI_ANIM_INTERACTIVE_ABS_44							243
+#define AI_ANIM_INTERACTIVE_ABS_45							244
+#define AI_ANIM_INTERACTIVE_ABS_46							245
+#define AI_ANIM_INTERACTIVE_ABS_47							246
+#define AI_ANIM_INTERACTIVE_ABS_48							247
+#define AI_ANIM_INTERACTIVE_ABS_49							248
+#define AI_ANIM_INTERACTIVE_ABS_50							249
+#define AI_ABSOLUTE_ANIM_END									249
+
+// underwater knife anims
+#define AI_ANIM_WEAPON_UNDERWATER_SLASH					250
+#define AI_ANIM_WEAPON_UNDERWATER_IDLE						251
+
+// ai weapon animations types
+#define AI_ANIM_WEAPON_LASTBULLETOFFSCREEN	2000
+#define AI_ANIM_TWITCH_NORMAL1					2001
+#define AI_ANIM_TWITCH_NORMAL2					2002
+#define AI_ANIM_TWITCH_VIOLENT1					2003
+#define AI_ANIM_TWITCH_VIOLENT2					2004
+#define AI_ANIM_TWITCH_HIGHFALL1					2005
+#define AI_ANIM_TWITCH_HIGHFALL2					2006
+#define AI_ANIM_TWITCH_WIPEOUT1					2007
+#define AI_ANIM_TWITCH_WIPEOUT2					2008
+#define AI_ANIM_TWITCH_EXPDEAD1_1				2009
+#define AI_ANIM_TWITCH_EXPDEAD1_2				2010
+#define AI_ANIM_TWITCH_EXPDEAD2_1				2011
+#define AI_ANIM_TWITCH_EXPDEAD2_2				2012
+#define AI_ANIM_TWITCH_EXPLEFT1					2013
+#define AI_ANIM_TWITCH_EXPLEFT2					2014
+#define AI_ANIM_TWITCH_EXPRIGHT1					2015
+#define AI_ANIM_TWITCH_EXPRIGHT2					2016
+#define AI_ANIM_TWITCH_EXPBACK1					2017
+#define AI_ANIM_TWITCH_EXPBACK2					2018
+#define AI_ANIM_TWITCH_EXPFOR1					2019
+#define AI_ANIM_TWITCH_EXPFOR2					2020
+// ai swim animations
+#define AI_ANIM_SWIM									2500
+#define AI_ANIM_ATTACK_SWIM1						2501
+#define AI_ANIM_ATTACK_SWIM2						2502
+#define AI_ANIM_ATTACK_SWIM3						2503
+#define AI_ANIM_DEATH_SWIM							2504
+#define AI_ANIM_SWIMRETREAT						2505
+#define AI_ANIM_RETREAT								2506
+#define AI_ANIM_DEATH_SWIM_SINK					2507
+#define AI_ANIM_DEATH_SWIM_SINK_POSE			2508
+#define AI_ANIM_IDLE_SWIM							2509
+#define AI_ANIM_SWIM2								2510
+#define AI_ANIM_DEATH_SWIM_FLOAT_UP				2511
+#define AI_ANIM_DEATH_SWIM_SURFACE_BOB			2512
+// ai teleport anims
+#define	AI_ANIM_TELEPORT_APPEAR					2550
+#define	AI_ANIM_TELEPORT_AWAY					2551
+#define	AI_ANIM_TELEPORT_AWAY2					2552
+#define	AI_ANIM_TELEPORT_MOVE					2553
+// ai device animations
+#define AI_ANIM_DOOR_START							2600
+#define AI_ANIM_DOOR_OPEN							2601
+#define AI_ANIM_DOOR_CLOSE							2602
+#define AI_ANIM_ACTION_START						2603
+#define AI_ANIM_ACTION_GO							2604
+#define AI_ANIM_STATUE_START						2605
+#define AI_ANIM_STATUE_GO							2606
+#define AI_ANIM_TIMERACTION_START 				2607
+#define AI_ANIM_TIMERACTION_GO 					2608
+#define AI_ANIM_CONSTANTACTION_START			2609
+#define AI_ANIM_CONSTANTACTION_GO  				2610
+#define AI_ANIM_WALL_START							2611
+#define AI_ANIM_WALL_LEFT							2612
+#define AI_ANIM_WALL_RIGHT							2613
+#define AI_ANIM_ARROWTARGET_START 				2614
+#define AI_ANIM_SPINDOOR_STILL1					2615
+#define AI_ANIM_SPINDOOR_ROTATE1					2616
+#define AI_ANIM_SPINDOOR_STILL2					2617
+#define AI_ANIM_SPINDOOR_ROTATE2					2618
+#define AI_ANIM_SPINDOOR_STILL3					2619
+#define AI_ANIM_SPINDOOR_ROTATE3					2620
+#define AI_ANIM_SPINDOOR_STILL4					2621
+#define AI_ANIM_SPINDOOR_ROTATE4					2622
+#define AI_ANIM_LASER_START						2623
+#define AI_ANIM_LASER_GO							2624
+#define AI_ANIM_LASER_STOP							2625
+#define AI_ANIM_EXPTARGET_START					2626
+#define AI_ANIM_EXPTARGET_GO						2627
+#define AI_ANIM_TREXELEVATOR_STILL				2628
+#define AI_ANIM_TREXELEVATOR_OPEN				2629
+#define AI_ANIM_TREXPLATFORM_CLOSED				2630
+#define AI_ANIM_TREXPLATFORM_OPEN				2631
+#define AI_ANIM_TREXPLATFORM_FALL				2632
+#define AI_ANIM_LONGHUNTER_SWITCH_START		2633
+#define AI_ANIM_LONGHUNTER_SWITCH_GO			2634
+#define AI_ANIM_PORTAL_INACTIVE					2635
+#define AI_ANIM_PORTAL_ACTIVE						2636
+#define AI_ANIM_CRYSTAL_START						2637
+#define AI_ANIM_CRYSTAL_SINK						2638
+#define AI_ANIM_CRYSTAL_RISE						2639
+
+
+// ai special attacks
+#define AI_ANIM_ATTACK_WEAK1						2700			// special 9
+#define AI_ANIM_ATTACK_WEAK2						2701			// special 10
+#define AI_ANIM_ATTACK_WEAK3						2702			// special 11
+#define AI_ANIM_ATTACK_WEAK4						2703			// special 12
+#define AI_ANIM_ATTACK_WEAK5						2704			// special 13
+#define AI_ANIM_ATTACK_WEAK6						2705			// special 14
+#define AI_ANIM_ATTACK_WEAK7						2706			// special 15
+#define AI_ANIM_ATTACK_WEAK8						2707			// special 16
+#define AI_ANIM_ATTACK_WEAK9						2708			// special 17
+#define AI_ANIM_ATTACK_WEAK10						2709			// special 18
+#define AI_ANIM_ATTACK_WEAK11						2710			// special 19
+#define AI_ANIM_ATTACK_WEAK12						2711			// special 20
+#define AI_ANIM_ATTACK_WEAK13						2712
+#define AI_ANIM_ATTACK_WEAK14						2713
+
+// ai extras - used for extra boss moves etc
+#define AI_ANIM_EXTRA1								2801
+#define AI_ANIM_EXTRA2								2802
+#define AI_ANIM_EXTRA3								2803
+#define AI_ANIM_EXTRA4								2804
+#define AI_ANIM_EXTRA5								2805
+#define AI_ANIM_EXTRA6								2806
+#define AI_ANIM_EXTRA7								2807
+#define AI_ANIM_EXTRA8								2808
+#define AI_ANIM_EXTRA9								2809
+#define AI_ANIM_EXTRA10								2810
+#define AI_ANIM_EXTRA11								2811
+#define AI_ANIM_EXTRA12								2812
+#define AI_ANIM_EXTRA13								2813
+#define AI_ANIM_EXTRA14								2814
+#define AI_ANIM_EXTRA15								2815
+#define AI_ANIM_EXTRA16								2816
+#define AI_ANIM_EXTRA17								2817
+#define AI_ANIM_EXTRA18								2818
+#define AI_ANIM_EXTRA19								2819
+#define AI_ANIM_EXTRA20								2820
+#define AI_ANIM_EXTRA21								2821
+#define AI_ANIM_EXTRA22								2822
+#define AI_ANIM_EXTRA23								2823
+#define AI_ANIM_EXTRA24								2824
+
+// Limp animation extras
+#define AI_ANIM_LIMP									2900			// ai limps forwards
+#define AI_ANIM_LTURNL90 							2901			// ai limps and turns left 90 degrees
+#define AI_ANIM_LTURNR90 							2902			// ai limps and turns right 90 degrees
+#define AI_ANIM_LTURN180							2903			// ai limps and turns 180 degrees
+
+
+
+// agitation defines
+#define AI_AGITATION_MAX				300		// max agitation of an ai (0 to x-1)
+#define AI_AGITATION_STEP				100		// time before agitation level drops
+
+#define AI_AGITATION_CALM				7			// agitation decrease caused by lack of activity
+#define AI_AGITATION_CALMAFTERFIGHT	15			// agitation decrease after a fight
+#define AI_AGITATION_QUIETNOISE		200		// agitation caused by a quiet noise
+#define AI_AGITATION_LOUDNOISE		200		// agitation caused by a loud noise
+#define AI_AGITATION_GETATTN			300		// agitation caused by a get attention
+#define AI_AGITATION_SEETARGET		300		// agitation caused by seeing target
+#define AI_AGITATION_FIGHTING			300		// agitation caused by fighting
+#define AI_AGITATION_HIT				300		// agitation caused by being hit
+#define AI_AGITATION_EXPLOSION		300		// agitation caused by explosion
+
+
+#define AI_AGITATED_IDLE				0			// in idle state
+#define AI_AGITATED_AGITATED			1			// in agitated mood
+#define AI_AGITATED_ATTACK				2			// attacking mode
+
+// ai turn smoothness values for running / walking / standing on spot
+#define AI_RUNTURN_SMOOTHNESS			6
+#define AI_WALKTURN_SMOOTHNESS		8
+#define AI_TURN_SMOOTHNESS				1.1
+#define AI_SWIMTURN_SMOOTHNESS		12
+
+// ai will start walking instead of running when it comes close to its prey
+#define AI_RUN2WALK_DISTANCE			((18*SCALING_FACTOR)*(18*SCALING_FACTOR))		// 18 feet (squared)
+
+// attack distances
+#define AI_ATTACK_DISTANCE						(17*17)		// attack distance (squared)
+#define AI_ATTACK_PROJECTILE_DISTANCE		(60*60)		// projectile attack distance (squared)
+
+// ai events
+#define AI_SEVENT_ACIDINCOMING					0
+#define AI_SEVENT_ACIDSPITPART					1
+#define AI_SEVENT_ACIDSPITSND						2
+#define AI_SEVENT_BLOWGUNFIRE						3
+#define AI_SEVENT_BREATHPART						4
+#define AI_SEVENT_BREATHSND						5
+#define AI_SEVENT_CHARGEHEADSLAM					6
+#define AI_SEVENT_DEATHRAINPART					7
+#define AI_SEVENT_DEATHRAINSND					8
+#define AI_SEVENT_EARTHQUAKE						9
+#define AI_SEVENT_ENERGYBLASTPART				10
+#define AI_SEVENT_ENERGYBLASTSND					11
+#define AI_SEVENT_EXPLOSIVELAUNCHED				12
+#define AI_SEVENT_EYEFIREPART						13
+#define AI_SEVENT_EYEFIRESND						14
+#define AI_SEVENT_FIREBALLPART					15
+#define AI_SEVENT_FIREBALLSND						16
+#define AI_SEVENT_JAWSSNAP							17
+#define AI_SEVENT_SHOCKWAVEPART					18
+#define AI_SEVENT_SHOCKWAVESND					19
+#define AI_SEVENT_SPELLCASTPART					20
+#define AI_SEVENT_SPELLCASTSND					21
+#define AI_SEVENT_SWINGFISTSWEAPON				22
+#define AI_SEVENT_WEAPONFIRE						23
+#define AI_SEVENT_WEAPONFLASH						24
+#define AI_SEVENT_WEAPONROUND						25
+#define AI_SEVENT_WEAPONCOCK						26
+#define AI_MEVENT_GETATTN							27
+#define AI_MEVENT_QUIETNOISE						28
+#define AI_MEVENT_LOUDNOISE						29
+#define AI_SEVENT_LOOKOFFSET						30
+#define AI_MEVENT_HIT1								31
+#define AI_MEVENT_HIT2								32
+#define AI_MEVENT_HIT3								33
+#define AI_MEVENT_HIT5								34
+#define AI_MEVENT_HIT10								35
+#define AI_MEVENT_HIT15								36
+#define AI_MEVENT_HIT20								37
+#define AI_MEVENT_HIT30								38
+#define AI_MEVENT_HIT40								39
+#define AI_MEVENT_HIT50								40
+#define AI_MEVENT_HIT100							41
+#define AI_MEVENT_EXPLOSION						42
+#define AI_SEVENT_TEST								43
+#define AI_SEVENT_SURFACEIMPACT					44
+#define AI_SEVENT_CHITTER							45
+#define AI_SEVENT_ALERT								46
+#define AI_SEVENT_HYDRAULICS						47
+#define AI_SEVENT_SHUTDOWN							48
+#define AI_SEVENT_SWIVEL							49
+#define AI_SEVENT_JETPACKOUTOFCTRL				50
+#define AI_SEVENT_BURSTFROMGROUND				51
+#define AI_SEVENT_CHESTTHUMP						52
+#define AI_SEVENT_DEATH								53
+#define AI_SEVENT_EXPLODE							54
+#define AI_SEVENT_FOOTFALL							55
+#define AI_SEVENT_GRUNT								56
+#define AI_SEVENT_GURGLE							57
+#define AI_SEVENT_HANDFALL							58
+#define AI_SEVENT_HISS								59
+#define AI_SEVENT_HITGROUND						60
+#define AI_SEVENT_LICKING							61
+#define AI_SEVENT_RAGE								62
+#define AI_SEVENT_ROCKNOISE1						63
+#define AI_SEVENT_RUBBINGSKIN						64
+#define AI_SEVENT_SCRATCH							65
+#define AI_SEVENT_SCREECH							66
+#define AI_SEVENT_SNIFF								67
+#define AI_SEVENT_SWOOSH							68
+#define AI_SEVENT_TURNTOSTONE						69
+#define AI_SEVENT_VIOLENTDEATH					70
+#define AI_SEVENT_WINGFLAP							71
+#define AI_SEVENT_GROWL								72
+#define AI_SEVENT_ALERT1							73
+#define AI_SEVENT_ALERT2							74
+#define AI_SEVENT_ALERT3 							75
+#define AI_SEVENT_ALERT4 							76
+#define AI_SEVENT_DEATH1 							77
+#define AI_SEVENT_DEATH2 							78
+#define AI_SEVENT_DEATH3 							79
+#define AI_SEVENT_DEATH4 							80
+#define AI_SEVENT_INJURY1							81
+#define AI_SEVENT_INJURY2							82
+#define AI_SEVENT_INJURY3							83
+#define AI_SEVENT_LONG1  							84
+#define AI_SEVENT_LONG2  							85
+#define AI_SEVENT_LONG3  							86
+#define AI_SEVENT_TAUNT1 							87
+#define AI_SEVENT_TAUNT2							88
+#define AI_SEVENT_TAUNT3 							89
+#define AI_SEVENT_VIOLENTDEATH1					90
+#define AI_SEVENT_VIOLENTDEATH2					91
+#define AI_MEVENT_NUDGEBACK						92
+#define AI_SEVENT_SCREENSHAKE						93
+#define AI_SEVENT_INVINCIBLE						94
+#define AI_SEVENT_BLOODARCPARTICLES				95
+#define AI_SEVENT_MUZZLEFLASH						96
+#define AI_SEVENT_HULK_BLASTER					97
+#define AI_SEVENT_ALIEN_PROJECTILE				98
+#define AI_SEVENT_KNIFEFORWARD					99
+#define AI_SEVENT_KNIFELEFT						100
+#define AI_SEVENT_KNIFERIGHT						101
+#define AI_SEVENT_GREENBLOODARCPARTICLES		102
+#define AI_SEVENT_SPURT_BLOODPARTICLES			103
+#define AI_SEVENT_FOUNTAIN_BLOODPARTICLES		104
+#define AI_SEVENT_GUSH_BLOODPARTICLES			105
+#define AI_SEVENT_DROOL_PARTICLES				106
+#define AI_MEVENT_KNIFELEFT_DAMAGE				107
+#define AI_MEVENT_KNIFERIGHT_DAMAGE				108
+#define AI_MEVENT_KNIFEFORWARD_DAMAGE			109
+#define AI_MEVENT_TOMAHAWKLEFT_DAMAGE			110
+#define AI_MEVENT_TOMAHAWKRIGHT_DAMAGE			111
+#define AI_MEVENT_TOMAHAWKFORWARD_DAMAGE		112
+#define AI_SEVENT_ARTERIAL_BLOODPARTICLES		113
+#define AI_SEVENT_SPURT_GBLOODPARTICLES		114
+#define AI_SEVENT_FOUNTAIN_GBLOODPARTICLES	115
+#define AI_SEVENT_GUSH_GBLOODPARTICLES			116
+#define AI_SEVENT_ARTERIAL_GBLOODPARTICLES	117
+#define AI_SEVENT_WATER_DROP						118
+#define AI_SEVENT_WATER_FOAM						119
+#define AI_SEVENT_WATER_STEAM						120
+#define AI_MEVENT_WEAPONIMPACT					121
+#define AI_SEVENT_ARROW_DAMAGE					122
+#define AI_SEVENT_DAMAGETARGET					123
+#define AI_SEVENT_DAMAGENUDGETARGET				124
+#define AI_SEVENT_GENERIC1							125
+#define AI_SEVENT_GENERIC2							126
+#define AI_SEVENT_GENERIC3							127
+#define AI_SEVENT_GENERIC4							128
+#define AI_SEVENT_GENERIC5							129
+#define AI_SEVENT_GENERIC6							130
+#define AI_SEVENT_GENERIC7							131
+#define AI_SEVENT_GENERIC8							132
+#define AI_SEVENT_GENERIC9							133
+#define AI_SEVENT_GENERIC10						134
+#define AI_SEVENT_GENERIC11						135
+#define AI_SEVENT_GENERIC12						136
+#define AI_SEVENT_GENERIC13						137
+#define AI_SEVENT_GENERIC14						138
+#define AI_SEVENT_GENERIC15						139
+#define AI_SEVENT_GENERIC16						140
+#define AI_SEVENT_GENERIC17						141
+#define AI_SEVENT_GENERIC18						142
+#define AI_SEVENT_GENERIC19						143
+#define AI_SEVENT_GENERIC20						144
+#define AI_SEVENT_GENERIC21						145
+#define AI_SEVENT_GENERIC22						146
+#define AI_SEVENT_GENERIC23						147
+#define AI_SEVENT_GENERIC24						148
+#define AI_SEVENT_GENERIC25						149
+#define AI_SEVENT_GENERIC26						150
+#define AI_SEVENT_GENERIC27						151
+#define AI_SEVENT_GENERIC28						152
+#define AI_SEVENT_GENERIC29						153
+#define AI_SEVENT_GENERIC30						154
+#define AI_MEVENT_SMARTBOMB						155
+#define AI_SEVENT_PLASMA2_PARTICLE				156
+#define AI_SEVENT_WATER_BUBBLE					157
+#define AI_SEVENT_WATER_RIPPLE					158
+#define AI_SEVENT_WATER_SPLASH					159
+#define AI_MEVENT_SHOCKWAVE_DAMAGE				160
+#define AI_SEVENT_GENERIC31						161
+#define AI_SEVENT_GENERIC32						162
+#define AI_SEVENT_GENERIC33						163
+#define AI_SEVENT_GENERIC34						164
+#define AI_SEVENT_GENERIC35						165
+#define AI_SEVENT_GENERIC36						166
+#define AI_SEVENT_GENERIC37						167
+#define AI_SEVENT_GENERIC38						168
+#define AI_SEVENT_GENERIC39						169
+#define AI_SEVENT_GENERIC40						170
+#define AI_SEVENT_GENERIC41						171
+#define AI_SEVENT_GENERIC42						172
+#define AI_SEVENT_GENERIC43						173
+#define AI_SEVENT_GENERIC44						174
+#define AI_SEVENT_GENERIC45						175
+#define AI_SEVENT_GENERIC46						176
+#define AI_SEVENT_GENERIC47						177
+#define AI_SEVENT_GENERIC48						178
+#define AI_SEVENT_GENERIC49						179
+#define AI_SEVENT_GENERIC50						180
+#define AI_SEVENT_GENERIC51						181
+#define AI_SEVENT_GENERIC52						182
+#define AI_SEVENT_GENERIC53						183
+#define AI_SEVENT_GENERIC54						184
+#define AI_SEVENT_GENERIC55						185
+#define AI_SEVENT_GENERIC56						186
+#define AI_SEVENT_GENERIC57						187
+#define AI_SEVENT_GENERIC58						188
+#define AI_SEVENT_GENERIC59						189
+#define AI_SEVENT_GENERIC60						190
+#define AI_SEVENT_GENERIC61						191
+#define AI_SEVENT_GENERIC62						192
+#define AI_SEVENT_GENERIC63						193
+#define AI_SEVENT_GENERIC64						194
+#define AI_SEVENT_GENERIC65						195
+#define AI_SEVENT_GENERIC66						196
+#define AI_SEVENT_GENERIC67						197
+#define AI_SEVENT_GENERIC68						198
+#define AI_SEVENT_GENERIC69						199
+#define AI_SEVENT_GENERIC70						200
+#define AI_SEVENT_GENERIC71						201
+#define AI_SEVENT_GENERIC72						202
+#define AI_SEVENT_GENERIC73						203
+#define AI_SEVENT_GENERIC74						204
+#define AI_SEVENT_GENERIC75						205
+#define AI_SEVENT_GENERIC76						206
+#define AI_SEVENT_GENERIC77						207
+#define AI_SEVENT_GENERIC78						208
+#define AI_SEVENT_GENERIC79						209
+#define AI_SEVENT_GENERIC80						210
+#define AI_SEVENT_GENERIC81						211
+#define AI_SEVENT_GENERIC82						212
+#define AI_SEVENT_GENERIC83						213
+#define AI_SEVENT_GENERIC84						214
+#define AI_SEVENT_GENERIC85						215
+#define AI_SEVENT_GENERIC86						216
+#define AI_SEVENT_GENERIC87						217
+#define AI_SEVENT_GENERIC88						218
+#define AI_SEVENT_GENERIC89						219
+#define AI_SEVENT_GENERIC90						220
+#define AI_SEVENT_GENERIC91						221
+#define AI_SEVENT_GENERIC92						222
+#define AI_SEVENT_GENERIC93						223
+#define AI_SEVENT_GENERIC94						224
+#define AI_SEVENT_GENERIC95						225
+#define AI_SEVENT_GENERIC96						226
+#define AI_SEVENT_GENERIC97						227
+#define AI_SEVENT_GENERIC98						228
+#define AI_SEVENT_GENERIC99						229
+#define AI_SEVENT_GENERIC100						230
+#define AI_MEVENT_PRESSUREPLATE					231
+#define AI_SEVENT_DOOR_ALLOWENTRY				232
+#define AI_SEVENT_DOOR_BLOCKENTRY				233
+#define AI_MEVENT_ACTION							234
+#define AI_MEVENT_STATUE							235
+#define AI_MEVENT_UNUSED1							236
+#define AI_MEVENT_UNUSED2							237
+#define AI_SEVENT_GENERATE_PICKUPS				238
+#define AI_MEVENT_BOSS1								239
+#define AI_MEVENT_BOSS2								240
+#define AI_MEVENT_BOSS3								241
+#define AI_MEVENT_BOSS4								242
+#define AI_MEVENT_BOSS5								243
+#define AI_MEVENT_BOSS6								244
+#define AI_MEVENT_BOSS7								245
+#define AI_MEVENT_BOSS8								246
+#define AI_SEVENT_MAKE_INVISIBLE					247
+#define AI_SEVENT_GENERAL_SOUND					248
+#define AI_SEVENT_SWOOSH_ALL_HANDS				249
+#define AI_SEVENT_SWOOSH_LEFT_HAND				250
+#define AI_SEVENT_SWOOSH_RIGHT_HAND				251
+#define AI_SEVENT_SWOOSH_ALL_FEET				252
+#define AI_SEVENT_SWOOSH_LEFT_FOOT				253
+#define AI_SEVENT_SWOOSH_RIGHT_FOOT				254
+#define AI_SEVENT_SWOOSH_WEAPON1					255
+#define AI_SEVENT_SWOOSH_WEAPON2					256
+#define AI_SEVENT_SWOOSH_TAIL						257
+#define AI_SEVENT_SWOOSH_LEFT_TOES				258
+#define AI_SEVENT_SWOOSH_RIGHT_TOES				259
+#define AI_SEVENT_GENERIC101						260
+#define AI_SEVENT_GENERIC102						261
+#define AI_SEVENT_GENERIC103						262
+#define AI_SEVENT_GENERIC104						263
+#define AI_SEVENT_GENERIC105						264
+#define AI_SEVENT_GENERIC106						265
+#define AI_SEVENT_GENERIC107						266
+#define AI_SEVENT_GENERIC108						267
+#define AI_SEVENT_GENERIC109						268
+#define AI_SEVENT_GENERIC110						269
+#define AI_SEVENT_GENERIC111						270
+#define AI_SEVENT_GENERIC112						271
+#define AI_SEVENT_GENERIC113						272
+#define AI_SEVENT_GENERIC114						273
+#define AI_SEVENT_GENERIC115						274
+#define AI_SEVENT_GENERIC116						275
+#define AI_SEVENT_GENERIC117						276
+#define AI_SEVENT_GENERIC118						277
+#define AI_SEVENT_GENERIC119						278
+#define AI_SEVENT_GENERIC120						279
+#define AI_SEVENT_GENERIC121						280
+#define AI_SEVENT_GENERIC122						281
+#define AI_SEVENT_GENERIC123						282
+#define AI_SEVENT_GENERIC124						283
+#define AI_SEVENT_GENERIC125						284
+#define AI_SEVENT_GENERIC126						285
+#define AI_SEVENT_GENERIC127						286
+#define AI_SEVENT_GENERIC128						287
+#define AI_SEVENT_GENERIC129						288
+#define AI_SEVENT_GENERIC130						289
+#define AI_SEVENT_GENERIC131						290
+#define AI_SEVENT_GENERIC132						291
+#define AI_SEVENT_GENERIC133						292
+#define AI_SEVENT_GENERIC134						293
+#define AI_SEVENT_GENERIC135						294
+#define AI_SEVENT_GENERIC136						295
+#define AI_SEVENT_GENERIC137						296
+#define AI_SEVENT_GENERIC138						297
+#define AI_SEVENT_GENERIC139						298
+#define AI_SEVENT_GENERIC140						299
+#define AI_SEVENT_GENERIC141						300
+#define AI_SEVENT_GENERIC142						301
+#define AI_SEVENT_GENERIC143						302
+#define AI_SEVENT_GENERIC144						303
+#define AI_SEVENT_GENERIC145						304
+#define AI_SEVENT_GENERIC146						305
+#define AI_SEVENT_GENERIC147						306
+#define AI_SEVENT_GENERIC148						307
+#define AI_SEVENT_GENERIC149						308
+#define AI_SEVENT_GENERIC150						309
+#define AI_SEVENT_GENERIC151						310
+#define AI_SEVENT_GENERIC152						311
+#define AI_SEVENT_GENERIC153						312
+#define AI_SEVENT_GENERIC154						313
+#define AI_SEVENT_GENERIC155						314
+#define AI_SEVENT_GENERIC156						315
+#define AI_SEVENT_GENERIC157						316
+#define AI_SEVENT_GENERIC158						317
+#define AI_SEVENT_GENERIC159						318
+#define AI_SEVENT_GENERIC160						319
+#define AI_SEVENT_NEXT_CINEMATIC_STAGE			320
+#define AI_SEVENT_GENERIC161						321
+#define AI_SEVENT_GENERIC162						322
+#define AI_SEVENT_GENERIC163						323
+#define AI_SEVENT_GENERIC164						324
+#define AI_SEVENT_GENERIC165						325
+#define AI_SEVENT_GENERIC166						326
+#define AI_SEVENT_GENERIC167						327
+#define AI_SEVENT_GENERIC168						328
+#define AI_SEVENT_GENERIC169						329
+#define AI_SEVENT_GENERIC170						330
+#define AI_SEVENT_GENERIC171						331
+#define AI_SEVENT_GENERIC172						332
+#define AI_SEVENT_GENERIC173						333
+#define AI_SEVENT_GENERIC174						334
+#define AI_SEVENT_GENERIC175						335
+#define AI_SEVENT_GENERIC176						336
+#define AI_SEVENT_GENERIC177						337
+#define AI_SEVENT_GENERIC178						338
+#define AI_SEVENT_GENERIC179						339
+#define AI_SEVENT_GENERIC180						340
+#define AI_SEVENT_GENERIC181						341
+#define AI_SEVENT_GENERIC182						342
+#define AI_SEVENT_GENERIC183						343
+#define AI_SEVENT_GENERIC184						344
+#define AI_SEVENT_GENERIC185						345
+#define AI_SEVENT_GENERIC186						346
+#define AI_SEVENT_GENERIC187						347
+#define AI_SEVENT_GENERIC188						348
+#define AI_SEVENT_GENERIC189						349
+#define AI_SEVENT_GENERIC190						350
+#define AI_SEVENT_GENERIC191						351
+#define AI_SEVENT_GENERIC192						352
+#define AI_SEVENT_GENERIC193						353
+#define AI_SEVENT_GENERIC194						354
+#define AI_SEVENT_GENERIC195						355
+#define AI_SEVENT_GENERIC196						356
+#define AI_SEVENT_GENERIC197						357
+#define AI_SEVENT_GENERIC198						358
+#define AI_SEVENT_GENERIC199						359
+#define AI_SEVENT_GENERIC200						360
+#define AI_SEVENT_SCREENTREMOR					361
+#define AI_MEVENT_ENEMYEXPLOSION10				362
+#define AI_MEVENT_ENEMYEXPLOSION15				363
+#define AI_MEVENT_ENEMYEXPLOSION20				364
+#define AI_MEVENT_EXPLOSION20						365
+#define AI_MEVENT_EXPLOSION30						366
+#define AI_MEVENT_EXPLOSION50						367
+#define AI_MEVENT_EXPLOSION100					368
+#define AI_MEVENT_EXPLOSIONSPECIAL				369
+#define AI_MEVENT_FREEZE							370
+#define AI_SEVENT_GENERATE_PICKUP				371
+#define AI_MEVENT_SMALLEXPLOSION30				372
+#define AI_MEVENT_SHOVEWITHCAMERA				373
+#define AI_MEVENT_BLADEHIT1						374
+#define AI_MEVENT_BLADEHIT2						375
+#define AI_MEVENT_BLADEHIT3						376
+#define AI_MEVENT_BLADEHIT5						377
+#define AI_MEVENT_BLADEHIT10						378
+#define AI_MEVENT_BLADEHIT15						379
+#define AI_MEVENT_BLADEHIT20						380
+#define AI_MEVENT_BLADEHIT30						381
+#define AI_MEVENT_BLADEHIT40						382
+#define AI_MEVENT_BLADEHIT50						383
+#define AI_MEVENT_BLADEHIT100						384
+#define AI_MEVENT_KICKHIT1							385
+#define AI_MEVENT_KICKHIT2							386
+#define AI_MEVENT_KICKHIT3							387
+#define AI_MEVENT_KICKHIT5							388
+#define AI_MEVENT_KICKHIT10						389
+#define AI_MEVENT_KICKHIT15						390
+#define AI_MEVENT_KICKHIT20						391
+#define AI_MEVENT_KICKHIT30						392
+#define AI_MEVENT_KICKHIT40						393
+#define AI_MEVENT_KICKHIT50						394
+#define AI_MEVENT_KICKHIT100						395
+#define AI_MEVENT_SHOTGUNEXPLOSION				396
+#define AI_MEVENT_TEKBOWEXPLOSION				397
+#define AI_SEVENT_BOUNCY_ROCK						398
+#define AI_SEVENT_BOUNCY_ALIEN_HEAD				399
+#define AI_SEVENT_BOUNCY_ALIEN_HAND				400
+#define AI_SEVENT_BOUNCY_ALIEN_FOOT				401
+#define AI_SEVENT_BOUNCY_ALIEN_TORSO			402
+#define AI_SEVENT_BOUNCY_LEAPER_HEAD			403
+#define AI_SEVENT_BOUNCY_LEAPER_HAND			404
+#define AI_SEVENT_BOUNCY_LEAPER_FOOT			405
+#define AI_SEVENT_BOUNCY_LEAPER_TORSO			406
+#define AI_SEVENT_INSTANTDEATH					407
+#define AI_SEVENT_GENERIC201						408
+#define AI_SEVENT_GENERIC202						409
+#define AI_SEVENT_GENERIC203						410
+#define AI_SEVENT_GENERIC204						411
+#define AI_SEVENT_GENERIC205						412
+#define AI_SEVENT_GENERIC206						413
+#define AI_SEVENT_GENERIC207						414
+#define AI_SEVENT_GENERIC208						415
+#define AI_SEVENT_GENERIC209						416
+#define AI_SEVENT_GENERIC210						417
+#define AI_SEVENT_GENERIC211						418
+#define AI_SEVENT_GENERIC212						419
+#define AI_SEVENT_GENERIC213						420
+#define AI_SEVENT_GENERIC214						421
+#define AI_SEVENT_GENERIC215						422
+#define AI_SEVENT_GENERIC216						423
+#define AI_SEVENT_GENERIC217						424
+#define AI_SEVENT_GENERIC218						425
+#define AI_SEVENT_GENERIC219						426
+#define AI_SEVENT_GENERIC220						427
+#define AI_SEVENT_GENERIC221						428
+#define AI_SEVENT_GENERIC222						429
+#define AI_SEVENT_GENERIC223						430
+#define AI_SEVENT_GENERIC224						431
+#define AI_SEVENT_GENERIC225						432
+#define AI_SEVENT_GENERIC226						433
+#define AI_SEVENT_GENERIC227						434
+#define AI_SEVENT_GENERIC228						435
+#define AI_SEVENT_GENERIC229						436
+#define AI_SEVENT_GENERIC230						437
+#define AI_SEVENT_GENERIC231						438
+#define AI_SEVENT_GENERIC232						439
+#define AI_SEVENT_GENERIC233						440
+#define AI_SEVENT_GENERIC234						441
+#define AI_SEVENT_GENERIC235						442
+#define AI_SEVENT_GENERIC236						443
+#define AI_SEVENT_GENERIC237						444
+#define AI_SEVENT_GENERIC238						445
+#define AI_SEVENT_GENERIC239						446
+#define AI_SEVENT_GENERIC240						447
+#define AI_SEVENT_GENERIC241						448
+#define AI_SEVENT_GENERIC242						449
+#define AI_SEVENT_GENERIC243						450
+#define AI_SEVENT_GENERIC244						451
+#define AI_SEVENT_GENERIC245						452
+#define AI_SEVENT_GENERIC246						453
+#define AI_SEVENT_GENERIC247						454
+#define AI_SEVENT_GENERIC248						455
+#define AI_SEVENT_GENERIC249						456
+#define AI_SEVENT_GENERIC250						457
+#define AI_SEVENT_GENERIC251						458
+#define AI_SEVENT_GENERIC252						459
+#define AI_SEVENT_GENERIC253						460
+#define AI_SEVENT_GENERIC254						461
+#define AI_SEVENT_GENERIC255						462
+#define AI_SEVENT_GENERIC256						463
+#define AI_SEVENT_GENERIC257						464
+#define AI_SEVENT_GENERIC258						465
+#define AI_SEVENT_GENERIC259						466
+#define AI_SEVENT_GENERIC260						467
+#define AI_SEVENT_RANDOM_BIG_SWOOSH_SOUND		468
+#define AI_SEVENT_RANDOM_SMALL_SWOOSH_SOUND 	469
+#define AI_SEVENT_RANDOM_GRUNT_SOUND		 	470
+#define AI_MEVENT_PARTICLE_HIT1 					471
+#define AI_SEVENT_START_FIRE_SOUND 				472
+#define AI_SEVENT_STOP_FIRE_SOUND 				473
+
+#define AI_EVENT_TYPES								474				// no. of event types available
+
+
+#ifdef  AI_DECLARE_EVENT_STRINGS
+char *AI_Event_Strings [ AI_EVENT_TYPES ] = {
+	"S Acid 'incoming' - Sound (Sub)",
+	"S Acid Spit - Particles (Sub)",
+	"S Acid Spit - Sound (Sub)",
+	"S Blowgun Fire - Sound (Ancient)",
+	"S Breath Particles (TRex)",
+	"S Breath Sound (TRex)",
+	"S Charge/Head Slam Sound (Creature)",
+	"S Death Rain Particles (Mantis)",
+	"S Death Rain Sound (Mantis)",
+	"S Earthquake Sound (TRex)",
+	"S Energy Blast Particles (Mantis)",
+	"S Energy Blast Sound (Mantis)",
+	"S Explosive Launched Sound (Weapon)",
+	"S Eyefire Particles (TRex)",
+	"S Eyefire Sound (TRex)",
+	"S Fireball Particles (Mantis)",
+	"S Fireball Sound (Mantis)",
+	"S Jaws Snap Sound (Creature)",
+	"S Shockwave Particles (Hulk)",
+	"S Shockwave Sound (Hulk)",
+	"S Spell Cast Particles (Priest)",
+	"S Spell Cast Sound (Priest)",
+	"S Swing fists/weapon Sound (Enemy)",
+	"S Weapon Fire Sound (Weapon)",
+	"S Weapon Flash Particles (Weapon)",
+	"S W. Rnd 0=rob rocket, 1=rob bullet",
+	"S Weapon Cock Sound (Weapon)",
+	"M Get Attention AI",
+	"M Quiet Noise AI",
+	"M Loud Noise AI",
+	"S Look Offset <deg> AI",
+	"M Damage   1 pt AI",
+	"M Damage   2 pt AI",
+	"M Damage   3 pt AI",
+	"M Damage   5 pt AI",
+	"M Damage  10 pt AI",
+	"M Damage  15 pt AI",
+	"M Damage  20 pt AI",
+	"M Damage  30 pt AI",
+	"M Damage  40 pt AI",
+	"M Damage  50 pt AI",
+	"M Damage 100 pt AI",
+	"M Plyr Explosion <rad>",
+	"S 'Test' Particles (Any)",
+	"S. Impact 0=footfall, 1=bodyfall",
+	"S 'Chitter' Sound (Leaper)",
+	"S 'Alert' Sound (Creature)",
+	"S 'Hydraulics' Sound (Robot)",
+	"S 'Shutdown' Sound (Robot)",
+	"S 'Swivel' Sound (Robot)",
+	"S Jetpack out of ctrl Sound (Alien)",
+	"S Burst from Ground   Sound (Sub)",
+	"S Chest Thump Sound (Hulk)",
+	"S Death Sound (Creature)",
+	"S Explode Sound (Robot)",
+	"S Footfall Sound (Any)",
+	"S Grunt Sound (Creature)",
+	"S Gurgle Sound (Hulk)",
+	"S Handfall Sound (Hulk)",
+	"S Hiss Sound (Dimetrodon)",
+	"S Hit Ground Sound (Any)",
+	"S Licking Sound (Leaper)",
+	"S Rage Sound (Any)",
+	"S Rock Noise 1 Sound (Any)",
+	"S Rubbing Skin Sound (Leaper)",
+	"S Scratch Sound (Dimetrodon)",
+	"S Screech Sound (Pteranodon)",
+	"S Sniff Sound (Raptor)",
+	"S Swoosh Sound (Pteranodon)",
+	"S Turn To Stone Sound (Mantis)",
+	"S Violent Death Sound (Creature)",
+	"S Wing Flap Sound (Mantis)",
+	"S Growl Sound (Tiger)",
+	"S Alert 1 Speech (Human)",
+	"S Alert 2 Speech (Human)",
+	"S Alert 3 Speech (Human)",
+	"S Alert 4 Speech (Human)",
+	"S Death 1 Speech (Human)",
+	"S Death 2 Speech (Human)",
+	"S Death 3 Speech (Human)",
+	"S Death 4 Speech (Human)",
+	"S Injury 1 Speech (Human)",
+	"S Injury 2 Speech (Human)",
+	"S Injury 3 Speech (Human)",
+	"S Long 1 Speech (Human)",
+	"S Long 2 Speech (Human)",
+	"S Long 3 Speech (Human)",
+	"S Taunt 1 Speech (Human)",
+	"S Taunt 2 Speech (Human)",
+	"S Taunt 3 Speech (Human)",
+	"S Violent Death 1 Speech (Human)",
+	"S Violent Death 2 Speech (Human)",
+	"M Nudge Back AI",
+	"S Screen Shake AI",
+	"S Invincible AI",
+	"S Blood Arc Particles (Any)",
+	"S Muzzle Flash Particles (Any)",
+	"S Blaster Particles (Hulk)",
+	"S Alien Death Fire Particles (Alien)",
+	"S Knife Forward Particles (Weapon)",
+	"S Knife Left Particles (Weapon)",
+	"S Knife Right Particles (Weapon)",
+	"S Green Blood Arc Particles (Any)",
+	"S Spurt Blood Arc Particles (Any)",
+	"S Fountain Blood Arc Particles (Any)",
+	"S Gush Blood Arc Particles (Any)",
+	"S Drool Particles (Any)",
+	"M Damage Knife Left (Weapon)",
+	"M Damage Knife Right (Weapon)",
+	"M Damage Knife Forward (Weapon)",
+	"M Damage Tomahawk Left (Weapon)",
+	"M Damage Tomahawk Right (Weapon)",
+	"M Damage Tomahawk Forward (Weapon)",
+	"S Arterial Blood Arc Particle (Any)",
+	"S Spurt G. Blood Arc Particles (Any)",
+	"S Fountain G. Blood Arc Particles (Any)",
+	"S Gush G. Blood Arc Particles (Any)",
+	"S Arterial G. Blood Arc Particle (Any)",
+	"S Water Drop Particle (Any)",
+	"S Water Foam Particle (Any)",
+	"S Water Steam Particle (Any)",
+	"M Weapon Impact (Any)",
+	"S Arrow Damage",
+	"S Damage Target <damage>",
+	"S Damage & Nudge Target <damage>",
+	"S Generic 1",
+	"S Generic 2",
+	"S Generic 3",
+	"S Generic 4",
+	"S Generic 5",
+	"S Generic 6",
+	"S Generic 7",
+	"S Generic 8",
+	"S Generic 9",
+	"S Generic 10",
+	"S Generic 11",
+	"S Generic 12",
+	"S Generic 13",
+	"S Generic 14",
+	"S Generic 15",
+	"S Generic 16",
+	"S Generic 17",
+	"S Generic 18",
+	"S Generic 19",
+	"S Generic 20",
+	"S Generic 21",
+	"S Generic 22",
+	"S Generic 23",
+	"S Generic 24",
+	"S Generic 25",
+	"S Generic 26",
+	"S Generic 27",
+	"S Generic 28",
+	"S Generic 29",
+	"S Generic 30",
+	"M Smart Bomb <damage>",
+	"S Plasma 2 Particles (Player)",
+	"S Water Bubble",
+	"S Water Ripple",
+	"S Water Splash",
+	"M Shockwave Damage",
+	"S Generic 31",
+	"S Generic 32",
+	"S Generic 33",
+	"S Generic 34",
+	"S Generic 35",
+	"S Generic 36",
+	"S Generic 37",
+	"S Generic 38",
+	"S Generic 39",
+	"S Generic 40",
+	"S Generic 41",
+	"S Generic 42",
+	"S Generic 43",
+	"S Generic 44",
+	"S Generic 45",
+	"S Generic 46",
+	"S Generic 47",
+	"S Generic 48",
+	"S Generic 49",
+	"S Generic 50",
+	"S Generic 51",
+	"S Generic 52",
+	"S Generic 53",
+	"S Generic 54",
+	"S Generic 55",
+	"S Generic 56",
+	"S Generic 57",
+	"S Generic 58",
+	"S Generic 59",
+	"S Generic 60",
+	"S Generic 61",
+	"S Generic 62",
+	"S Generic 63",
+	"S Generic 64",
+	"S Generic 65",
+	"S Generic 66",
+	"S Generic 67",
+	"S Generic 68",
+	"S Generic 69",
+	"S Generic 70",
+	"S Generic 71",
+	"S Generic 72",
+	"S Generic 73",
+	"S Generic 74",
+	"S Generic 75",
+	"S Generic 76",
+	"S Generic 77",
+	"S Generic 78",
+	"S Generic 79",
+	"S Generic 80",
+	"S Generic 81",
+	"S Generic 82",
+	"S Generic 83",
+	"S Generic 84",
+	"S Generic 85",
+	"S Generic 86",
+	"S Generic 87",
+	"S Generic 88",
+	"S Generic 89",
+	"S Generic 90",
+	"S Generic 91",
+	"S Generic 92",
+	"S Generic 93",
+	"S Generic 94",
+	"S Generic 95",
+	"S Generic 96",
+	"S Generic 97",
+	"S Generic 98",
+	"S Generic 99",
+	"S Generic 100",
+	"M Pressure Plate",
+	"S Allow Entry (Door)",
+	"S Block Entry (Door)",
+	"M Start Action",
+	"M Start Statue",
+	"<<illegal>>",
+	"<<illegal>>",
+	"S Generate Pickups",
+	"M Boss 1",
+	"M Boss 2",
+	"M Boss 3",
+	"M Boss 4",
+	"M Boss 5",
+	"M Boss 6",
+	"M Boss 7",
+	"M Boss 8",
+	"S Make Invisible",
+	"S General Sound",
+	"S SwooshGlow All Hands",
+	"S SwooshGlow Left Hand",
+	"S SwooshGlow Right Hand",
+	"S SwooshGlow All Feet",
+	"S SwooshGlow Left Foot",
+	"S SwooshGlow Right Foot",
+	"S SwooshGlow Weapon1",
+	"S SwooshGlow Weapon2",
+	"S SwooshGlow Tail",
+	"S SwooshGlow Left Toes",
+	"S SwooshGlow Right Toes",
+	"S Generic 101",
+	"S Generic 102",
+	"S Generic 103",
+	"S Generic 104",
+	"S Generic 105",
+	"S Generic 106",
+	"S Generic 107",
+	"S Generic 108",
+	"S Generic 109",
+	"S Generic 110",
+	"S Generic 111",
+	"S Generic 112",
+	"S Generic 113",
+	"S Generic 114",
+	"S Generic 115",
+	"S Generic 116",
+	"S Generic 117",
+	"S Generic 118",
+	"S Generic 119",
+	"S Generic 120",
+	"S Generic 121",
+	"S Generic 122",
+	"S Generic 123",
+	"S Generic 124",
+	"S Generic 125",
+	"S Generic 126",
+	"S Generic 127",
+	"S Generic 128",
+	"S Generic 129",
+	"S Generic 130",
+	"S Generic 131",
+	"S Generic 132",
+	"S Generic 133",
+	"S Generic 134",
+	"S Generic 135",
+	"S Generic 136",
+	"S Generic 137",
+	"S Generic 138",
+	"S Generic 139",
+	"S Generic 140",
+	"S Generic 141",
+	"S Generic 142",
+	"S Generic 143",
+	"S Generic 144",
+	"S Generic 145",
+	"S Generic 146",
+	"S Generic 147",
+	"S Generic 148",
+	"S Generic 149",
+	"S Generic 150",
+	"S Generic 151",
+	"S Generic 152",
+	"S Generic 153",
+	"S Generic 154",
+	"S Generic 155",
+	"S Generic 156",
+	"S Generic 157",
+	"S Generic 158",
+	"S Generic 159",
+	"S Generic 160",
+	"S Next Cinematic Stage",
+	"S Generic 161",
+	"S Generic 162",
+	"S Generic 163",
+	"S Generic 164",
+	"S Generic 165",
+	"S Generic 166",
+	"S Generic 167",
+	"S Generic 168",
+	"S Generic 169",
+	"S Generic 170",
+	"S Generic 171",
+	"S Generic 172",
+	"S Generic 173",
+	"S Generic 174",
+	"S Generic 175",
+	"S Generic 176",
+	"S Generic 177",
+	"S Generic 178",
+	"S Generic 179",
+	"S Generic 180",
+	"S Generic 181",
+	"S Generic 182",
+	"S Generic 183",
+	"S Generic 184",
+	"S Generic 185",
+	"S Generic 186",
+	"S Generic 187",
+	"S Generic 188",
+	"S Generic 189",
+	"S Generic 190",
+	"S Generic 191",
+	"S Generic 192",
+	"S Generic 193",
+	"S Generic 194",
+	"S Generic 195",
+	"S Generic 196",
+	"S Generic 197",
+	"S Generic 198",
+	"S Generic 199",
+	"S Generic 200",
+	"S Screen Tremor",
+	"M Enemy Explosion 10 hit <rad>",
+	"M Enemy Explosion 15 hit <rad>",
+	"M Enemy Explosion 20 hit <rad>",
+	"M Plyr Explosion 20 hit <rad>",
+	"M Plyr Explosion 30 hit <rad>",
+	"M Plyr Explosion 50 hit <rad>",
+	"M Plyr Explosion 100 hit <rad>",
+	"M Plyr Explosion Special <rad>",
+	"M Freeze <rad>",
+	"S Generate Pickup <pickup>",
+	"M Plyr Sml Explsn 30 hit <rad>",
+	"M Shove with camera <rad>",
+	"M Blade Damage   1 pt AI",
+	"M Blade Damage   2 pt AI",
+	"M Blade Damage   3 pt AI",
+	"M Blade Damage   5 pt AI",
+	"M Blade Damage  10 pt AI",
+	"M Blade Damage  15 pt AI",
+	"M Blade Damage  20 pt AI",
+	"M Blade Damage  30 pt AI",
+	"M Blade Damage  40 pt AI",
+	"M Blade Damage  50 pt AI",
+	"M Blade Damage 100 pt AI",
+	"M Kick Damage   1 pt AI",
+	"M Kick Damage   2 pt AI",
+	"M Kick Damage   3 pt AI",
+	"M Kick Damage   5 pt AI",
+	"M Kick Damage  10 pt AI",
+	"M Kick Damage  15 pt AI",
+	"M Kick Damage  20 pt AI",
+	"M Kick Damage  30 pt AI",
+	"M Kick Damage  40 pt AI",
+	"M Kick Damage  50 pt AI",
+	"M Kick Damage 100 pt AI",
+	"M Shotgun Explosion",
+	"M Tekbow Explosion",
+	"S Rock Particle",
+	"S Alien Head Particle",
+	"S Alien Hand Particle",
+	"S Alien Foot Particle",
+	"S Alien Torso Particle",
+	"S Leaper Head Particle",
+	"S Leaper Hand Particle",
+	"S Leaper Foot Particle",
+	"S Leaper Torso Particle",
+	"S Instant Death",
+	"S Generic 201",
+	"S Generic 202",
+	"S Generic 203",
+	"S Generic 204",
+	"S Generic 205",
+	"S Generic 206",
+	"S Generic 207",
+	"S Generic 208",
+	"S Generic 209",
+	"S Generic 210",
+	"S Generic 211",
+	"S Generic 212",
+	"S Generic 213",
+	"S Generic 214",
+	"S Generic 215",
+	"S Generic 216",
+	"S Generic 217",
+	"S Generic 218",
+	"S Generic 219",
+	"S Generic 220",
+	"S Generic 221",
+	"S Generic 222",
+	"S Generic 223",
+	"S Generic 224",
+	"S Generic 225",
+	"S Generic 226",
+	"S Generic 227",
+	"S Generic 228",
+	"S Generic 229",
+	"S Generic 230",
+	"S Generic 231",
+	"S Generic 232",
+	"S Generic 233",
+	"S Generic 234",
+	"S Generic 235",
+	"S Generic 236",
+	"S Generic 237",
+	"S Generic 238",
+	"S Generic 239",
+	"S Generic 240",
+	"S Generic 241",
+	"S Generic 242",
+	"S Generic 243",
+	"S Generic 244",
+	"S Generic 245",
+	"S Generic 246",
+	"S Generic 247",
+	"S Generic 248",
+	"S Generic 249",
+	"S Generic 250",
+	"S Generic 251",
+	"S Generic 252",
+	"S Generic 253",
+	"S Generic 254",
+	"S Generic 255",
+	"S Generic 256",
+	"S Generic 257",
+	"S Generic 258",
+	"S Generic 259",
+	"S Generic 260",
+	"S Rand Big Swoosh Sound",
+	"S Rand Small Swoosh Sound",
+	"S Rand Grunt Sound",
+	"M Particle Damage 1 pt AI",
+	"S Start Fire Sound",
+	"S Stop Fire Sound",
+};
+
+
+#endif
+extern char *AI_Event_Strings[];
+
+// ai species
+#define AI_SPECIES_RAPTOR			(1<<0)		// raptor dinosaur
+#define AI_SPECIES_HUMAN1			(1<<1)		// human being type 1
+#define AI_SPECIES_SABERTIGER		(1<<2)		// saber tooth tiger
+#define AI_SPECIES_DIMETRODON		(1<<3)		// dimetrodon
+#define AI_SPECIES_TRICERATOPS	(1<<4)		// triceratops
+#define AI_SPECIES_MOSCHOPS		(1<<5)		// moschops
+#define AI_SPECIES_PTERANODON		(1<<6)		// pteranodon
+#define AI_SPECIES_SUBTERRANEAN	(1<<7)		// subterranean
+#define AI_SPECIES_LEAPER			(1<<8)		// leaper
+#define AI_SPECIES_ALIEN			(1<<9)		// alien
+#define AI_SPECIES_HULK				(1<<10)		// hulk
+#define AI_SPECIES_ROBOT			(1<<11)		// robot
+
+#define AI_SPECIES_ALL				0xffffffff		// all species
+
+
+// health count defines of creatures
+#define AI_HEALTH_PLAYER				100
+#define AI_HEALTH_PLAYER_MAX			120
+
+// hits caused by events
+#define AI_HITS_EXPLOSION				50
+#define AI_HITS_SHOCKWAVE				10
+
+
+// ai flags 1
+#define	AI_COLLISION						(1<<0)				// collision flag
+#define	AI_BEINGATTACKED					(1<<1)				// being attacked flag
+#define	AI_EXPLOSION						(1<<2)				// nearby explosion flag
+#define	AI_CYCLECOMPLETED					(1<<3)				// current animation cycle has finished
+#define	AI_WAITFOR_CYCLE					(1<<4)				// wait for cycle completed
+#define	AI_EV_QUIETNOISE					(1<<5)				// ai heard a quiet noise
+#define	AI_EV_LOUDNOISE					(1<<6)				// ai heard a loud noise
+#define	AI_EV_GETATTN						(1<<7)				// ai heard a get attention
+#define	AI_EV_SEETARGET					(1<<8)				// ai can see target
+#define	AI_FIRST_ATTACK					(1<<9)				// ai is in first attack (flag)
+#define	AI_EV_HIT							(1<<10)				// ai is receives a hit
+#define	AI_EV_EXPLOSION					(1<<11)				// ai is near an explosion
+#define	AI_ALREADY_DEAD					(1<<12)				// ai is already dead flag (death animation has been played)
+#define	AI_RUNNING							(1<<13)				// ai is running
+#define	AI_NOREPEATEXP						(1<<14)				// ai has done explosion death & is not to repeat it
+#define	AI_FLOCKING							(1<<15)				// ai is flocking
+#define	AI_RESURRECTION					(1<<16)				// ai is to be randomly resurrected when turok is not close
+#define	AI_FEIGNDEATH						(1<<17)				// ai is to be going to fake death & resurrect when turok gets close
+#define	AI_STARTED							(1<<18)
+#define	AI_DOORPREOPEN 					(1<<19)
+#define	AI_DOOROPEN							(1<<20)
+#define	AI_TELEPORTING						(1<<21)				// ai is teleporting
+#define	AI_TELEPORTAWAY					(1<<22)				// ai has just teleported away
+#define	AI_TELEPORTMOVESLOW				(1<<23)				// ai is doing slow teleport move
+#define	AI_INTERACTIVEANIMATION			(1<<24)				// ai is going to do an interactive thing
+#define	AI_GOBACKTOLEASH					(1<<25)				// Means ai is erm.. going back to leash co-ord
+#define	AI_INTERANIMDELAY					(1<<26)				// there is a delay on the interactive animation
+#define	AI_REGENERATE						(1<<27)				// this ai will regenerate after its death
+#define	AI_REGENERATEINTERANIM			(1<<28)				// regenerating ai will replay its interactive animation
+#define	AI_EXPTARGETEXPLODED				(1<<29)				// exp target has been exploded
+#define	AI_WOUNDEDMORTALLY				(1<<30)				// this ai has been wounded mortally
+
+#define	AI_VALID								(1<<31)				// valid ai flag
+
+
+// ai flags 2
+#define	AI_HOLDINTANIMON1STFRAME		(1<<0)				// hold int. anim on 1st frame
+#define	AI_REGENERATEAPPEARANCEDELAY	(1<<1)				// delay before regeneration appears
+#define	AI_KILLOUTSIDEOFVIEW				(1<<2)				// allow ai to be killed outside of view
+#define	AI_GENERATED_PICKUPS				(1<<3)
+#define	AI_VISIBLE							(1<<4)				// ai is visible
+#define	AI_IGNORESOUNDEVENTS				(1<<5)				// ai is replaying an already triggered animation, so dont play sound
+
+
+
+
+// type flags
+#define	AI_TYPE_COLLISION					(1<<0)
+#define	AI_TYPE_PROJECTILEWEAPON1		(1<<1)
+#define	AI_TYPE_LEADER						(1<<2)
+#define	AI_TYPE_TRACKGROUND				(1<<3)
+#define	AI_TYPE_EXPLOSIONDEATH			(1<<4)
+#define	AI_TYPE_CLIMBER					(1<<5)
+#define	AI_TYPE_PROJECTILEWEAPON2		(1<<6)
+#define	AI_TYPE_NOREPEATEXPLOSION		(1<<7)
+#define	AI_TYPE_DIEONEXPLOSION			(1<<8)
+#define	AI_TYPE_FLOCKER					(1<<9)
+#define	AI_TYPE_SLOWENEMY					(1<<10)
+#define	AI_TYPE_RANDOMRESURRECTION		(1<<11)
+#define	AI_TYPE_RANDOMFEIGNDEATH		(1<<12)
+#define	AI_TYPE_KAMIKAZE					(1<<13)
+#define	AI_TYPE_AVOIDPLAYER				(1<<14)
+#define	AI_TYPE_FLOATINWATERONDEATH	(1<<15)
+#define	AI_TYPE_TELEPORT					(1<<16)
+#define	AI_TYPE_SHADOW						(1<<17)
+#define	AI_TYPE_TELEPORTMOVESLOW		(1<<18)
+#define	AI_TYPE_USESTRONGATTACKS		(1<<19)
+#define	AI_TYPE_USEWEAKATTACKS			(1<<20)
+#define	AI_TYPE_SNIPER						(1<<21)
+#define	AI_TYPE_MELTINGDEATH				(1<<22)
+#define	AI_TYPE_AVOIDWATER				(1<<23)
+#define	AI_TYPE_FLYING						(1<<24)
+#define	AI_TYPE_TELEPORTAVOIDWATER		(1<<25)
+#define	AI_TYPE_TELEPORTAVOIDCLIFFS	(1<<26)
+#define	AI_TYPE_USEPRESSUREPLATES		(1<<27)
+#define	AI_TYPE_CANNOTCAUSEAFIGHT		(1<<28)
+#define	AI_TYPE_NOWALLCOLLISION			(1<<29)
+#define	AI_TYPE_DEVICESCREENSHAKE		(1<<30)
+#define	AI_TYPE_REPLAYINTANIMONREG		(1<<31)
+
+// type flags 2
+#define	AI_TYPE2_PICKUP_EXPLOSIVESHELLS	(1<<0)
+#define	AI_TYPE2_PICKUP_GRENADE				(1<<1)
+#define	AI_TYPE2_PICKUP_HEALTH10			(1<<2)
+#define	AI_TYPE2_PICKUP_HEALTH100			(1<<3)
+#define	AI_TYPE2_PICKUP_HEALTH100PLUS		(1<<4)
+#define	AI_TYPE2_PICKUP_HEALTH2				(1<<5)
+#define	AI_TYPE2_PICKUP_HEALTH25			(1<<6)
+#define	AI_TYPE2_PICKUP_MINIGUNSHELLS		(1<<7)
+#define	AI_TYPE2_PICKUP_MORTALWOUND		(1<<8)
+#define	AI_TYPE2_PICKUP_ROCKETS				(1<<9)
+#define	AI_TYPE2_PICKUP_SHOTGUNSHELLS		(1<<10)
+#define	AI_TYPE2_PICKUP_BATTERYLARGE		(1<<11)
+#define	AI_TYPE2_PICKUP_BATTERYSMALL		(1<<12)
+#define	AI_TYPE2_PICKUP_BULLETCLIP			(1<<13)
+#define	AI_TYPE2_INSTANTDEATH				(1<<14)
+#define	AI_TYPE2_NOBLOOD						(1<<15)
+#define	AI_TYPE2_HOLDINTANIMON1STFRAME	(1<<16)
+#define	AI_TYPE2_PROJECTILEWEAPON7			(1<<17)
+#define	AI_TYPE2_PROJECTILEWEAPON8			(1<<18)
+#define	AI_TYPE2_DOPICKUPONDAMAGE			(1<<19)
+#define	AI_TYPE2_DONTDRAWONMAP				(1<<20)
+#define	AI_TYPE2_USE2NDSETOFMOVES			(1<<21)
+#define	AI_TYPE2_ANTIALIASING_REDUCED		(1<<22)
+#define	AI_TYPE2_ANTIALIASING_FULL			(1<<23)
+#define	AI_TYPE2_PROJECTILEWEAPON5			(1<<24)
+#define	AI_TYPE2_PROJECTILEWEAPON6			(1<<25)
+#define	AI_TYPE2_SARROWMORTALWOUND			(1<<26)
+#define	AI_TYPE2_STAYINWATER					(1<<27)
+#define	AI_TYPE2_DEVICEWARPDEATH			(1<<28)
+#define	AI_TYPE2_STOREWARPRETURN			(1<<29)
+#define	AI_TYPE2_PROJECTILEWEAPON3			(1<<30)
+#define	AI_TYPE2_PROJECTILEWEAPON4			(1<<31)
+
+#define	AI_TYPE3_RETURNWARP					(1<<0)
+#define	AI_TYPE3_SHOWINTANIMONCE			(1<<1)
+#define	AI_TYPE3_REGENERATEFROMSTART		(1<<2)
+#define	AI_TYPE3_WALKINSTRAIGHTLINE		(1<<3)
+#define	AI_TYPE3_KILLOUTSIDEOFVIEW			(1<<4)
+#define	AI_TYPE3_DUMB							(1<<5)
+#define	AI_TYPE3_AVOIDPLAYER2				(1<<6)
+#define	AI_TYPE3_DONTDOVIOLENTDEATH		(1<<7)
+#define	AI_TYPE3_PROJECTILEWEAPON9			(1<<8)
+#define	AI_TYPE3_PROJECTILEWEAPON10		(1<<9)
+#define	AI_TYPE3_MAKEINTANIMVISIBLE		(1<<10)
+#define	AI_TYPE3_DONTDRAWONCINEMA			(1<<11)
+
+
+
+
+// evade modes
+#define	AI_EVADE_NONE				0				// no evading of an object
+#define	AI_EVADE_START				1				// ai is starting to evade
+#define	AI_EVADE_TURN				2				// ai is turning away from the object they collided with
+#define	AI_EVADE_MOVE				3				// ai is moving away from the object
+#define	AI_EVADE_FACETUROK		4				// ai now turns towards turok
+
+// fading in/out time
+#ifndef WIN32
+#define	APPEARANCE_LENGTH			(0.5*FRAME_FPS)
+#define	APPEARANCEWHITE_LENGTH	(1.2*FRAME_FPS)
+#define	MELT_LENGTH					(4.0*FRAME_FPS)
+#endif
+
+// knife & tomahawk attack types
+#define	AI_KNIFE_LEFT_ATTACK				0
+#define	AI_KNIFE_RIGHT_ATTACK			1
+#define	AI_KNIFE_FORWARD_ATTACK			2
+#define	AI_TOMAHAWK_LEFT_ATTACK			3
+#define	AI_TOMAHAWK_RIGHT_ATTACK		4
+#define	AI_TOMAHAWK_FORWARD_ATTACK		5
+
+#define	AI_MORTAL_WOUND_KT_HITS			30
+#define	AI_MORTAL_DEATH_KT_HITS			999
+
+// ai water states
+#define	AI_NOT_NEAR_WATER			0
+#define	AI_BELOW_WATERSURFACE	1
+#define	AI_ABOVE_WATERSURFACE	2
+#define	AI_ON_WATERSURFACE		3
+
+// ai retreat timer
+#define	AI_RETREAT_TIME			5.0				// time the ai will avoid player for (in secs)
+#define	AI_MAX_SWIMTURN			50.0				// max turn angle when ai is swimming
+#define	AI_MAX_TELEPORTTURN		50.0				// max turn angle when ai is teleport moving slow
+
+// freeze timing values
+#define	AI_FREEZE_START				 3.0	//3.5
+#define	AI_FREEZE_FADETOBLACK		 2.7	//3.2
+#define	AI_FREEZE_FADETOBLACKEND	 1.2	//1.7
+#define	AI_FREEZE_END					-1.0
+#define	AI_FREEZE_GOINGTOEXPLODE	-2.0
+#define	AI_FREEZE_ENDED				-3.0
+
+/////////////////////////////////////////////////////////////////////////////
+
+typedef struct CEnemyAttributes_t
+{
+	float			m_SightRadius,				// sight radius (squared)
+					m_SightAngle,				// sight angle (/2, only need half of it)
+					m_LoudRadius,				// loud hearing radius (squared)
+					m_QuietRadius,				// quiet hearing radius (squared)
+					m_ProjectileRadius,		// projectile radius (squared)
+					m_FlyingHeight,			// flying height (feet, not squared)
+					m_CollisionRadius,		// collision instance radius (not squared)		-- don't convert to SF --
+					m_CollisionWallRadius,	// collision wall radius (not squared)
+					m_CollisionHeight,		// collision height
+					m_DeadHeight,				// dead height
+					m_AttackRadius,			// attack radius (squared)
+					m_LeashRadius,				// leash radius (squared)
+					m_InteractiveAnimDelay;	// delay (in secs) before interactive animation takes place
+	DWORD			m_dwSpecies,				// species type (flags 2^x)
+					m_dwTypeFlags,				// general purpos flags
+					m_dwTypeFlags2;			// pickup typs (flags 2^x)
+	WORD			m_wTypeFlags3;
+
+	short			m_StartHealth,				// health count of ai (goes down as ai takes hits)
+					m_Id,							// id no. for this ai
+					m_DeathId,					// id no. for ai on death
+					m_Regenerate;				// no. of regenerations for this ai
+
+	BYTE			m_Aggression,				// aggression (%) / Time 2
+					m_InteractiveAnim,		// special anim ai will play at start of life
+					m_nModel;
+	signed char	m_nTexture,
+					m_AttackStyle;				// Time 1
+	BYTE			unused1;
+} CEnemyAttributes;
+
+// CEnemyAttributes operations
+/////////////////////////////////////////////////////////////////////////////
+
+#ifdef WIN32
+void		CEnemyAttributes__TakeFromVariation(CEnemyAttributes *pThis, CVariation *pSource);
+#endif
+void		CEnemyAttributes__SetDefaults(CEnemyAttributes *pThis);
+
+/////////////////////////////////////////////////////////////////////////////
+
+typedef struct CAIDynamic_t
+{
+	float			m_ViewAngleOffset,				// offset to direction angle to get view angle
+					m_RetreatTimer,					// time that the ai will retreat for
+					m_TeleportTime,					// max time for teleport slow move
+					m_Time1,
+					m_Time2,
+					m_InteractiveTimer,
+					m_AvoidanceAngle,					// Current avoidance angle
+					m_cRegenerateAppearance,
+					m_cRegenerateAppearanceWhite,
+					m_MeltTimer,
+					m_FreezeTimer;
+	DWORD			m_dwStatusFlags,
+					m_dwStatusFlags2;					// various bit flags
+	short			m_Agitation,
+					m_PrevAgitation,					// agitation level of ai
+					m_Health,							// health count of ai (goes down as ai takes hits)
+//					m_MaxHealth,  						// maximum health count of ai (upgradable with pickups)
+					m_Evade,								// evade mode (ai collided with something & they are trying to get around it)
+					m_Regenerate;						// no. of times this ai will regenerate
+	CVector3		m_vExplosion,						// explosion vector
+					m_vLeashCoor,						// leash coordinates
+					m_vStartPos;
+	BOOL			m_Invincible,						// ai can't loose any health at the moment
+					m_FirstRun;							// ai in first run mode
+	int			m_DeathAnimType;					// last death animation type
+	struct CGameRegion_t	*m_pStartRegion;
+	short			m_HeadTexture,						// which texture to use for head
+					m_BodyTexture ;					// which texture to use on body
+	short			m_WeaponModel,						// which weapon model to use
+					m_ExtraModel ;						// shins or shoulders for footsoldier
+
+} CAIDynamic;
+
+// CAIDynamic operations
+/////////////////////////////////////////////////////////////////////////////
+
+void		CAIDynamic__Reset(CAIDynamic *pThis, CEnemyAttributes *pEA, CVector3 vStartPos, struct CGameObjectInstance_t *pInstance);
+void		CAIDynamic__ResetRegenerate(CAIDynamic *pThis, CEnemyAttributes *pEA);
+void		CAIDynamic__ResetInteractiveAnim(CAIDynamic *pThis, CEnemyAttributes *pEA);
+void		CAIDynamic__SetHealth(CAIDynamic *pThis, CEnemyAttributes *pEA, int nTypeFlag);
+void		CAIDynamic__SetMeltTiming(CAIDynamic *pThis, CEnemyAttributes *pEA, int nObjtype);
+void		CAIDynamic__RandomizeHuman(CAIDynamic *pThis, CEnemyAttributes *pEA, struct CGameObjectInstance_t *pInstance) ;
+
+/////////////////////////////////////////////////////////////////////////////
+
+/*
+typedef struct AIinstance_t
+{
+//#ifdef WIN32
+//	CObjectInstance  *pInstance;					// pointer to instance in editor
+//#endif
+	CVector3				m_vPos;
+	float					m_RotY,
+							m_EvadeAngle;
+
+	CEnemyAttributes	ea;
+	CAIDynamic			dyn;
+	short					requestanim;				// requested animation
+} AIinstance;
+*/
+
+/////////////////////////////////////////////////////////////////////////////
+#endif	// _INC_AISTRUC

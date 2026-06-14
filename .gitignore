@@ -1,0 +1,92 @@
+# =============================================================================
+# Turok: Dinosaur Hunter — PC/3DS port (source only)
+#
+# This repo contains ONLY the port source: the original game engine
+# (src/PR/tengine), the platform layer (port/), the vendored libultra
+# (lib/ultralib), and the build/docs tooling.
+#
+# Copyrighted game data is NOT committed — supply your own locally:
+#   * baserom.us.v12.z64   (retail US v1.2 ROM)
+#   * src/PR/cartdata.dat  (cartridge asset blob)
+# =============================================================================
+
+# --- Copyrighted ROMs / cartridge / asset blobs ---
+*.z64
+*.n64
+*.v64
+*.N64
+*.V64
+*.dat
+*.bin
+
+# --- Game audio assets / sound-tool output ---
+*.aif
+*.aiff
+*.AIF
+*.AIFF
+*.tbl
+*.mid
+*.seq
+*.ctl
+*.inst
+*.rok
+*.bnk
+*.bw
+*.wwf
+*.mrk
+
+# --- Textures / images / models ---
+*.rgb
+*.rgba
+*.bmp
+*.png
+*.tga
+*.ppm
+*.flt
+*.int
+*.inta
+
+# --- Compressed asset blobs ---
+*.rnc
+*.cmp
+*.Z
+*.gz
+*.zip
+*.tar
+
+# --- Build artifacts / objects / IDE databases ---
+*.o
+*.a
+*.obj
+*.exe
+*.so
+*.elf
+*.3dsx
+*.smdh
+*.sym
+*.map
+*.bak
+*.ncb
+*.mdp
+*.idb
+*.pdb
+*.lnk
+build_port/
+build_3ds/
+
+# --- Old DOS/VisualC engine project + sound assets inside tengine ---
+src/PR/tengine/dosvers/
+src/PR/tengine/sounds/
+src/PR/tengine/dis.txt
+src/PR/tengine/dis.tx
+src/PR/tengine/temp
+src/PR/tengine/temp.txt
+src/PR/tengine/tengine
+
+# --- Editor / OS noise ---
+.DS_Store
+*.swp
+*~
+
+# bare-name N64 ROM images (build outputs)
+rom

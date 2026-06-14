@@ -1,0 +1,4 @@
+.globl _bootcodeSegmentRomStart; _bootcodeSegmentRomStart = 0x00001050
+.globl _bootcodeSegmentRomEnd; _bootcodeSegmentRomEnd = 0x00001f00
+.globl _codeSegmentRomStart; _codeSegmentRomStart = 0x003a1250
+.globl _codeSegmentRomEnd; _codeSegmentRomEnd = 0x00498060

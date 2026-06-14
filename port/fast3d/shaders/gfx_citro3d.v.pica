@@ -1,0 +1,30 @@
+; gfx_citro3d.v.pica — Perfect Dark 3DS / Citro3D vertex shader.
+;
+; Pass-through transform (CLAUDE.md §2.1/§5.4). gfx_pc does the ENTIRE MVP on the CPU
+; and feeds CLIP-SPACE pos in buf_vbo; this shader applies the per-eye `transform` the
+; backend uploads each eye (90° panel rotation × final PICA depth remap × stereo shear),
+; then passes uv/colour through. One mat4 mul/vertex.
+;
+; Inputs:  v0=pos, v1=uv, v2=rgba    Outputs: outpos, outtc0/1, outclr
+
+.fvec transform[4]                ; the per-eye transform (4 vec4 = one mat4)
+
+.out outpos position
+.out outtc0 texcoord0
+.out outtc1 texcoord1
+.out outclr color
+
+.alias inpos  v0
+.alias intex  v1
+.alias inclr  v2
+
+.proc main
+	dp4 outpos.x, transform[0], inpos
+	dp4 outpos.y, transform[1], inpos
+	dp4 outpos.z, transform[2], inpos
+	dp4 outpos.w, transform[3], inpos
+	mov outtc0, intex
+	mov outtc1, intex
+	mov outclr, inclr
+	end
+.end
