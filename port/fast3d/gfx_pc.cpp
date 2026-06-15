@@ -1277,6 +1277,16 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
             "[TV] ob=(%d,%d,%d) -> xyzw=(%.1f,%.1f,%.1f,%.1f)  MP[0][0]=%.4f MP[3][3]=%.4f\n",
             v->ob[0], v->ob[1], v->ob[2], x, y, z, w, rsp.MP_matrix[0][0], rsp.MP_matrix[3][3]); }
 #endif
+#ifdef PLATFORM_PORT
+        { static int s_vl = -1, s_n = 0; if (s_vl < 0) s_vl = getenv("TUROK_VTXLOG") ? 1 : 0;
+          if (s_vl && s_n < 30) { s_n++;
+            int nan = (x != x) || (w != w);
+            int behind = (w <= 0.0f);
+            int huge = (x>1e6f||x<-1e6f||y>1e6f||y<-1e6f||z>1e6f||z<-1e6f);
+            fprintf(stderr, "[vtx] ob=(%d,%d,%d) -> clip=(%.1f,%.1f,%.1f,w=%.2f)%s%s%s\n",
+              v->ob[0], v->ob[1], v->ob[2], x, y, z, w,
+              nan?" NAN":"", behind?" BEHIND":"", huge?" HUGE":""); } }
+#endif
         x = gfx_adjust_x_for_aspect_ratio(x, w);
 
         short U = v->tc[0] * rsp.texture_scaling_factor.s >> 16;

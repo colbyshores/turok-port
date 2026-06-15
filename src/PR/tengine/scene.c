@@ -1610,6 +1610,11 @@ void CScene__DecompressInstances(CScene *pThis, CCacheEntry **ppceTarget)
 				  if(sp){ int _n=sscanf(sp,"%f,%f,%f,%f",&tx,&ty,&tz,&tr);
 				    if(_n>=3){ pThis->m_WarpPoint.m_vPos.x=tx; pThis->m_WarpPoint.m_vPos.y=ty; pThis->m_WarpPoint.m_vPos.z=tz; }
 				    if(_n==4) realRotY=tr; } }
+				/* TUROK_FACE: add radians to the PLAYER's spawn facing (rotates the real cull frustum,
+				 * unlike TUROK_YAW which only spins the render camera) — lets a headless capture aim at a
+				 * side-culled creature without teleporting (which would break region streaming). */
+				{ extern char *getenv(const char*); extern double atof(const char*);
+				  const char*fc=getenv("TUROK_FACE"); if(fc) realRotY += (float)atof(fc); }
 				NormalizeRotation(&realRotY);
 				pROMInstance->m_RotY = ORDERBYTES((INT16)FLOAT2INT16(
 				                          max(-ANGLE_PI, min(ANGLE_PI, realRotY)), ANGLE_PI));  /* host -> big */

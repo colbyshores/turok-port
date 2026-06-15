@@ -598,6 +598,21 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   adds the lives "x2"; 150 frames clean across levels, digits render. (`glerr=0x501` seen only in the
   EGL capture-readback path, not from HUD textures — transient, non-fatal.)
 
+- **★ LEVELS 2-8 LOAD — RESOLVED (2026-06-15).** The old "warp 2000+ stalls at frame-pump frame 3" is GONE
+  (it was the angle-wrap infinite-loop hang the `fmodf` O(1) fix already cured). All 9 warps (0,1000,…,8000)
+  now load + render real geometry in ~0.1s headless (page-cached assets): warp 2000=239 tris, 5000=416,
+  8000=645, player spawns, HUD draws, exit rc=0. Level 2's 5786 regions are no longer a problem. Verified with
+  retail (Path B) assets.
+- **OBJECT/CREATURE VISIBILITY — pipeline sound; final confirm needs interactive play.** Added `TUROK_FACE=<rad>`
+  (scene.c warp spawn — adds to the PLAYER's spawn RotY, rotating the *real* cull frustum, unlike `TUROK_YAW`
+  which only spins the render camera) and `TUROK_VTXLOG` (gfx_pc.cpp — prints transformed clip x/y/z/w + NAN/
+  BEHIND/HUGE flags for the first verts; with `TUROK_NOWORLD` these are all object verts). Findings: animated
+  object models DO emit geometry (`NOWORLD+DRAWALL` = 391 tri1 calls), but most clip-reject because `DRAWALL`
+  force-draws FAR objects (verts at w≈4700, z/w≈1.02 = correctly far-plane-clipped — NOT a bug; objpos only
+  lists ≤4000u). Near creatures (d~190) are correctly view-culled when faced away; couldn't get a clean
+  headless pixel-confirm of one (near/far conflation + no mouse-look + model-stream timing). **Net: rendering
+  logic is intact; whether a given creature looks right is best verified by walking up to one interactively.**
+
 The port build infra (not game source): `Makefile.port`, `port/include/turok_port.h` (host compat shim),
 `lib/ultralib/` (vendored libultra headers), `tools/turok_rom.py`.
 
