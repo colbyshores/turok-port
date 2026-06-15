@@ -59,8 +59,10 @@ void  alSndpSetPitch(void *sndp, float p)       { (void)sndp; (void)p; }
 void  alSndpSetPan(void *sndp, unsigned char p) { (void)sndp; (void)p; }
 void  alSndpSetFXMix(void *sndp, unsigned char m){ (void)sndp; (void)m; }
 
-/* per-frame synth entry + ADPCM voice decode */
+/* per-frame synth entry (audio) */
 void *alAudioFrame(short *cmdList, int *cmdLen, short *outBuf, int outLen)
 { (void)outBuf; (void)outLen; if (cmdLen) *cmdLen = 0; return cmdList; }
-int   adpcmDecode(void *in, int n, void *out, void *state)
-{ (void)in; (void)n; (void)out; (void)state; return 0; }
+/* NOTE: adpcmDecode() is NOT stubbed here — it is the ANIMATION keyframe ADPCM
+ * decompressor (anim.c, per-node quaternion/position streams), real impl in
+ * port/src/turok_adpcm.c. A no-op stub here silently zeroed every node rotation,
+ * collapsing all animated models. */

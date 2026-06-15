@@ -1194,6 +1194,15 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
     memcpy(matrix, addr, sizeof(matrix));
 #endif
 
+#ifdef PLATFORM_PORT
+    { static int s_ml = -1, s_n = 0; if (s_ml < 0) s_ml = getenv("TUROK_MTXLOG") ? 1 : 0;
+      if (s_ml && s_n < 50) { s_n++;
+        fprintf(stderr, "[mtxload] #%d %s%s 3x3=[%.3f %.3f %.3f][%.3f %.3f %.3f][%.3f %.3f %.3f] t=(%.0f,%.0f,%.0f)\n",
+          s_n, (parameters & G_MTX_PROJECTION) ? "PROJ " : "MV ", (parameters & G_MTX_LOAD) ? "LOAD" : "MUL",
+          matrix[0][0], matrix[0][1], matrix[0][2], matrix[1][0], matrix[1][1], matrix[1][2],
+          matrix[2][0], matrix[2][1], matrix[2][2], matrix[3][0], matrix[3][1], matrix[3][2]); } }
+#endif
+
     if (parameters & G_MTX_PROJECTION) {
         if (parameters & G_MTX_LOAD) {
             memcpy(rsp.P_matrix, matrix, sizeof(matrix));

@@ -3043,6 +3043,19 @@ void CGameObjectInstance__CalculateOrientationMatrix(CGameObjectInstance *pThis,
 			CQuatern__Mult(&qTemp1, &pThis->m_qRot, &qRotY);
 			CQuatern__Mult(&qTemp2, &qTemp1, &pThis->m_qGround);
 		}
+#ifdef PLATFORM_PORT
+		{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
+		  static int s_q=-1, s_seen[256], s_ns=0; if(s_q<0) s_q=getenv("TUROK_QLOG")?1:0;
+		  if(s_q){ int _t=(int)CGameObjectInstance__TypeFlag(pThis),_i,_d=0;
+		    for(_i=0;_i<s_ns;_i++) if(s_seen[_i]==_t){_d=1;break;}
+		    if(!_d&&s_ns<256){ s_seen[s_ns++]=_t;
+		      fprintf(stderr,"[qlog] type=0x%x RotY=%.3f qRot=(%.2f,%.2f,%.2f,%.2f) qGround=(%.2f,%.2f,%.2f,%.2f) qTemp2=(%.2f,%.2f,%.2f,%.2f) scale=(%.3f,%.3f,%.3f)\n",
+		        _t, pThis->m_RotY,
+		        pThis->m_qRot.x,pThis->m_qRot.y,pThis->m_qRot.z,pThis->m_qRot.t,
+		        pThis->m_qGround.x,pThis->m_qGround.y,pThis->m_qGround.z,pThis->m_qGround.t,
+		        qTemp2.x,qTemp2.y,qTemp2.z,qTemp2.t,
+		        pThis->m_vScale.x,pThis->m_vScale.y,pThis->m_vScale.z); } } }
+#endif
 
 
 		// allow rotation of gallery portraits on the spot
@@ -3099,6 +3112,17 @@ void CGameObjectInstance__CalculateOrientationMatrix(CGameObjectInstance *pThis,
 		}
 	}
 	CMtxF__ToMtx(mfOrient, CGameObjectInstance__GetOrientationMatrix(pThis));
+#ifdef PLATFORM_PORT
+	{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
+	  static int s_m=-1, s_seen[256], s_ns=0; if(s_m<0) s_m=getenv("TUROK_QLOG")?1:0;
+	  if(s_m && !FollowView){ int _t=(int)CGameObjectInstance__TypeFlag(pThis),_i,_d=0;
+	    for(_i=0;_i<s_ns;_i++) if(s_seen[_i]==_t){_d=1;break;}
+	    if(!_d&&s_ns<256){ s_seen[s_ns++]=_t;
+	      fprintf(stderr,"[mtx] type=0x%x mfOrient diag=(%.3f,%.3f,%.3f) row0=(%.3f,%.3f,%.3f) trans=(%.0f,%.0f,%.0f)\n",
+	        _t, mfOrient[0][0],mfOrient[1][1],mfOrient[2][2],
+	        mfOrient[0][0],mfOrient[0][1],mfOrient[0][2],
+	        mfOrient[3][0],mfOrient[3][1],mfOrient[3][2]); } } }
+#endif
 
 
 	// find bounds corners
@@ -8755,6 +8779,18 @@ void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 						CGameObjectInstance__SendAnimEvents(pThis, &isCurrentAnim, mfOrient);
 				}
 
+#ifdef PLATFORM_PORT
+				{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
+				  static int s_gl=-1, s_seen[256], s_ns=0; if(s_gl<0) s_gl=getenv("TUROK_GATELOG")?1:0;
+				  if(s_gl && !isPlayer){ int _t=(int)CGameObjectInstance__TypeFlag(pThis), _i, _dup=0;
+				    for(_i=0;_i<s_ns;_i++) if(s_seen[_i]==_t){_dup=1;break;}
+				    if(!_dup && s_ns<256){ s_seen[s_ns++]=_t;
+				      int bov=CBoundsRect__IsOverlapping(&pThis->m_BoundsRect,&view_bounds_rect);
+				      int vis=(pThis->m_AI.m_dwStatusFlags2 & AI_VISIBLE)?1:0;
+				      int vvo=CViewVolume__IsOverlapping(&view_volume,8,vTCorners);
+				      fprintf(stderr,"[gate] type=0x%x dev=%d boundsOverlap=%d AI_VISIBLE=%d viewVol=%d => %s\n",
+				        _t,isDevice,bov,vis,vvo, ((bov&&(isDevice||vis))&&vvo)?"DRAWS":"CULLED"); } } }
+#endif
 				// bounds check against view rect
 				if (		isPlayer || g_turok_drawall
 						|| (		CBoundsRect__IsOverlapping(&pThis->m_BoundsRect, &view_bounds_rect)
@@ -10080,6 +10116,16 @@ void CGameObjectInstance__DoDraw(CGameObjectInstance *pThis, CAnimDraw *pAnimDra
 
 	vC			= CGameObjectInstance__GetNodePos(pAnimDraw->pisCurrentAnim, nNode, nFrameC);
 	vNextC	= CGameObjectInstance__GetNodePos(pAnimDraw->pisCurrentAnim, nNode, nNextFrameC);
+
+#ifdef PLATFORM_PORT
+	{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
+	  static int s_qc=-1, s_n=0; if(s_qc<0) s_qc=getenv("TUROK_QCLOG")?1:0;
+	  if(s_qc && s_n<16){ s_n++;
+	    fprintf(stderr,"[qc] node=%d frameC=%d rotSet=%d qC=(%.4f,%.4f,%.4f,%.4f) vC=(%.1f,%.1f,%.1f)\n",
+	      nNode, nFrameC,
+	      CGameObjectInstance__GetNodeAnimIndex(pAnimDraw->pisCurrentAnim, nNode).m_nRotationSet,
+	      qC.x,qC.y,qC.z,qC.t, vC.x,vC.y,vC.z); } }
+#endif
 
 	if (blending)
 	{

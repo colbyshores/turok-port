@@ -893,6 +893,33 @@ void CScene__ObjectAttributesReceived(CScene *pThis, CCacheEntry **ppceTarget)
 	ASSERT(ppceTarget == &pThis->m_pceObjectAttributes);
 	TRACE0("CScene: Objects attributes received.\r\n");
 
+#ifdef PLATFORM_PORT
+	/* PORT (deferred M5 "#6 Variations"): the CEnemyAttributes (Variations) block is consumed RAW
+	 * (scene.c casts GetBasePtr -> CEnemyAttributes*), so its big-endian multi-byte fields must be
+	 * byte-swapped ONCE here, on the decompressed block. Layout (aistruc.h) = 13 floats + 3 DWORDs
+	 * (16 contiguous 4-byte fields), then WORD m_wTypeFlags3, then 4 shorts (StartHealth/Id/DeathId/
+	 * Regenerate); the trailing 6 bytes (Aggression/InteractiveAnim/nModel/nTexture/AttackStyle/unused)
+	 * are endian-safe. Spec = CEnemyAttributes__TakeFromVariation (aistruc.c). Without this the AI
+	 * type-flag tests read garbage so AI_VISIBLE is never set -> every enemy/pickup is culled at the
+	 * romstruc.c draw gate, and triggers/AI misbehave. */
+	{
+		CUnindexedSet usEA; CEnemyAttributes *ea; int n, i;
+		CUnindexedSet__ConstructFromRawData(&usEA, CCacheEntry__GetData(*ppceTarget), FALSE);
+		n  = CUnindexedSet__GetBlockCount(&usEA);
+		ea = (CEnemyAttributes*) CUnindexedSet__GetBasePtr(&usEA);
+		for (i = 0; i < n; i++) {
+			unsigned int *w = (unsigned int*) &ea[i];
+			int j;
+			for (j = 0; j < 16; j++) w[j] = __builtin_bswap32(w[j]);   /* 13 floats + species/typeflags/typeflags2 */
+			ea[i].m_wTypeFlags3 = __builtin_bswap16(ea[i].m_wTypeFlags3);
+			ea[i].m_StartHealth = (short) __builtin_bswap16((unsigned short) ea[i].m_StartHealth);
+			ea[i].m_Id          = (short) __builtin_bswap16((unsigned short) ea[i].m_Id);
+			ea[i].m_DeathId     = (short) __builtin_bswap16((unsigned short) ea[i].m_DeathId);
+			ea[i].m_Regenerate  = (short) __builtin_bswap16((unsigned short) ea[i].m_Regenerate);
+		}
+	}
+#endif
+
    // request objects header (need to know number of items to know index size)
    CCartCache__RequestBlock(&pThis->m_Cache,
                             pThis, NULL, (pfnCACHENOTIFY) CScene__ObjectsHeaderReceived,

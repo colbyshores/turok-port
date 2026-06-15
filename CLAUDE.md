@@ -613,6 +613,36 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   headless pixel-confirm of one (near/far conflation + no mouse-look + model-stream timing). **Net: rendering
   logic is intact; whether a given creature looks right is best verified by walking up to one interactively.**
 
+- **★★ ENEMIES / OBJECTS / PICKUPS NOW RENDER (2026-06-15) — the user's "no monkey/powerups/key, triggers
+  dead" report, root-caused to TWO bugs (chained).** Interactive play showed NO animated objects at all
+  despite earlier headless analysis claiming "pipeline sound." A gate trace (`TUROK_GATELOG` in romstruc.c
+  `CGameObjectInstance__Draw` @8758) showed enemies were **in view** (`boundsOverlap=1 viewVol=1`) but culled
+  by `AI_VISIBLE=0`. Two fixes:
+  1. **`CEnemyAttributes` (Variations) endianness — the deferred M5 "#6".** scene.c `CScene__ObjectAttributesReceived`
+     casts the loaded block straight to `CEnemyAttributes*` and uses it RAW (big-endian). The AI type-flag tests
+     (`m_dwTypeFlags`/`m_wTypeFlags3`/`m_InteractiveAnim` etc.) read garbage → `CAIDynamic__ResetInteractiveAnim`
+     never set `AI_VISIBLE` → every enemy/pickup culled, and triggers/AI misbehaved. **Fix:** swap each variation
+     in-place once in `ObjectAttributesReceived` (16 contiguous 4-byte fields = 13 floats + 3 DWORD flags, then
+     WORD `m_wTypeFlags3` + 4 shorts; the 6 trailing bytes are endian-safe). Spec = the `#ifdef WIN32`
+     `CEnemyAttributes__TakeFromVariation` (aistruc.c). → `AI_VISIBLE=1`, enemies pass the cull.
+  2. **★ `adpcmDecode` was a NO-OP AUDIO STUB — collapsed every animated model.** `adpcmDecode` (the ANIMATION
+     keyframe ADPCM decompressor for per-node quaternion `CRotFrame` + position streams, anim.c) lives in
+     `adpcm.s` (MIPS asm, can't compile on host); the symbol resolved to a no-op stub in `audio_lib_stub.c`
+     (`int adpcmDecode(void*,int,void*,void*)`). So every node rotation decoded to a ZERO quaternion →
+     `CQuatern__ToMatrix` → zero 3×3 → all model verts collapsed to one point (confirmed via `TUROK_VTXLOG`/
+     `TUROK_MTXLOG`/`TUROK_QCLOG`: orientation matrix valid, but node MUL matrices had zero 3×3). **Fix:** ported
+     the in-tree C reference `dosvers/decadpcm.cpp` → **`port/src/turok_adpcm.c`** (`s32 adpcmDecode(s16**,u8*,s32)`,
+     bitstream, byte-by-byte so endian-safe; coeffs inlined from `adpcm2.h`); removed the bad stub. → node
+     rotations are valid unit quats, models render. Verified: the spawn enemy renders as a real bipedal creature
+     (warp=0 now 486 tris vs 405; no crash across warps 0/2000/6000).
+  **New debug knobs (all PLATFORM_PORT, env-gated):** `TUROK_GATELOG` (per-type draw-gate result),
+  `TUROK_QLOG` (orientation quats + mfOrient 3×3), `TUROK_QCLOG` (per-node rotation quats), `TUROK_MTXLOG`
+  (gfx_pc matrix loads), `TUROK_VTXLOG` (gfx_pc vertex transforms + NAN/BEHIND/HUGE), `TUROK_FACE=<rad>`
+  (scene.c — adds to the PLAYER spawn RotY, rotating the real cull frustum; unlike `TUROK_YAW`).
+  **STILL OPEN:** still want a clean close-up of a creature's finished art (interactive); the enemy at spawn
+  is small/distant headless. Pickups (shiny triangle powerups) + key + the pillar trigger should now work too
+  (same `AI_VISIBLE`/anim path) — user to confirm interactively.
+
 The port build infra (not game source): `Makefile.port`, `port/include/turok_port.h` (host compat shim),
 `lib/ultralib/` (vendored libultra headers), `tools/turok_rom.py`.
 
