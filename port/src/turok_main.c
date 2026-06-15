@@ -53,6 +53,10 @@ int main(int argc, char **argv)
     const char *cf = getenv("TUROK_CAPTURE_FRAME");
     const char *cp = getenv("TUROK_CAPTURE_PATH");
     (void)argc; (void)argv;
+
+    /* Unbuffer stderr so a crash doesn't swallow the last (most diagnostic) lines —
+     * release builds otherwise buffer it and lose the location on a segfault. */
+    setvbuf(stderr, NULL, _IONBF, 0);
     if (mf) g_max_frames = strtol(mf, NULL, 10);
     if (cf) g_capture_frame = strtol(cf, NULL, 10);
     if (cp) g_capture_path = cp;

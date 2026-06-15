@@ -463,6 +463,9 @@ void CGameObjectInstance__DecompressAnim(CGameObjectInstance *pThis, CCacheEntry
 				rawBuffers[1] = (short*) (pScratchArea + 1*sizeof(short)*nFrames);
 				rawBuffers[2] = (short*) (pScratchArea + 2*sizeof(short)*nFrames);
 
+#ifdef PLATFORM_PORT
+				{ extern int turok_adpcm_cap; turok_adpcm_cap = nFrames; }  /* bound decoder writes to the scratch */
+#endif
 				adpcmDecode(rawBuffers, ((BYTE*) pbTranslationSet) + sizeof(CTranslationOffset), 3);
 
 				for (cFrame=0; cFrame<nFrames; cFrame++)
@@ -514,6 +517,9 @@ void CGameObjectInstance__DecompressAnim(CGameObjectInstance *pThis, CCacheEntry
 			rawBuffers[2] = (short*) (pScratchArea + 2*sizeof(short)*nFrames);
 			rawBuffers[3] = (short*) (pScratchArea + 3*sizeof(short)*nFrames);
 
+#ifdef PLATFORM_PORT
+			{ extern int turok_adpcm_cap; turok_adpcm_cap = nFrames; }  /* bound decoder writes to the scratch */
+#endif
 			adpcmDecode(rawBuffers, (BYTE*) pbRotationSet, 4);
 
 			CUnindexedSet__ConstructWithAllocatedBlock(&usRotationSet, pbNewRotationSet,

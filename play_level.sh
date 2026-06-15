@@ -7,11 +7,14 @@
 #   DISPLAY=:0 ./play_level.sh       # if your desktop is on another display
 #   WARP=1000 ./play_level.sh        # boot a different level (0,1000,...,8000)
 #   ROM=baserom.us.v12.z64 ./play_level.sh   # RETAIL v1.2 assets (Path B) — finished art
+#   DEBUG=1 ROM=… ./play_level.sh    # crash-diagnosis build: prints fault addr + backtrace on segfault
 #
 # Notes:
 #  - ROM=<retail .z64> selects Path B: assets stream from the retail ROM (offset 0x1F00),
 #    giving the FINISHED v1.2 models/textures instead of the v49 leak's placeholder art.
 #    Leave ROM unset to use the in-tree v49 cartdata.dat.
+#  - DEBUG=1 builds the -O0 + SIGSEGV-handler binary: on a crash it prints the fault address,
+#    last memcpy, and a short backtrace — send that output for diagnosis.
 #  - Input is wired (WASD/arrows + gamepad). Levels 2-8 (WARP 2000+) load slowly;
 #    WARP=0 (default) is fast.
 set -e
@@ -20,7 +23,7 @@ cd "$(dirname "$0")"
 : "${DISPLAY:=:1}"
 : "${WARP:=0}"
 : "${FPS:=60}"
-OUT=/tmp/turok_sdl
+if [ -n "${DEBUG:-}" ] && [ "$DEBUG" != "0" ]; then BUILD_MODE=debug; OUT=/tmp/turok_sdl_dbg; else BUILD_MODE=release; OUT=/tmp/turok_sdl; fi
 
 # Path B: if ROM is set, resolve to an absolute path and stream retail v1.2 assets.
 ROM_ARG=()
@@ -31,8 +34,8 @@ if [ -n "${ROM:-}" ]; then
     echo "[play_level] Path B: streaming RETAIL v1.2 assets from $ROM_ABS"
 fi
 
-echo "[play_level] building SDL2 windowed release -> $OUT ..."
-if ! GFX=sdl2 TUROK_OUT="$OUT" bash tools/build_port.sh release >/tmp/turok_sdl_build.log 2>&1; then
+echo "[play_level] building SDL2 windowed $BUILD_MODE -> $OUT ..."
+if ! GFX=sdl2 TUROK_OUT="$OUT" bash tools/build_port.sh "$BUILD_MODE" >/tmp/turok_sdl_build.log 2>&1; then
     echo "[play_level] BUILD FAILED:"; tail -12 /tmp/turok_sdl_build.log; exit 1
 fi
 echo "[play_level] launching first level (WARP=$WARP, DISPLAY=$DISPLAY) — close the window to quit."

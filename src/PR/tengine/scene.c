@@ -907,6 +907,11 @@ void CScene__ObjectAttributesReceived(CScene *pThis, CCacheEntry **ppceTarget)
 		CUnindexedSet__ConstructFromRawData(&usEA, CCacheEntry__GetData(*ppceTarget), FALSE);
 		n  = CUnindexedSet__GetBlockCount(&usEA);
 		ea = (CEnemyAttributes*) CUnindexedSet__GetBasePtr(&usEA);
+		{ extern int fprintf(void*,const char*,...); extern void *stderr;
+		  if (n < 0 || n > 4096) {   /* a level can't have this many enemy variations -> a bad count would stomp the heap */
+		    fprintf(stderr, "[scene] EnemyAttributes count=%d implausible — skipping swap (would OOB)\n", n);
+		    n = 0;
+		  } }
 		for (i = 0; i < n; i++) {
 			unsigned int *w = (unsigned int*) &ea[i];
 			int j;

@@ -153,6 +153,12 @@ static void adpcmDecodeSignal(s16 *RawBuffer, s32 SampleLen)
 	}
 }
 
+/* Capacity bound (in samples per signal) of the caller's RawBuffers — set by anim.c to nFrames
+ * before each call. The decoder writes SampleLen samples/signal; if the stream's SampleLen header
+ * is larger than the allocated scratch (a malformed/mis-located stream), an unclamped write would
+ * stomp the heap and crash non-deterministically. 0 = unbounded (defensive default). */
+int turok_adpcm_cap = 0;
+
 s32 adpcmDecode(s16 **RawBuffers, u8 *ADPCMBuffer, s32 NumSignals)
 {
 	s32 SampleLen, NumBlocks, i, BitPos;
@@ -160,6 +166,13 @@ s32 adpcmDecode(s16 **RawBuffers, u8 *ADPCMBuffer, s32 NumSignals)
 
 	SampleLen  = *adpcm_Hdr++ << 8;
 	SampleLen |= *adpcm_Hdr++;
+
+	if (turok_adpcm_cap > 0 && (SampleLen > turok_adpcm_cap || SampleLen < 0)) {
+		extern int fprintf(void*, const char*, ...); extern void *stderr;
+		fprintf(stderr, "[adpcm] CLAMP SampleLen=%d -> cap=%d (malformed/mis-located stream)\n",
+		        SampleLen, turok_adpcm_cap);
+		SampleLen = turok_adpcm_cap;
+	}
 
 	NumBlocks = (SampleLen + BLOCK - 1) / BLOCK;
 
