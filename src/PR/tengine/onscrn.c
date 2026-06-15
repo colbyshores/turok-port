@@ -42,11 +42,11 @@
 #define	TOKENS_TIMER							96
 
 
-// air meter position defines
-#define	AIR_XPOS							((320/2)- (((C16BitGraphic *)AirBarOverlay)->m_Width/2))
+// air meter position defines  (PORT: m_Width is big-endian in the static blob -> swap)
+#define	AIR_XPOS							((320/2)- (ONSCRN_SW16(((C16BitGraphic *)AirBarOverlay)->m_Width)/2))
 #define	AIR_YPOS							16
 
-#define	BOSS_XPOS				 		((320/2)- (((C16BitGraphic *)BossBarOverlay)->m_Width/2))
+#define	BOSS_XPOS				 		((320/2)- (ONSCRN_SW16(((C16BitGraphic *)BossBarOverlay)->m_Width)/2))
 #define	BOSS_YPOS				 		16
 
 
@@ -3191,16 +3191,16 @@ void COnScreen__Draw16BitGraphic(Gfx **ppDLP, C16BitGraphic *Graphic, INT16 X, I
 	UINT8			*Part ;
 
 	Part = (UINT8 *)Graphic->m_pPart ;
-	YCount = Graphic->m_BlocksDown;
+	YCount = ONSCRN_SW16(Graphic->m_BlocksDown);
 	while(YCount--)
 	{
-		XCount = Graphic->m_BlocksAcross ;
+		XCount = ONSCRN_SW16(Graphic->m_BlocksAcross) ;
 
 		curx = X ;
 		while(XCount--)
 		{
-			width = ((C16BitPart *)Part)->m_BlockWidth ;
-			height = ((C16BitPart *)Part)->m_BlockHeight ;
+			width = ONSCRN_SW32(((C16BitPart *)Part)->m_BlockWidth) ;
+			height = ONSCRN_SW32(((C16BitPart *)Part)->m_BlockHeight) ;
 		//rmonPrintf("width %08x height %08x\n", width, height) ;
 		//rmonPrintf("Part:%08x\n", Part);
 		//rmonPrintf("m_pData:%08x\n", ((C16BitPart*) Part)->m_pData);
@@ -3229,16 +3229,16 @@ void COnScreen__Draw16BitScaledGraphic(Gfx **ppDLP, C16BitGraphic *Graphic, floa
 	UINT8			*Part ;
 
 	Part = (UINT8 *)Graphic->m_pPart ;
-	YCount = Graphic->m_BlocksDown;
+	YCount = ONSCRN_SW16(Graphic->m_BlocksDown);
 	while(YCount--)
 	{
-		XCount = Graphic->m_BlocksAcross ;
+		XCount = ONSCRN_SW16(Graphic->m_BlocksAcross) ;
 
 		curx = X ;
 		while(XCount--)
 		{
-			width = ((C16BitPart *)Part)->m_BlockWidth ;
-			height = ((C16BitPart *)Part)->m_BlockHeight ;
+			width = ONSCRN_SW32(((C16BitPart *)Part)->m_BlockWidth) ;
+			height = ONSCRN_SW32(((C16BitPart *)Part)->m_BlockHeight) ;
 			image = ((C16BitPart *)Part)->m_pData ;
 			opacity = ((C16BitPart *)Part)->m_pData + (width*height*2);
 			COnScreen__Draw16BitScaledTexture(ppDLP, image, opacity,

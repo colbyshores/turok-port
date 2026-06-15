@@ -114,7 +114,15 @@ s32 osRecvMesg(OSMesgQueue *mq, OSMesg *msg, s32 flag)
     mq->validCount--;
     return 0;
 }
-void osSetEventMesg(OSEvent e, OSMesgQueue *mq, OSMesg msg) { (void)e;(void)mq;(void)msg; }
+/* PORT: remember the SI (controller) event registration so osContStartReadData can
+ * post it — simulating the serial read completing — which drives the main loop's
+ * CONTROLLER_MSG -> UpdateController -> osContGetReadData (input) path. */
+static OSMesgQueue *g_si_mq  = 0;
+static OSMesg       g_si_msg = 0;
+void osSetEventMesg(OSEvent e, OSMesgQueue *mq, OSMesg msg)
+{
+    if (e == OS_EVENT_SI) { g_si_mq = mq; g_si_msg = msg; }
+}
 
 /* ---- PI / DMA (cartridge reads) → romdata seam -------------------------- */
 void osCreatePiManager(OSPri pri, OSMesgQueue *cmdQ, OSMesg *cmdBuf, s32 n)
@@ -171,17 +179,28 @@ void osViSwapBuffer(void *frameBuf)
 }
 s32  osDpSetNextBuffer(void *p, u64 sz)              { (void)p;(void)sz; return 0; }
 
-/* ---- AI (audio out) — wired to the mixer at M4 -------------------------- */
-s32 osAiSetNextBuffer(void *buf, u32 sz) { (void)buf;(void)sz; return 0; }
-u32 osAiGetLength(void)                  { return 0; }
+/* ---- AI (audio out) — host DAC replacement (turok_audio.c sink) --------- */
+extern void         turokAudioPush(const void *pcm, int nbytes);
+extern unsigned int turokAudioQueuedBytes(void);
+extern void         turokAudioSetRate(int rate);
+
+s32 osAiSetNextBuffer(void *buf, u32 sz) { turokAudioPush(buf, (int)sz); return 0; }
+u32 osAiGetLength(void)                  { return turokAudioQueuedBytes(); }
 u32 osAiGetStatus(void)                  { return 0; }
-s32 osAiSetFrequency(u32 f)              { (void)f; return 32000; }
+s32 osAiSetFrequency(u32 f)              { if (f < 8000) f = 22050; if (f > 48000) f = 48000;
+                                           turokAudioSetRate((int)f); return (s32)f; }
 
 /* ---- controllers — no input at M1 -------------------------------------- */
 s32 osContInit(OSMesgQueue *mq, u8 *bitpattern, OSContStatus *st)
 { (void)mq; if (bitpattern) *bitpattern = 1; if (st) memset(st, 0, sizeof(*st)); return 0; }
-s32  osContStartReadData(OSMesgQueue *mq)            { (void)mq; return 0; }
-void osContGetReadData(OSContPad *pad)               { if (pad) memset(pad, 0, sizeof(*pad)); }
+s32  osContStartReadData(OSMesgQueue *mq)
+{
+    /* PORT: post the registered SI-event message so the loop reads the controller this frame. */
+    if (g_si_msg) osSendMesg(g_si_mq ? g_si_mq : mq, g_si_msg, OS_MESG_NOBLOCK);
+    return 0;
+}
+extern void turokInputGetPad(OSContPad *pad);        /* turok_input.c: current mapped pad */
+void osContGetReadData(OSContPad *pad)               { if (pad) turokInputGetPad(pad); }
 
 /* ---- controller pak / pfs (saves) — empty at M1 ------------------------- */
 s32 osPfsInitPak(OSMesgQueue *mq, OSPfs *pfs, int ch){ (void)mq;(void)pfs;(void)ch; return 1; }

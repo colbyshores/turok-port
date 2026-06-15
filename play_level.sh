@@ -3,15 +3,17 @@
 # for visual debugging on your desktop. Close the window (or Ctrl-C) to quit.
 #
 # Usage:
-#   ./play_level.sh                 # uses DISPLAY :1
+#   ./play_level.sh                 # uses DISPLAY :1, v49 dev assets (cartdata.dat)
 #   DISPLAY=:0 ./play_level.sh       # if your desktop is on another display
 #   WARP=1000 ./play_level.sh        # boot a different level (0,1000,...,8000)
+#   ROM=baserom.us.v12.z64 ./play_level.sh   # RETAIL v1.2 assets (Path B) — finished art
 #
 # Notes:
-#  - No input is wired yet (controller is stubbed), so the camera is static — you
-#    see the level from the spawn point. Animated objects (player/enemies) draw but
-#    may be culled/off-screen at the spawn. Resize the window freely.
-#  - Levels 2-8 (WARP 2000+) are large and load slowly; WARP=0 (default) is fast.
+#  - ROM=<retail .z64> selects Path B: assets stream from the retail ROM (offset 0x1F00),
+#    giving the FINISHED v1.2 models/textures instead of the v49 leak's placeholder art.
+#    Leave ROM unset to use the in-tree v49 cartdata.dat.
+#  - Input is wired (WASD/arrows + gamepad). Levels 2-8 (WARP 2000+) load slowly;
+#    WARP=0 (default) is fast.
 set -e
 cd "$(dirname "$0")"
 
@@ -19,6 +21,15 @@ cd "$(dirname "$0")"
 : "${WARP:=0}"
 : "${FPS:=60}"
 OUT=/tmp/turok_sdl
+
+# Path B: if ROM is set, resolve to an absolute path and stream retail v1.2 assets.
+ROM_ARG=()
+if [ -n "${ROM:-}" ]; then
+    case "$ROM" in /*) ROM_ABS="$ROM";; *) ROM_ABS="$PWD/$ROM";; esac
+    if [ ! -f "$ROM_ABS" ]; then echo "[play_level] ROM not found: $ROM_ABS"; exit 1; fi
+    ROM_ARG=(TUROK_ROM="$ROM_ABS")
+    echo "[play_level] Path B: streaming RETAIL v1.2 assets from $ROM_ABS"
+fi
 
 echo "[play_level] building SDL2 windowed release -> $OUT ..."
 if ! GFX=sdl2 TUROK_OUT="$OUT" bash tools/build_port.sh release >/tmp/turok_sdl_build.log 2>&1; then
@@ -28,6 +39,7 @@ echo "[play_level] launching first level (WARP=$WARP, DISPLAY=$DISPLAY) — clos
 
 exec env DISPLAY="$DISPLAY" \
     TUROK_CARTDATA="$PWD/src/PR/cartdata.dat" \
+    "${ROM_ARG[@]}" \
     TUROK_WARP="$WARP" \
     TUROK_FPS="$FPS" \
     "$OUT/turok"

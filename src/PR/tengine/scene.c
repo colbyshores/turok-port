@@ -1597,10 +1597,32 @@ void CScene__DecompressInstances(CScene *pThis, CCacheEntry **ppceTarget)
 
 			pROMInstance->m_nCurrentRegion = pThis->m_WarpPoint.m_nRegion;
 
+#ifdef PLATFORM_PORT
+			/* pROMInstances[0] is the player; it is decoded by TakeFromROMObjectInstance, which now
+			 * ORDERBYTES m_vPos (component-wise) and m_RotY back to host order. So feed it BIG-ENDIAN
+			 * values: m_WarpPoint.m_vPos is already host-order (swapped at scene.c:463) -> re-swap to
+			 * big; m_RotY is stored big-endian -> decode locally, normalize, re-encode big. Without
+			 * this the player double-swaps to a garbage position -> garbage camera -> world clip-rejects. */
+			{
+				float realRotY = ORDERBYTES(pThis->m_WarpPoint.m_RotY);   /* big -> host */
+				{ extern char *getenv(const char*); extern int sscanf(const char*,const char*,...);
+				  const char*sp=getenv("TUROK_SPAWNAT"); float tx,ty,tz,tr;
+				  if(sp){ int _n=sscanf(sp,"%f,%f,%f,%f",&tx,&ty,&tz,&tr);
+				    if(_n>=3){ pThis->m_WarpPoint.m_vPos.x=tx; pThis->m_WarpPoint.m_vPos.y=ty; pThis->m_WarpPoint.m_vPos.z=tz; }
+				    if(_n==4) realRotY=tr; } }
+				NormalizeRotation(&realRotY);
+				pROMInstance->m_RotY = ORDERBYTES((INT16)FLOAT2INT16(
+				                          max(-ANGLE_PI, min(ANGLE_PI, realRotY)), ANGLE_PI));  /* host -> big */
+				pROMInstance->m_vPos.x = ORDERBYTES(pThis->m_WarpPoint.m_vPos.x);  /* host -> big */
+				pROMInstance->m_vPos.y = ORDERBYTES(pThis->m_WarpPoint.m_vPos.y);
+				pROMInstance->m_vPos.z = ORDERBYTES(pThis->m_WarpPoint.m_vPos.z);
+			}
+#else
 			NormalizeRotation(&pThis->m_WarpPoint.m_RotY);
 			pROMInstance->m_RotY = FLOAT2INT16(max(-ANGLE_PI, min(ANGLE_PI, pThis->m_WarpPoint.m_RotY)), ANGLE_PI);
 
 			pROMInstance->m_vPos = pThis->m_WarpPoint.m_vPos;
+#endif
 		}
 
 		for (cInstance=0; cInstance<nInstances; cInstance++)
@@ -2628,7 +2650,11 @@ void CScene__Draw(CScene *pThis, Gfx **ppDLP)
 		}
 
 
+#ifdef PLATFORM_PORT
+		{ extern char *getenv(const char*); if (!getenv("TUROK_NOWORLD")) CScene__DrawEnvironment(pThis, ppDLP); }
+#else
 		CScene__DrawEnvironment(pThis, ppDLP);
+#endif
 		CScene__SendStaticEvents(pThis);
 
 		CScene__DrawInstances(pThis, ppDLP, &usInstances);
@@ -2779,6 +2805,7 @@ void CScene__DrawParticles(CScene *pThis, Gfx **ppDLP)
 	CParticleSystem__Draw(&pThis->m_ParticleSystem, ppDLP);
 }
 
+int g_turok_drawall=0;
 void CScene__DrawInstances(CScene *pThis, Gfx **ppDLP, CUnindexedSet *pusInstances)
 {
 	int 						cInstance, nInstances;
@@ -2790,6 +2817,9 @@ void CScene__DrawInstances(CScene *pThis, Gfx **ppDLP, CUnindexedSet *pusInstanc
 
    nInstances = CUnindexedSet__GetBlockCount(pusInstances);
    instances = (CGameObjectInstance*) CUnindexedSet__GetBasePtr(pusInstances);
+#ifdef PLATFORM_PORT
+	{ extern char *getenv(const char*); static int dq=-1; if(dq<0){const char*e=getenv("TUROK_DRAWALL");dq=e?atoi(e):0;} g_turok_drawall=dq; }
+#endif
 
 	// performance tuned
 	gSPClipRatio((*ppDLP)++, FRUSTRATIO_5);
@@ -2804,7 +2834,7 @@ void CScene__DrawInstances(CScene *pThis, Gfx **ppDLP, CUnindexedSet *pusInstanc
 		{
 			if (pInst->m_asCurrent.m_pceAnim)
 			{
-				if ((CBoundsRect__IsOverlapping(&pInst->m_BoundsRect, &anim_bounds_rect) || pInst->m_pBoss) && CScene__IsActive(pThis, pInst))
+				if ((CBoundsRect__IsOverlapping(&pInst->m_BoundsRect, &anim_bounds_rect) || pInst->m_pBoss || g_turok_drawall) && CScene__IsActive(pThis, pInst))
 				{
 					if (CGameObjectInstance__IsVisible(pInst) && CGameObjectInstance__HasTransparency(pInst))
 					{
@@ -2823,7 +2853,7 @@ void CScene__DrawInstances(CScene *pThis, Gfx **ppDLP, CUnindexedSet *pusInstanc
 			}
 			else
 			{
-				if ((CBoundsRect__IsOverlapping(&pInst->m_BoundsRect, &anim_bounds_rect) || pInst->m_pBoss) && CScene__IsActive(pThis, pInst))
+				if ((CBoundsRect__IsOverlapping(&pInst->m_BoundsRect, &anim_bounds_rect) || pInst->m_pBoss || g_turok_drawall) && CScene__IsActive(pThis, pInst))
 				{
 					CGameObjectInstance__Draw(pInst, ppDLP,
 													  pThis->m_pceTextureSetsIndex);
@@ -3261,6 +3291,7 @@ void CScene__SetUpActiveFlags(CScene *pThis, CUnindexedSet *pusAnimInstances)
 		pThis->m_bPlayerActiveFlags = pRegionSet->m_bActiveFlags;
 	else
 		pThis->m_bPlayerActiveFlags = (BYTE) -1;
+
 }
 
 void CScene__BuildInstanceCollisionList(CScene *pThis, CUnindexedSet *pusAnimInstances)
@@ -3689,6 +3720,11 @@ void CScene__DrawTransparentInstances(CScene *pThis, Gfx **ppDLP)
 	zPos2 = -2*CEngineApp__GetEyePos(pApp).z;
 
 	nInsts = pThis->m_nTransparentInstances;
+#ifdef PLATFORM_PORT
+	{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
+	  static int s_xi=-1, s_max=0; if(s_xi<0) s_xi = getenv("TUROK_XINSTLOG")?1:0;
+	  if(s_xi && nInsts>s_max){ s_max=nInsts; fprintf(stderr,"[xinst] transparent instances this frame = %d (peak)\n", nInsts); } }
+#endif
 	for (cInst=0; cInst<nInsts; cInst++)
 	{
 		pInstance = pThis->m_pTransparentInstances[cInst];

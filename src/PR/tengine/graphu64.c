@@ -1205,11 +1205,27 @@ void NormalizeRotation(float *pTheta)
 {
 	ASSERT(pTheta);
 
+#ifdef PLATFORM_PORT
+	/* O(1) wrap that cannot spin on a pathological angle. The N64 iterative
+	 * version below loops ~6e17 times (an effective hang) when handed a huge
+	 * value — which happens off-N64 when a garbage/unspawned AI instance (pos
+	 * {0,_,0}) feeds AI_GetAvoidanceAngle a non-finite goalAngle. For sane
+	 * angles this yields the identical [-PI, PI) result. */
+	{
+		float t = fmodf(*pTheta + ANGLE_PI, 2.0f*ANGLE_PI);
+		if (t < 0.0f) t += 2.0f*ANGLE_PI;
+		t -= ANGLE_PI;
+		if (t != t) t = 0.0f;       /* NaN (e.g. Inf input) -> neutral */
+		*pTheta = t;
+		return;
+	}
+#else
 	while (*pTheta < -ANGLE_PI)
 		*pTheta += 2*ANGLE_PI;
 
 	while (*pTheta >= ANGLE_PI)
 		*pTheta -= 2*ANGLE_PI;
+#endif
 }
 
 // polynomial approximation

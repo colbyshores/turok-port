@@ -1545,12 +1545,26 @@ void ProportionalZoomVarFLOAT(FLOAT *pVar, FLOAT Target, FLOAT Speed)
 
 FLOAT AngleDiffFromZero(FLOAT Theta)
 {
+#ifdef PLATFORM_PORT
+	/* O(1) wrap — the iterative version spins ~1e17x (hang) on a garbage angle,
+	 * which boss AI (BOSS_CalculateAngles) produces off-N64 from an unspawned
+	 * instance (e.g. Campaigner at warp 6000, Theta~-2e17). Same fix as
+	 * graphu64.c NormalizeRotation; identical [-PI,PI] result for sane angles. */
+	{
+		float t = fmodf(Theta + ANGLE_PI, 2.0f*ANGLE_PI);
+		if (t < 0.0f) t += 2.0f*ANGLE_PI;
+		t -= ANGLE_PI;
+		if (t != t) t = 0.0f;
+		return -t;
+	}
+#else
 	while(Theta < -ANGLE_PI)
 		Theta += 2*ANGLE_PI ;
 	while(Theta > ANGLE_PI)
 		Theta -= 2*ANGLE_PI ;
 
 	return -Theta ;
+#endif
 }
 
 

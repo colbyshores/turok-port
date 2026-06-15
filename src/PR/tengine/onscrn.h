@@ -4,6 +4,19 @@
 #ifndef _INC_ONSCRN
 #define _INC_ONSCRN
 
+/* PORT: the HUD overlay graphics (HealthOverlay[], digits, etc.) are hand-authored
+ * BIG-ENDIAN static byte arrays interpreted through the C16BitGraphic / C16BitPart /
+ * CGridGraphic structs below. On a little-endian host every multi-byte header field
+ * (block counts, dimensions) must be byte-swapped at READ time (the blobs are const,
+ * so never swap in place). SW16/SW32 are read-time value swaps; identity off-port. */
+#ifdef PLATFORM_PORT
+#define	ONSCRN_SW16(x)	((UINT16)__builtin_bswap16((UINT16)(x)))
+#define	ONSCRN_SW32(x)	((UINT32)__builtin_bswap32((UINT32)(x)))
+#else
+#define	ONSCRN_SW16(x)	(x)
+#define	ONSCRN_SW32(x)	(x)
+#endif
+
 /////////////////////////////////////////////////////////////////////////////
 // Onscreen defines
 /////////////////////////////////////////////////////////////////////////////

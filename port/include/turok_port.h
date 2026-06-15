@@ -30,5 +30,15 @@
  * kept as the home for genuine codegen-neutral host shims as the port grows.
  */
 
+/* Single-precision math prototype: the game's math headers declare the DOUBLE
+ * variants (sin/cos/sqrt…) but not the float ones, so a bare `fmodf()` is implicitly
+ * declared as `int fmodf()` — wrong ABI, garbage result (it compiles silently under
+ * -Wno-implicit-function-declaration, then BLANKS the render because the wrapped angle
+ * comes back as garbage). The port uses fmodf for O(1) angle wrapping in
+ * graphu64.c (NormalizeRotation), boss.c (AngleDiffFromZero) and tmove.c; declare it
+ * with the correct signature so it's called/returned as float. (Matches <math.h>, so a
+ * TU that also includes <math.h> sees a compatible redeclaration.) */
+extern float fmodf(float, float);
+
 #endif /* PLATFORM_PORT */
 #endif /* _TUROK_PORT_H */

@@ -1637,15 +1637,14 @@ void CEngineApp__DrawGAME(CEngineApp *pThis)
 			&&	!CCamera__InCinemaMode(&GetApp()->m_Camera) )
 	{
 #ifdef PLATFORM_PORT
-		/* PORT bring-up: the HUD overlay graphics (C16BitGraphic: m_BlocksAcross/Down + per-block
-		 * C16BitPart m_BlockWidth/Height/m_pData) are big-endian in the cart asset and read raw here,
-		 * so COnScreen__Draw16BitGraphic walks wild loop counts / pointers and faults. The 3D world
-		 * (CScene__Draw, above) already drew fine — skip the HUD so the frame presents real geometry.
-		 * Re-enable once the 16-bit-graphic asset endianness is handled (M5). TUROK_HUD=1 forces it on. */
+		/* PORT: the HUD overlay graphics (C16BitGraphic m_BlocksAcross/Down + per-block
+		 * C16BitPart m_BlockWidth/Height) are big-endian static blobs; the header fields are now
+		 * byte-swapped at read time (ONSCRN_SW16/32 in onscrn.c), so the HUD draws correctly.
+		 * Default ON now; TUROK_HUD=0 disables it (e.g. for clean geometry captures). */
 		{
 			extern char *getenv(const char *);
 			const char *h = getenv("TUROK_HUD");
-			if (!(h && *h == '1'))
+			if (h && *h == '0')
 				goto skip_hud;
 		}
 #endif

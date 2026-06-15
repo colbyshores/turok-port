@@ -6271,10 +6271,16 @@ BOOL CTMove__IsPlayerUpsideDown(CTMove *pThis)
 
 
 	Ang = pThis->RotXPlayer + (ANGLE_PI/2);
+#ifdef PLATFORM_PORT
+	Ang = fmodf(Ang, ANGLE_PI*2.0f);   /* O(1); can't spin on a garbage RotXPlayer */
+	if (Ang < 0.0f) Ang += ANGLE_PI*2.0f;
+	if (Ang != Ang) Ang = 0.0f;
+#else
 	while (Ang>=ANGLE_PI*2)
 		Ang -= ANGLE_PI*2;
 	while (Ang<0)
 		Ang += ANGLE_PI*2;
+#endif
 
 
 	return (BOOL) (Ang>=ANGLE_PI);

@@ -1611,6 +1611,23 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
         use_alpha = true;
     }
 
+#ifdef PLATFORM_PORT
+    { static int s_bl = -1, s_n = 0, s_xlu = 0, s_invis = 0;
+      if (s_bl < 0) s_bl = getenv("TUROK_BLENDLOG") ? 1 : 0;
+      if (s_bl) {
+        s_n++;
+        if (use_alpha) s_xlu++;
+        if (invisible) s_invis++;
+        if (s_n <= 200 && (use_alpha || invisible || alpha_threshold))
+          fprintf(stderr, "[blendlog] draw#%d oml=0x%08x omh=0x%08x use_alpha=%d 2cyc=%d invis=%d athr=%d texedge=%d comb=0x%llx\n",
+                  s_n, (unsigned)rdp.other_mode_l, (unsigned)rdp.other_mode_h,
+                  (int)use_alpha, (int)use_2cyc, (int)invisible, (int)alpha_threshold, (int)texture_edge,
+                  (unsigned long long)rdp.combine_mode);
+        if ((s_n % 400) == 0)
+          fprintf(stderr, "[blendlog] === %d draws: %d alpha-blended, %d invisible ===\n", s_n, s_xlu, s_invis);
+      } }
+#endif
+
     if (use_alpha) {
         cc_options |= (uint64_t)SHADER_OPT_ALPHA;
     }

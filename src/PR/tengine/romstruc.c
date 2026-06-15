@@ -1606,7 +1606,7 @@ void CGameSimpleInstance__Draw(CGameSimpleInstance *pThis, Gfx **ppDLP,
 	//float				dist;
 
 	// Draw in "pickup key" cinema?
-	if (    (pThis->ah.ih.m_pEA->m_wTypeFlags3 & AI_TYPE3_DONTDRAWONCINEMA) 
+	if (    pThis->ah.ih.m_pEA && (pThis->ah.ih.m_pEA->m_wTypeFlags3 & AI_TYPE3_DONTDRAWONCINEMA) 
 		  && (GetApp()->m_Camera.m_Mode == CAMERA_CINEMA_TUROK_PICKUP_KEY_MODE) )
 		return ;
 
@@ -2315,7 +2315,7 @@ void CGameStaticInstance__Draw(CGameStaticInstance *pThis, Gfx **ppDLP,
 #endif
 
 	// Draw in "pickup key" cinema?
-	if (    (pThis->ih.m_pEA->m_wTypeFlags3 & AI_TYPE3_DONTDRAWONCINEMA) 
+	if (    pThis->ih.m_pEA && (pThis->ih.m_pEA->m_wTypeFlags3 & AI_TYPE3_DONTDRAWONCINEMA) 
 		  && (GetApp()->m_Camera.m_Mode == CAMERA_CINEMA_TUROK_PICKUP_KEY_MODE) )
 		return ;
 
@@ -2602,7 +2602,14 @@ void CGameObjectInstance__TakeFromROMObjectInstance(CGameObjectInstance *pThis, 
 	pThis->ah.ih.m_nObjType	= ORDERBYTES(pSource->m_nObjType);
 	pThis->ah.ih.m_bActiveFlags = pSource->m_bActiveFlags;
 
-	pThis->ah.ih.m_pEA		= &Variations[ORDERBYTES(pSource->m_nVariation)];
+	/* PORT: guard variation==-1 (devices like elevators/doors have no enemy variation), matching the
+	 * CGameSimpleInstance (romstruc.c:1319) / CGameStaticInstance (:2251) decoders. Without this,
+	 * ORDERBYTES(0xFFFF)=65535 indexes Variations[] far out of bounds -> garbage m_pEA -> garbage
+	 * CalculateOrientationMatrix transform (uses m_pEA->m_CollisionHeight) -> the device is culled/clipped. */
+	if (ORDERBYTES(pSource->m_nVariation) == (WORD) -1)
+		pThis->ah.ih.m_pEA	= NULL;
+	else
+		pThis->ah.ih.m_pEA	= &Variations[ORDERBYTES(pSource->m_nVariation)];
 
 	if (ORDERBYTES(pSource->m_nCurrentRegion) == (WORD) -1)
 		pThis->ah.ih.m_pCurrentRegion	= NULL;
@@ -2613,12 +2620,24 @@ void CGameObjectInstance__TakeFromROMObjectInstance(CGameObjectInstance *pThis, 
 	pThis->m_qGround = pThis->m_qShadow = CInstanceHdr__GetGroundRotation(&pThis->ah.ih);
 #endif
 
+	/* PORT: m_vPos/m_vScale are big-endian CVector3 floats. The aggregate ORDERBYTES is a NO-OP
+	 * (it only swaps 2/4-byte scalars), so these were left big-endian — read on LE a big-endian
+	 * float decodes to a denormal (~1e-41, prints as 0) or garbage, putting every animated object
+	 * at the origin with a junk scale -> culled/clipped (invisible). Swap component-wise. */
+#ifdef PLATFORM_PORT
+	pThis->ah.ih.m_vPos.x = ORDERBYTES(pSource->m_vPos.x); pThis->ah.ih.m_vPos.y = ORDERBYTES(pSource->m_vPos.y); pThis->ah.ih.m_vPos.z = ORDERBYTES(pSource->m_vPos.z);
+#else
    pThis->ah.ih.m_vPos		= ORDERBYTES(pSource->m_vPos);
+#endif
 	pThis->ah.ih.m_CollisionHeightOffset = 0;
 
 	pThis->m_dwFlags = pSource->m_bFlags;
 
+#ifdef PLATFORM_PORT
+	pThis->m_vScale.x = ORDERBYTES(pSource->m_vScale.x); pThis->m_vScale.y = ORDERBYTES(pSource->m_vScale.y); pThis->m_vScale.z = ORDERBYTES(pSource->m_vScale.z);
+#else
    pThis->m_vScale 			= ORDERBYTES(pSource->m_vScale);
+#endif
    //pThis->m_pceObjectIndex = NULL;
 	//pThis->m_pceAnimsHeader = pThis->m_pceAnimsIndex = NULL;
 	//pThis->m_pCache = NULL;
@@ -3032,7 +3051,7 @@ void CGameObjectInstance__CalculateOrientationMatrix(CGameObjectInstance *pThis,
 			CQuatern__ToMatrix(&qTemp2, mfBoundsOrient) ;
 			CMtxF__PreMultScale(mfBoundsOrient, xzs*pThis->m_vScale.x, ys*pThis->m_vScale.y, xzs*pThis->m_vScale.z) ;
 
-			CMtxF__PostMultTranslate(mfBoundsOrient, 0, -pThis->ah.ih.m_pEA->m_CollisionHeight/2, 0) ;
+			CMtxF__PostMultTranslate(mfBoundsOrient, 0, -(pThis->ah.ih.m_pEA ? pThis->ah.ih.m_pEA->m_CollisionHeight : 0)/2, 0) ;
 
 			CQuatern__ToMatrix(&GetApp()->m_qPortraitOrientation, mfTemp1) ;
 			CMtxF__Copy(mfTemp2, mfBoundsOrient) ;
@@ -3092,37 +3111,28 @@ void CGameObjectInstance__CalculateOrientationMatrix(CGameObjectInstance *pThis,
 
 	//CROMBounds__Print(pBounds);
 
-   vCorners[0].x = pBounds->m_vMin.x;
-	vCorners[0].y = pBounds->m_vMin.y;
-	vCorners[0].z = pBounds->m_vMin.z;
-
-   vCorners[1].x = pBounds->m_vMax.x;
-	vCorners[1].y = pBounds->m_vMin.y;
-	vCorners[1].z = pBounds->m_vMin.z;
-
-	vCorners[2].x = pBounds->m_vMax.x;
-	vCorners[2].y = pBounds->m_vMin.y;
-	vCorners[2].z = pBounds->m_vMax.z;
-
-   vCorners[3].x = pBounds->m_vMin.x;
-	vCorners[3].y = pBounds->m_vMin.y;
-	vCorners[3].z = pBounds->m_vMax.z;
-
-   vCorners[4].x = pBounds->m_vMin.x;
-	vCorners[4].y = pBounds->m_vMax.y;
-	vCorners[4].z = pBounds->m_vMin.z;
-
-	vCorners[5].x = pBounds->m_vMax.x;
-	vCorners[5].y = pBounds->m_vMax.y;
-	vCorners[5].z = pBounds->m_vMin.z;
-
-   vCorners[6].x = pBounds->m_vMax.x;
-	vCorners[6].y = pBounds->m_vMax.y;
-	vCorners[6].z = pBounds->m_vMax.z;
-
-	vCorners[7].x = pBounds->m_vMin.x;
-	vCorners[7].y = pBounds->m_vMax.y;
-	vCorners[7].z = pBounds->m_vMax.z;
+	{
+#ifdef PLATFORM_PORT
+	/* CROMBounds m_vMin/m_vMax are big-endian model-space floats. Read raw they yield a
+	 * garbage m_BoundsRect (~1e17), so the object FAILS the anim_bounds_rect overlap test in
+	 * CScene__DrawInstances and is culled (invisible) — this is why animated objects/devices
+	 * (e.g. AI_OBJECT_DEVICE_* platforms/elevators) did not draw. Swap component-wise (the
+	 * CVector3 aggregate ORDERBYTES is a no-op); local copies avoid any double-swap. */
+	CVector3 bmin, bmax;
+	bmin.x = ORDERBYTES(pBounds->m_vMin.x); bmin.y = ORDERBYTES(pBounds->m_vMin.y); bmin.z = ORDERBYTES(pBounds->m_vMin.z);
+	bmax.x = ORDERBYTES(pBounds->m_vMax.x); bmax.y = ORDERBYTES(pBounds->m_vMax.y); bmax.z = ORDERBYTES(pBounds->m_vMax.z);
+#else
+	CVector3 bmin = pBounds->m_vMin, bmax = pBounds->m_vMax;
+#endif
+	vCorners[0].x = bmin.x; vCorners[0].y = bmin.y; vCorners[0].z = bmin.z;
+	vCorners[1].x = bmax.x; vCorners[1].y = bmin.y; vCorners[1].z = bmin.z;
+	vCorners[2].x = bmax.x; vCorners[2].y = bmin.y; vCorners[2].z = bmax.z;
+	vCorners[3].x = bmin.x; vCorners[3].y = bmin.y; vCorners[3].z = bmax.z;
+	vCorners[4].x = bmin.x; vCorners[4].y = bmax.y; vCorners[4].z = bmin.z;
+	vCorners[5].x = bmax.x; vCorners[5].y = bmax.y; vCorners[5].z = bmin.z;
+	vCorners[6].x = bmax.x; vCorners[6].y = bmax.y; vCorners[6].z = bmax.z;
+	vCorners[7].x = bmin.x; vCorners[7].y = bmax.y; vCorners[7].z = bmax.z;
+	}
 
 	for (c=0; c<8; c++)
 		CMtxF__VectorMult(mfBoundsOrient, &vCorners[c], &vTCorners[c]);
@@ -8528,6 +8538,7 @@ void CROMSoundElement__TakeFromElement(CROMSoundElement *pThis, CSoundElement *p
 
 #ifndef WIN32
 
+extern int g_turok_drawall;
 void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 										 CCacheEntry *pceTextureSetsIndex)
 {
@@ -8571,7 +8582,15 @@ void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 	{ extern int fprintf(void*,const char*,...); extern void *stderr; extern char *getenv(const char*);
 	  static int _seen[512], _ns=0; int _i, _ot;
 	  if (getenv("TUROK_OBJLOG")) { _ot = (int)CGameObjectInstance__TypeFlag(pThis); for(_i=0;_i<_ns;_i++) if(_seen[_i]==_ot) goto _done;
-	    if(_ns<512){_seen[_ns++]=_ot; fprintf(stderr,"[objdraw] type=0x%x isPlayer=%d (call #%d)\n",_ot,isPlayer,_ns);} _done:; } }
+	    if(_ns<512){_seen[_ns++]=_ot; fprintf(stderr,"[objdraw] type=0x%x isPlayer=%d (call #%d)\n",_ot,isPlayer,_ns);} _done:; }
+	  /* TUROK_OBJPOS: per-object world pos + distance from player, so we can aim a close-up. */
+	  if (!isPlayer && getenv("TUROK_OBJPOS")) {
+	    CGameObjectInstance *pl = (CGameObjectInstance*)CEngineApp__GetPlayer(GetApp());
+	    CVector3 o = pThis->ah.ih.m_vPos;
+	    if (pl) { CVector3 p = pl->ah.ih.m_vPos; float dx=o.x-p.x,dy=o.y-p.y,dz=o.z-p.z; float d2=dx*dx+dy*dy+dz*dz;
+	      if (d2 < 4000.0f*4000.0f) fprintf(stderr,"[objpos] type=0x%x pos=(%.0f,%.0f,%.0f) d=%.0f\n",
+	        (int)CGameObjectInstance__TypeFlag(pThis), o.x,o.y,o.z, __builtin_sqrtf(d2)); }
+	  } }
 #endif
 
 	// Clear incase anything uses it (TRex!!)
@@ -8590,7 +8609,7 @@ void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 		return ;
 
 	// Draw in "pickup key" cinema?
-	if (    (pThis->ah.ih.m_pEA->m_wTypeFlags3 & AI_TYPE3_DONTDRAWONCINEMA)
+	if (    pThis->ah.ih.m_pEA && (pThis->ah.ih.m_pEA->m_wTypeFlags3 & AI_TYPE3_DONTDRAWONCINEMA)
 		  && (GetApp()->m_Camera.m_Mode == CAMERA_CINEMA_TUROK_PICKUP_KEY_MODE) )
 		return ;
 
@@ -8737,12 +8756,12 @@ void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 				}
 
 				// bounds check against view rect
-				if (		isPlayer
+				if (		isPlayer || g_turok_drawall
 						|| (		CBoundsRect__IsOverlapping(&pThis->m_BoundsRect, &view_bounds_rect)
 								&& (isDevice || (pThis->m_AI.m_dwStatusFlags2 & AI_VISIBLE)) ) )
 				{
 					// bounds check against view volume
-					if (isPlayer || CViewVolume__IsOverlapping(&view_volume, 8, isPlayer ? vt_player_corners : vTCorners))
+					if (isPlayer || g_turok_drawall || CViewVolume__IsOverlapping(&view_volume, 8, isPlayer ? vt_player_corners : vTCorners))
 					{
 						CGameObjectInstance__SetVisible(pThis);
 

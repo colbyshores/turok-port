@@ -37,6 +37,29 @@ int romdataInit(void)
     long sz;
     int i;
 
+    /* Path B (TUROK_ROM=<retail .z64>): load the v1.2 asset blob straight from the retail ROM
+     * at ROM offset 0x1F00. Verified byte-for-byte to be the same CIndexedSet format + size as
+     * cartdata.dat (root word 0x0b, index size 0x38), so the whole cart cache / offset / RNC
+     * path works unchanged — but it's the RETAIL v1.2 content, not the v49 dev cartdata.dat
+     * (the two share a root header but their data is ~99% different). */
+    { const char *rom = getenv("TUROK_ROM"); FILE *rf;
+      if (rom && *rom) {
+        rf = fopen(rom, "rb");
+        if (!rf) { fprintf(stderr, "[romdata] FATAL: TUROK_ROM=%s not found\n", rom); return -1; }
+        if (fseek(rf, 0x1F00, SEEK_SET) != 0 ||
+            fread(_staticSegmentRomStart, 1, TUROK_CARTDATA_SIZE, rf) != (size_t)TUROK_CARTDATA_SIZE) {
+            fprintf(stderr, "[romdata] FATAL: short read of asset blob from %s @0x1F00\n", rom);
+            fclose(rf); return -1;
+        }
+        fclose(rf);
+        { u32 root = ((u32)_staticSegmentRomStart[0]<<24)|((u32)_staticSegmentRomStart[1]<<16)
+                   | ((u32)_staticSegmentRomStart[2]<<8) | (u32)_staticSegmentRomStart[3];
+          fprintf(stderr, "[romdata] Path B: RETAIL v1.2 assets from %s @0x1F00 (%d bytes); root items=%u %s\n",
+                  rom, TUROK_CARTDATA_SIZE, root, root==11?"(OK)":"(UNEXPECTED)"); }
+        return 0;
+      }
+    }
+
     if (path) f = fopen(path, "rb");
     for (i = 0; !f && DEFAULT_CARTDATA[i]; i++) {
         path = DEFAULT_CARTDATA[i];

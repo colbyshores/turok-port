@@ -445,6 +445,159 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   out in the current `collinfo.h`. It's the old monolithic collision, partly superseded by
   `wallcoll.c`/`unicol.c`/`instcol.c`/`regicol.c`/`wradcol.c`. Reconcile at M5 (collision), not before.
 
+- **★ INPUT (Item 1, 2026-06-14) — DONE.** Controller seam: `port/src/turok_input.c` (NEW) holds the N64 pad;
+  backend pushes via `turokInputSetState`, the libultra shim reads via `turokInputGetPad`. `os_shim.c` wires the
+  SI chain — `osSetEventMesg(OS_EVENT_SI)` stores the mq+msg, `osContStartReadData` posts it (→ the game's
+  `CONTROLLER_MSG` → `UpdateController`/`ReadControllerAdvanced`), `osContGetReadData` fills the pad (was a
+  no-op, so input never reached the player). `gfx_sdl2.cpp` maps keyboard+gamepad→N64 bits each frame.
+  `TUROK_FAKEINPUT=1|2` injects forward / forward+turn for headless validation. Forward+turn move the player
+  through the rendered level (verified) with no hang.
+- **★ ANGLE-WRAP HANG CLASS (Item 4) — fixed; all 8 level warps load+render, no hang.** Three iterative
+  angle-normalization `while` loops spin ~1e17× (hang) on a garbage/huge angle from an unspawned AI off-N64.
+  Replaced with O(1) `fmodf` wraps under PLATFORM_PORT: `graphu64.c NormalizeRotation` (turning toward an
+  enemy), `boss.c AngleDiffFromZero` (Campaigner boss, warp 6000), `tmove.c` RotXPlayer.
+  **★★ CRITICAL PITFALL — `fmodf` MUST be prototyped.** tengine's math headers declare the DOUBLE fns
+  (sin/cos/sqrt) but NOT the float ones, so a bare `fmodf()` is implicitly declared `int fmodf()` → wrong ABI →
+  GARBAGE return (compiles silently under `-Wno-implicit-function-declaration`). The garbage angle → NaN player
+  rotation/position → NaN camera matrix → the WHOLE level clip-rejects → renders as a flat fog color. This cost
+  most of a session masquerading as "the world terrain never renders / player spawns NaN" — it was entirely the
+  missing prototype. FIX: `extern float fmodf(float, float);` added to `port/include/turok_port.h`. Bisect vs
+  the M5 commit nailed it (M5=34 colors → +graphu64=1 color → +prototype=34 colors). **LESSON: verify any
+  render change by VIEWING pixels (distinct color-bucket count), NOT tri-count/nonblank-px — a fog fill is
+  "nonblank" with hundreds of clip-rejected tris. And any libc fn the game never called needs an implicit-decl
+  check.**
+- **AUDIO (Item 2) — output foundation done; classic-ABI mixer is the remaining hard piece.**
+  `port/src/turok_audio.c` (NEW): host audio OUTPUT sink — SDL2 `SDL_QueueAudio` (16-bit stereo) or headless
+  WAV dump (`TUROK_AUDIO_WAV=path`); `TUROK_NOAUDIO=1` off. `os_shim.c` AI seam: `osAiSetNextBuffer→turokAudioPush`,
+  `osAiGetLength→turokAudioQueuedBytes`, `osAiSetFrequency→turokAudioSetRate`. Both match the Perfect Dark model.
+  GAP: Turok uses the CLASSIC libultra audio ABI (stateful `aSetBuffer`), unlike Banjo/PD's n_audio, so PD's
+  `mixer.c aXxxImpl` is NOT a drop-in — needs a classic-ABI Acmd interpreter (~multi-session). Turok's own
+  libaudio (`turoksnd/abi/*.c`, 105 TUs incl. the CSP music player) all compile on host; banks on disk
+  (`src/PR/tengine/sfx.ctl`+`sfx.tbl`). `audio.c initAudio` still early-returns.
+
+- **★ ANIMATED-OBJECT RENDERING (Item 3, 2026-06-14) — objects were all invisibly at the origin; fixed.**
+  Found via a multi-agent workflow + runtime gate-counting: every animated instance (enemies, AI_OBJECT_DEVICE_*
+  platforms/elevators/doors, pickups, AND the player) decoded to `pos=(0,0,0)` with a garbage scale, so they
+  all stacked at the world origin → culled/clipped → invisible. **Root: `m_vPos`/`m_vScale` are `CVector3`, and
+  the generic `ORDERBYTES` macro is a NO-OP on aggregates (it only swaps 2/4-byte scalars). A big-endian float
+  read raw on LE becomes a denormal (~1e-41, prints as 0.0) or junk.** Fixes (all romstruc.c / scene.c,
+  PLATFORM_PORT):
+  - `romstruc.c CGameObjectInstance__TakeFromROMObjectInstance` (~2623/2628): swap `m_vPos`/`m_vScale`
+    COMPONENT-WISE (the aggregate ORDERBYTES never swapped them).
+  - `romstruc.c CGameObjectInstance__CalculateOrientationMatrix` (~3095): the model bounding box
+    `CROMBounds m_vMin/m_vMax` (big-endian floats) were read raw → garbage `m_BoundsRect` (~1e17) → object
+    fails the `anim_bounds_rect` overlap test in `CScene__DrawInstances` → culled. Swap component-wise.
+  - `romstruc.c` (~2605): added the `m_nVariation==-1` → `m_pEA=NULL` guard (devices have no enemy variation),
+    matching the simple/static decoders; without it `Variations[65535]` is garbage. Plus NULL-`m_pEA` guards on
+    the dependent derefs (`CalculateOrientationMatrix` m_CollisionHeight ~3042; the 3 `Draw` m_wTypeFlags3
+    checks at ~1609/2318/8593).
+  - `scene.c` warp spawn (~1600): the player is `pROMInstances[0]`; now that the decoder swaps `m_vPos`/`m_RotY`,
+    the warp must FEED BIG-ENDIAN (m_WarpPoint.m_vPos is host-order → re-swap; m_RotY is big-endian → decode,
+    normalize, re-encode) or the player double-swaps to a garbage camera and the world clip-rejects.
+  Verified: world still renders (403 tris), objects now decode to real coords (e.g. an elevator at
+  (-2602,823,-7984) scale 0.2).
+  - **ENEMY/ACTIVATION THREAD — investigated end-to-end; the pipeline WORKS, position was the bug.** Runtime
+    gate-tracing (debug tools added: `TUROK_SPAWNAT="x,y,z[,rotY]"` teleport in scene.c warp spawn, `TUROK_DRAWALL`
+    in scene.c `CScene__DrawInstances` + romstruc.c `CGameObjectInstance__Draw` to bypass the bounds/view-volume
+    culls) established: (a) ACTIVATION is fine — `m_bPlayerActiveFlags=0xff`, 114/115 objects active
+    (`CScene__SetUpActiveFlags`/`CScene__IsActive` scene.c:60/3265); (b) every type reaches `CGameObjectInstance__
+    Draw` with valid `m_nAnims`/`m_pceObjectInfo`/`m_pceAnim`, passes the synchronous re-request gate (romstruc.c:
+    8639); (c) the MODEL GEOMETRY EMISSION WORKS — bypassing the two in-Draw culls (`CBoundsRect__IsOverlapping`
+    @8757 + `CViewVolume__IsOverlapping` @8762) jumps tri1 ~1124→1509 (the object models DO emit triangles);
+    (d) the culls correctly reject FAR objects (the level's objects are spread x=-6000..300, z=-5000..-8000, so
+    few are near any one spot). So enemies/devices render when the player is near + aimed at them. Couldn't get a
+    clean HEADLESS screenshot of one — the EGL capture has no mouse-look/pitch control so the camera looks at
+    sky and ground objects sit below frame; needs interactive (mouse-look) verification. No remaining code bug
+    found in this thread beyond the already-applied position/bounds fixes.
+  - **STILL OPEN:** the WATER surface (per the workflow, Turok has NO dedicated water renderer — it's baked level
+    geometry / transparent instances, scene.c:3461/3671 — likely the transparent-instance combiner/alpha in
+    gfx_pc); the first-person WEAPON viewmodel + HUD (`C16BitGraphic` endianness, `TUROK_HUD` guarded off); and
+    whether a SPECIFIC enemy at a given spot fails to draw (interactive test needed). 0xBE opcode = G_CULLDL, harmless.
+
+- **★ PATH B — retail v1.2 assets (2026-06-15).** `port/src/romdata.c` now honors `TUROK_ROM=<retail .z64>`:
+  it `fread`s `TUROK_CARTDATA_SIZE` (6,489,336) bytes from ROM offset **`0x1F00`** straight into
+  `_staticSegmentRomStart` instead of loading the v49 `cartdata.dat`. **Byte-verified the same CIndexedSet
+  format/size** (root word `0x0b` = 11 items, index size `0x38`), so the entire cart-cache / offset / RNC /
+  `ORDERBYTES` path runs **unchanged** — i.e. **no struct drift** between v49 code and v1.2 data (this closes
+  the last M5 leaf-decode risk empirically: the v49 `romstruc.h` structs parse retail content fine).
+  `play_level.sh` gained `ROM=<file>` to select it.
+  - **Validated the user's "alpha build" hypothesis.** Path A (`cartdata.dat`) and Path B (ROM `0x1F00`) are
+    the *same size & directory format* but ~**99% different data**. Captured the SAME object (type `0x14`
+    GENERICRED, at `-1820,360,-3850`) under both: v49 draws an **angular gray block**, retail v1.2 draws a
+    **different, rounded/tapered model** — so the v49 leak ships **earlier/placeholder model art**; the retail
+    ROM has the finished models. Object *types* are nearly identical between versions (retail adds a `0x135`
+    device), so it isn't "missing objects" — it's the **model/texture art** that differs. Path B is how to
+    play finished v1.2 content: `ROM=baserom.us.v12.z64 ./play_level.sh`.
+  - **★ USER-CONFIRMED (2026-06-15): Path B fixes MISSING *LEVEL* GEOMETRY too.** A bridge/walkway platform
+    near the warp=0 fire-pit spawn that was ABSENT in the v49 leak renders correctly (fully textured stone)
+    under retail — so the v49 *level* data is also incomplete/earlier, not just the object models. This was
+    one of the "missing platform" elements the user flagged from the retail reference video (yt 1:04). Net:
+    Path B is the fix for the whole "alpha build is missing stuff" class (level geo + object art).
+  - **Open follow-up (M6):** objects may render dull/gray under BOTH paths (world geometry textures
+    correctly), so there may be a separate **object material/texture** issue — likely big-endian object UVs /
+    vertex-colors / normals, or a combiner default — NOT version-specific. **Needs interactive verification:**
+    headless static captures can't mouse-look, so creatures near a wall/boulder can't be isolated. Best
+    confirmed by walking up to one with `ROM=… ./play_level.sh`.
+  - **Spawn-creature finding (warp=0, retail):** the player spawns at `(-1837,358,-3290)` facing `RotY=0`;
+    several type `0x14` (GENERICRED) creatures cluster `184–229u` away at `+X` (e.g. `(-1692,358,-3403)`).
+    They **reach `CGameObjectInstance__Draw`** (so they're active + decoded), but in the headless forward/sweep
+    views they're occluded by boulders / off the no-mouse-look frame — couldn't isolate one's pixels. The
+    big dark rounded shapes in the sweep are LEVEL boulders (persist with `TUROK_ANIMOBJ=0`), not the creatures.
+  - **New debug env knobs** (all PLATFORM_PORT, headless camera control): `TUROK_YAW=<rad>` (camera.c, adds to
+    `RotYOffset`), `TUROK_CAMLOG=1` (prints player pos + RotY), `TUROK_OBJPOS=1` (romstruc.c — prints each drawn
+    object's world pos + distance from player, ≤4000u), `TUROK_NOWORLD=1` (scene.c — skips
+    `CScene__DrawEnvironment` so only animated objects draw, isolating creatures against the clear color). Join
+    the existing `TUROK_PITCH`, `TUROK_DRAWALL`, `TUROK_ANIMOBJ`, `TUROK_SPAWNAT`, `TUROK_OBJLOG`, `TUROK_GFX_DUMP`.
+  - **★ KEY GOTCHA for headless creature-hunting:** `TUROK_YAW` rotates only the *render camera* (`RotYOffset`,
+    applied in `CCamera__Update` AFTER the frame's cull frustum is built from the real `RotY`). So objects the
+    real frustum culled stay culled even when the debug camera "looks at" them — a yaw-swept capture of a
+    side/behind object shows the clear color, NOT the object. To aim at a culled object you must turn the
+    *player* (real `RotY`), which `TUROK_YAW` does not do. With `TUROK_NOWORLD` + default facing, all animated
+    objects together emit only ~4 tris (just a near pickup/weapon) — the 4 spawn creatures (type `0x14`, ~190u
+    at `+X`) are correctly side-culled. **Net: confirming creature ART needs INTERACTIVE play (mouse-look),
+    not headless captures.** Walk east/right of the warp=0 spawn toward `~(-1650,-3350)` to reach them.
+
+- **★ WATER / TRANSLUCENCY — investigated end-to-end (2026-06-15, 5-agent Workflow + empirical traces); the
+  pipeline is CORRECT, warp 0/1 simply have no water.** A multi-agent workflow mapped the whole translucent
+  path (engine submission → Fast3D render-mode decode → N64 blend spec → GL realization) and found the
+  Fast3D→GL blend chain **provably correct**: the build is `F3DEX_GBI` (not GBI_2), so `gSPSetOtherMode`'s
+  `C0(8,8)/C0(0,8)` decode lands the render-mode word in `other_mode_l` intact; the 2-cycle `XLU_SURF2`/
+  `CLD_SURF2` water modes set `use_alpha=true` (`gfx_pc.cpp:1598`, bits[21:20]=CLR_MEM, [17:16]=1MA) → GL
+  `glBlendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA)` + depth-mask-off; texture alpha imports standard. Confirmed
+  empirically with three new env-gated traces:
+  - `TUROK_MATLOG` (geometry.c `CGeometry__DrawSection`) — counts world sections + prints `m_dwMatFlags`/prim
+    RGBA for any with `MATERIAL_TRANSPARENCY`(0x100)/`SHADE_ALPHA`(0x1000).
+  - `TUROK_BLENDLOG` (gfx_pc.cpp before `use_alpha`) — per-draw `other_mode_l/h`, `use_alpha`/`invisible`/
+    `alpha_threshold`/`2cyc`, with running totals.
+  - `TUROK_XINSTLOG` (scene.c `CScene__DrawTransparentInstances`) — peak transparent-INSTANCE count/frame.
+  - **Findings:** warp 0 (fire-pit) & warp 1000: **0 transparent world sections AND 0 transparent instances**,
+    even walking 150 frames — there is no translucent water there. ~1400/7200 draws/frame ARE alpha-blended
+    (sky CLD_SURF + alpha-tested foliage `texedge`), **0 invisible**. Warps **3000/4000/6000 DO have transparent
+    sections** (`matFlags` 0x54c/0x56c/0x148, all with bit 0x100) with **non-zero** prim alpha (e.g. 78,77,91,255
+    bluish-gray two-sided = water; 0,0,0,173 = 68% tinted) — so the flag decode AND alpha values are fine
+    (rules out the "flag lost" and "alpha=0" hypotheses). warp 6000 visibly renders translucent cyan energy
+    bars. **CONCLUSION: water rendering works; the user's "missing water" at the fire pit was a v49 artifact
+    (same class as the missing platform) — the spot has no translucent geometry in EITHER version, so any water
+    there is opaque animated-texture geometry that Path B restores like the platform, or it's elsewhere in the
+    level. Not a translucency bug.** (Trace knobs left in, gated.)
+
+- **★ HUD RENDERS (2026-06-15) — `C16BitGraphic` endianness fixed; HUD now ON by default.** A multi-agent
+  Workflow (repro agent pinned it before a session-limit killed the others) found the fault: the HUD overlay
+  graphics (`HealthOverlay[]`, digits, lives, etc.) are **hand-authored BIG-ENDIAN static C arrays** (under
+  `src/PR/tengine/overlay/**`, `extern UINT8[]` in `gfx16bit.h`) interpreted through `C16BitGraphic`
+  (4×UINT16 header: BlocksAcross/Down/Width/Height) and `C16BitPart` (2×UINT32 header: BlockWidth/Height).
+  Read raw on LE, `m_BlockWidth` became `0x20000000` → the per-block advance `(w*h*2)+(w*h/2)+8` jumped ~5e17
+  bytes → wild pointer → SEGV at `onscrn.c:3202` (`COnScreen__Draw16BitGraphic`, drawing HealthOverlay).
+  **Fix (onscrn.h/onscrn.c):** added read-time swap macros `ONSCRN_SW16/SW32` (identity off-PLATFORM_PORT;
+  the blobs are const, so swap on read, never in place) and wrapped the header reads in
+  `COnScreen__Draw16BitGraphic`, `COnScreen__Draw16BitScaledGraphic`, and the `AIR_XPOS`/`BOSS_XPOS` centering
+  macros (`m_Width`). The 16bpp RGBA / 4bpp opacity **pixel** payloads stay big-endian (Fast3D converts at
+  `gDPLoadTextureBlock` upload — verified, colors correct). The `CGridGraphic` `DrawGrid*` consumers are dead
+  (`#if 0`). **`tengine.c` HUD gate flipped to default-ON** (was `TUROK_HUD=1` to force; now `TUROK_HUD=0`
+  disables, for clean geometry captures). Verified: warp 0 shows Turok's face + life-force "600"; warp 3000
+  adds the lives "x2"; 150 frames clean across levels, digits render. (`glerr=0x501` seen only in the
+  EGL capture-readback path, not from HUD textures — transient, non-fatal.)
+
 The port build infra (not game source): `Makefile.port`, `port/include/turok_port.h` (host compat shim),
 `lib/ultralib/` (vendored libultra headers), `tools/turok_rom.py`.
 
@@ -474,5 +627,16 @@ disables). Validated at warp=0 (the player + a device draw without crashing; bot
 *visible* — first-person hides the player, and levels 0/1 have no enemy in view). Capture a level:
 `TUROK_WARP=0 TUROK_MAX_FRAMES=30 TUROK_CAPTURE_FRAME=20 TUROK_CAPTURE_PATH=x.png /tmp/tbe/turok`. **Next:**
 levels 2-8 (warp 2000+) load very slowly (level 2 = 5786 regions vs level 0's 153 — a per-frame collision-list
-perf issue) which blocks testing in-view enemies; then HUD endianness (`TUROK_HUD`), the ~150 brightness, M3
-(3DS Citro3D). See §10 + memory `turok_port`.*
+perf issue) which blocks testing in-view enemies; the ~150 brightness, M3 (3DS Citro3D). See §10 + memory
+`turok_port`.*
+
+*Status: **★ HUD RENDERS + PATH B + WATER PROVEN (2026-06-15).** (1) **Path B** (`TUROK_ROM=<retail .z64>` →
+`romdata.c` reads the v1.2 asset blob at ROM 0x1F00) plays finished retail content — confirmed it restores
+MISSING LEVEL GEOMETRY (a fire-pit walkway absent in the v49 leak) + finished object models. `ROM=… ./play_level.sh`.
+(2) **Water/translucency** investigated end-to-end (5-agent Workflow + runtime traces `TUROK_MATLOG`/`BLENDLOG`/
+`XINSTLOG`): the Fast3D→GL blend chain is provably correct; warps 0/1 simply have no water; warps 3000/4000/6000
+have transparent surfaces that render (warp 6000 shows translucent cyan bars). Not a bug. (3) **HUD now renders
+by default** — fixed the big-endian `C16BitGraphic`/`C16BitPart` header decode in onscrn.c/onscrn.h (`ONSCRN_SW16/32`
+read-time swaps); Turok's face + life-force "600" + lives "x2" draw, 150 frames clean, `TUROK_HUD=0` disables.
+**Next:** levels 2-8 load perf (collision-list), object/creature material (interactive), brightness polish, M3
+(3DS Citro3D).*

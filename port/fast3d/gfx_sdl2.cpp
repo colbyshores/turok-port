@@ -22,6 +22,7 @@ static bool fullscreen_state;
 static bool maximized_state;
 static bool is_running = true;
 static void (*on_fullscreen_changed_callback)(bool is_now_fullscreen);
+static SDL_GameController *g_sdl_controller = NULL;   /* PORT: opened in gfx_sdl_init */
 
 static int target_fps = 120; // above 60 since vsync is enabled by default
 static uint64_t previous_time;
@@ -95,6 +96,13 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         sysFatalError("Could not init SDL:\n%s", SDL_GetError());
+    }
+
+    /* PORT: open a game controller for input (keyboard always works via state poll). */
+    if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) == 0) {
+        for (int i = 0; i < SDL_NumJoysticks(); i++) {
+            if (SDL_IsGameController(i)) { g_sdl_controller = SDL_GameControllerOpen(i); if (g_sdl_controller) break; }
+        }
     }
 
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
@@ -288,6 +296,89 @@ static void gfx_sdl_get_dimensions(uint32_t* width, uint32_t* height, int32_t* p
     SDL_GetWindowPosition(wnd, static_cast<int*>(posX), static_cast<int*>(posY));
 }
 
+/* ---- PORT: controller input (keyboard + gamepad -> N64 pad bits) ---------- */
+extern "C" void turokInputSetState(unsigned short button, signed char stick_x, signed char stick_y);
+
+/* N64 controller bits (PR/os_cont.h) */
+#define N64_A 0x8000u
+#define N64_B 0x4000u
+#define N64_Z 0x2000u
+#define N64_START 0x1000u
+#define N64_DU 0x0800u
+#define N64_DD 0x0400u
+#define N64_DL 0x0200u
+#define N64_DR 0x0100u
+#define N64_L  0x0020u
+#define N64_R  0x0010u
+#define N64_CU 0x0008u
+#define N64_CD 0x0004u
+#define N64_CL 0x0002u
+#define N64_CR 0x0001u
+
+static signed char axis_to_n64(int v) {            /* SDL axis -> N64 stick (-80..80) w/ deadzone */
+    const int dz = 7000;
+    if (v > -dz && v < dz) return 0;
+    int s = (v * 80) / 32767;
+    if (s > 80) s = 80; if (s < -80) s = -80;
+    return (signed char)s;
+}
+
+static void turok_sdl_update_input(void) {
+    unsigned short btn = 0;
+    int sx = 0, sy = 0;
+    const Uint8 *k = SDL_GetKeyboardState(NULL);
+
+    /* keyboard: WASD move/turn, QE strafe, arrows look/turn, space jump, ctrl fire */
+    if (k[SDL_SCANCODE_W])      sy += 80;
+    if (k[SDL_SCANCODE_S])      sy -= 80;
+    if (k[SDL_SCANCODE_A])      sx -= 80;
+    if (k[SDL_SCANCODE_D])      sx += 80;
+    if (k[SDL_SCANCODE_LEFT])   sx -= 80;
+    if (k[SDL_SCANCODE_RIGHT])  sx += 80;
+    if (k[SDL_SCANCODE_Q])      btn |= N64_CL;
+    if (k[SDL_SCANCODE_E])      btn |= N64_CR;
+    if (k[SDL_SCANCODE_UP])     btn |= N64_CU;
+    if (k[SDL_SCANCODE_DOWN])   btn |= N64_CD;
+    if (k[SDL_SCANCODE_SPACE])  btn |= N64_B;
+    if (k[SDL_SCANCODE_LCTRL] || k[SDL_SCANCODE_RCTRL]) btn |= N64_Z;
+    if (k[SDL_SCANCODE_LSHIFT]) btn |= N64_R;
+    if (k[SDL_SCANCODE_TAB])    btn |= N64_L;
+    if (k[SDL_SCANCODE_F])      btn |= N64_A;
+    if (k[SDL_SCANCODE_RETURN]) btn |= N64_START;
+    if (k[SDL_SCANCODE_COMMA])  btn |= N64_DL;
+    if (k[SDL_SCANCODE_PERIOD]) btn |= N64_DR;
+    if (k[SDL_SCANCODE_LEFTBRACKET])  btn |= N64_DU;
+    if (k[SDL_SCANCODE_RIGHTBRACKET]) btn |= N64_DD;
+
+    /* gamepad: left stick move/turn, right stick look, RT fire, A jump */
+    if (g_sdl_controller) {
+        SDL_GameController *c = g_sdl_controller;
+        signed char gx = axis_to_n64(SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_LEFTX));
+        signed char gy = (signed char)(-(int)axis_to_n64(SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_LEFTY)));
+        if (gx) sx = gx;
+        if (gy) sy = gy;
+        int rx = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_RIGHTX);
+        int ry = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_RIGHTY);
+        if (rx < -12000) btn |= N64_CL; else if (rx > 12000) btn |= N64_CR;
+        if (ry < -12000) btn |= N64_CU; else if (ry > 12000) btn |= N64_CD;
+        if (SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 8000) btn |= N64_Z;
+        if (SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_TRIGGERLEFT)  > 8000) btn |= N64_R;
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_A))            btn |= N64_B;
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_B))            btn |= N64_A;
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER))btn |= N64_R;
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) btn |= N64_L;
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_START))        btn |= N64_START;
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_UP))      btn |= N64_DU;
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_DOWN))    btn |= N64_DD;
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_LEFT))    btn |= N64_DL;
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_RIGHT))   btn |= N64_DR;
+    }
+
+    if (sx > 80) sx = 80; if (sx < -80) sx = -80;
+    if (sy > 80) sy = 80; if (sy < -80) sy = -80;
+    turokInputSetState(btn, (signed char)sx, (signed char)sy);
+}
+
 static void gfx_sdl_handle_events(void) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -316,6 +407,7 @@ static void gfx_sdl_handle_events(void) {
                 break;
         }
     }
+    turok_sdl_update_input();   /* PORT: map keyboard+gamepad -> N64 pad each frame */
 }
 
 static bool gfx_sdl_start_frame(void) {
