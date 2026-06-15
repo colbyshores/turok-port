@@ -354,6 +354,17 @@ void CGameObjectInstance__DecompressAnim(CGameObjectInstance *pThis, CCacheEntry
 	nRotationSets = CUnindexedSet__GetBlockCount(&usRotationSets);
 	allocSize += FixAlignment(US_TOTAL_SIZE(US_TOTAL_SIZE(sizeof(CRotFrame), nFrames), nRotationSets), IS_ALIGNMENT);
 
+#ifdef PLATFORM_PORT
+	{ extern int fprintf(void*,const char*,...); extern void *stderr; static int _c=0;
+	  if (_c < 16) { _c++; fprintf(stderr, "[BT] DecompAnim nFrames=%d nTrans=%d nRot=%d alloc=%d\n",
+	                                       nFrames, nTranslationSets, nRotationSets, allocSize); }
+	  if (nFrames < 0 || nFrames > 4096 || nTranslationSets < 0 || nTranslationSets > 4096
+	      || nRotationSets < 0 || nRotationSets > 4096) {
+	    fprintf(stderr, "[BT] DecompAnim ABORT — implausible block counts (would OOB)\n");
+	    return;
+	  } }
+#endif
+
 
 	// transition table
 	pbTransitionTable = CIndexedSet__GetBlockAndSize(&isAnim, CART_ANIM_isTransitionTable, &transitionTableSize);
@@ -506,6 +517,10 @@ void CGameObjectInstance__DecompressAnim(CGameObjectInstance *pThis, CCacheEntry
 
 #define COMPRESS_ANIM
 #ifdef COMPRESS_ANIM
+#ifdef PLATFORM_PORT
+		{ extern int fprintf(void*,const char*,...); extern void *stderr; static int _c=0;
+		  if(_c<16){_c++; fprintf(stderr,"[BT] DecompAnim:rot-loop (%d sets, nFrames=%d)\n", nRotationSets, nFrames);} }
+#endif
 		for (cRotationSet=0; cRotationSet<nRotationSets; cRotationSet++)
 		{
 			// usRotationSet
@@ -617,5 +632,9 @@ void CGameObjectInstance__DecompressAnim(CGameObjectInstance *pThis, CCacheEntry
 	CUnindexedSet__Destruct(&usYRots);
 	CUnindexedSet__Destruct(&usTranslationSets);
 	CUnindexedSet__Destruct(&usRotationSets);
+#ifdef PLATFORM_PORT
+	{ extern int fprintf(void*,const char*,...); extern void *stderr; static int _c=0;
+	  if(_c<16){_c++; fprintf(stderr,"[BT] DecompAnim:done\n");} }
+#endif
 }
 #endif

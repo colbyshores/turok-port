@@ -8603,6 +8603,11 @@ void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 	isPlayer = (pThis == CEngineApp__GetPlayer(GetApp())) ;
 
 #ifdef PLATFORM_PORT
+	{ extern int fprintf(void*,const char*,...); extern void *stderr; static int _bc=0;
+	  if(_bc<20){_bc++; fprintf(stderr,"[BT] objDraw type=0x%x\n", (int)CGameObjectInstance__TypeFlag(pThis));} }
+#endif
+
+#ifdef PLATFORM_PORT
 	{ extern int fprintf(void*,const char*,...); extern void *stderr; extern char *getenv(const char*);
 	  static int _seen[512], _ns=0; int _i, _ot;
 	  if (getenv("TUROK_OBJLOG")) { _ot = (int)CGameObjectInstance__TypeFlag(pThis); for(_i=0;_i<_ns;_i++) if(_seen[_i]==_ot) goto _done;
@@ -10087,6 +10092,11 @@ void CGameObjectInstance__DoDraw(CGameObjectInstance *pThis, CAnimDraw *pAnimDra
 										*childIndices;
 
 	ASSERT(pThis->pmtDrawMtxs);
+
+#ifdef PLATFORM_PORT
+	{ extern int fprintf(void*,const char*,...); extern void *stderr; static int _bc=0;
+	  if(_bc<30){_bc++; fprintf(stderr,"[BT] DoDraw node=%d\n", nNode);} }
+#endif
 
 	BigHead = FALSE ;
 
