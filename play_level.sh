@@ -40,7 +40,10 @@ if ! GFX=sdl2 TUROK_OUT="$OUT" bash tools/build_port.sh "$BUILD_MODE" >/tmp/turo
 fi
 echo "[play_level] launching first level (WARP=$WARP, DISPLAY=$DISPLAY) — close the window to quit."
 
+# Force SDL2's x11 video driver: on a Wayland session SDL2 picks the Wayland driver even with
+# DISPLAY set, and its GL window creation segfaults. We launch against XWayland (DISPLAY), so x11.
 exec env DISPLAY="$DISPLAY" \
+    SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-x11}" \
     TUROK_CARTDATA="$PWD/src/PR/cartdata.dat" \
     "${ROM_ARG[@]}" \
     TUROK_WARP="$WARP" \

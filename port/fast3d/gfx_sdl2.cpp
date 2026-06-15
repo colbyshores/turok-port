@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <SDL.h>
 #include <unistd.h>
 #include <time.h>
@@ -82,6 +83,16 @@ static void gfx_sdl_get_active_window_refresh_rate(uint32_t* refresh_rate) {
 static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
     window_width = set->width;
     window_height = set->height;
+
+#if defined(__linux__)
+    /* On a Wayland session SDL2 prefers the Wayland video driver even when DISPLAY (XWayland)
+     * is set, and its GL window creation NULL-derefs inside SDL_CreateWindow on some drivers
+     * (segfault at gfx_sdl2.cpp:193). We launch against an X display (DISPLAY=:1 via XWayland),
+     * so force the x11 driver unless the user explicitly chose one. x11 is verified working. */
+    if (getenv("DISPLAY") && !getenv("SDL_VIDEODRIVER")) {
+        setenv("SDL_VIDEODRIVER", "x11", 1);
+    }
+#endif
 
 #ifdef SDL_HINT_VIDEO_HIGHDPI_DISABLED
     if (!set->allow_hidpi) {
