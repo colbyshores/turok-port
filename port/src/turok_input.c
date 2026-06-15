@@ -42,6 +42,10 @@ void turokInputGetPad(OSContPad *pad)
     {
         static int fake = -1;
         if (fake < 0) { const char *e = getenv("TUROK_FAKEINPUT"); fake = e ? atoi(e) : 0; }
+        if (fake == 3) {
+            pad->button = 0x0008;       /* C-up = U_CBUTTONS = Forward (matches the new kbd map) */
+            return;
+        }
         if (fake) {
             pad->stick_y = 64;          /* forward */
             pad->stick_x = (signed char)(fake > 1 ? 28 : 0);  /* TUROK_FAKEINPUT=2 also turns */

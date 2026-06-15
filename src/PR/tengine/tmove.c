@@ -890,6 +890,13 @@ void CTMove__UpdateTurokInstance(CTMove *pThis, CEngineApp *pApp, CTControl *pCT
 			}
 
 
+#ifdef PLATFORM_PORT
+			{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr; static int _c=-1;
+			  if(_c<0) _c=getenv("TUROK_MOVELOG")?0:-2;
+			  if(_c>=0 && _c<30){ _c++; fprintf(stderr,"[move] waterFlag=%d Mode=%d JumpLookAng=%.3f ActualRotX=%.3f RotXPlayer=%.3f lookUp=%d lookDn=%d\n",
+			    waterFlag, pThis->Mode, pThis->JumpLookAng, pThis->ActualRotXPlayer, pThis->RotXPlayer,
+			    CTControl__IsLookUp(pCTControl), CTControl__IsLookDown(pCTControl)); } }
+#endif
 			// make rot x wrap around
 			NormalizeRotation(&pThis->RotXPlayer);
 			NormalizeRotation(&pThis->RotZPlayer);

@@ -328,17 +328,24 @@ static void turok_sdl_update_input(void) {
     int sx = 0, sy = 0;
     const Uint8 *k = SDL_GetKeyboardState(NULL);
 
-    /* keyboard: WASD move/turn, QE strafe, arrows look/turn, space jump, ctrl fire */
-    if (k[SDL_SCANCODE_W])      sy += 80;
-    if (k[SDL_SCANCODE_S])      sy -= 80;
-    if (k[SDL_SCANCODE_A])      sx -= 80;
-    if (k[SDL_SCANCODE_D])      sx += 80;
+    /* keyboard mapped to TUROK's default control scheme (tcontrol.c): movement is on the
+     * C-buttons/D-pad (Forward=C-up, Backward=C-down, SideStep=C-left/right), and the analog
+     * STICK is LOOK/TURN (stick-fwd/back = look up/down, stick-left/right = turn). So:
+     *   W/S  = move forward/back   (C-up / C-down — bind both C+JPAD so handedness doesn't matter)
+     *   A/D  + Left/Right arrows = TURN (stick X)
+     *   Up/Down arrows = LOOK up/down (stick Y)
+     *   Q/E  = strafe left/right (C-left / C-right)
+     * Previously W/S drove stick-Y, so pressing forward pitched the camera — the "screwy camera". */
+    if (k[SDL_SCANCODE_W])      btn |= (N64_CU | N64_DU);   /* forward  */
+    if (k[SDL_SCANCODE_S])      btn |= (N64_CD | N64_DD);   /* backward */
+    if (k[SDL_SCANCODE_A])      sx -= 80;                   /* turn left  */
+    if (k[SDL_SCANCODE_D])      sx += 80;                   /* turn right */
     if (k[SDL_SCANCODE_LEFT])   sx -= 80;
     if (k[SDL_SCANCODE_RIGHT])  sx += 80;
-    if (k[SDL_SCANCODE_Q])      btn |= N64_CL;
-    if (k[SDL_SCANCODE_E])      btn |= N64_CR;
-    if (k[SDL_SCANCODE_UP])     btn |= N64_CU;
-    if (k[SDL_SCANCODE_DOWN])   btn |= N64_CD;
+    if (k[SDL_SCANCODE_UP])     sy += 80;                   /* look up   */
+    if (k[SDL_SCANCODE_DOWN])   sy -= 80;                   /* look down */
+    if (k[SDL_SCANCODE_Q])      btn |= (N64_CL | N64_DL);   /* strafe left  */
+    if (k[SDL_SCANCODE_E])      btn |= (N64_CR | N64_DR);   /* strafe right */
     if (k[SDL_SCANCODE_SPACE])  btn |= N64_B;
     if (k[SDL_SCANCODE_LCTRL] || k[SDL_SCANCODE_RCTRL]) btn |= N64_Z;
     if (k[SDL_SCANCODE_LSHIFT]) btn |= N64_R;
