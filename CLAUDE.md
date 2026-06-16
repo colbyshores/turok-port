@@ -819,7 +819,24 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     cinematic; normal-play collision unaffected (cinema-gated), patrols grounded. NOTE: the key cinematic ends
     with `MODE_RESETLEVEL` → respawn at `CINEMA_WARP_ID` (-2) → `GetApp()->m_CinemaWarp` (captured at FadeToCinema
     = the pickup pos, camera.c:1650). So the post-cinematic respawn should also be the pickup point (host-order,
-    no endianness) — user to confirm the FINAL position is right. ALSO
+    no endianness) — user to confirm the FINAL position is right.
+  - **★★ ROOT FIX (commit 0551634) — RE-ACQUIRE the stale region; reverts the NULL-on-bad + skip-collision
+    band-aids.** The user (rightly) pushed back on the band-aid cascade (crash → teleport → fog-black + fall-
+    through + crash-after). Traced the actual ROOT with `[COLL]` instrumentation: **the N64 STREAMS collision
+    through the small cart cache** (`MEMORY_POOL_SIZE` 1.4MB), re-decompressing the collision buffer at a NEW
+    address (`CScene__DecompressCollision` re-runs) as the player explores / when the key cinematic's model-swap
+    loads the body model. **The engine never updates the player's `m_pCurrentRegion` after a relocation** → it
+    goes stale (corners point into the freed/old buffer). NULLing it (d2ace13) lost the fog (region attributes)
+    + dropped the player through the floor (no ground); skip-collision (b4d6892) then masked a teleport (NULL
+    region → TrackGround projects onto vZero → origin). **CORRECT FIX: `tengine.c CEngineApp__UpdateGAME`
+    re-acquires the player's region at its current pos in the LIVE buffer via `CScene__NearestRegion` when
+    `PORT_REGION_BAD`.** Valid region → collision/ground/fog/camera all work normally; reverted skip-collision
+    + NULL (net −13 lines); kept the 4b359e7 `Collision3` entry guard as the same-frame safety net (bails for
+    the 1-frame window before re-acquire runs). Verified: player holds the exact pickup point (-153,0,-536) with
+    a VALID region (0x87e4228) through the whole cinematic, rc=0; patrols on all 9 levels stay grounded. (Tried
+    a 48MB cache first — DIDN'T stop the re-decompress, so it's not room-based; the streaming is by design.)
+    **LESSON: when a host-port symptom cascades (each fix breaks the next thing), STOP and find the streaming/
+    lifecycle ROOT — re-acquiring a relocated resource beats nulling/skipping around the stale handle.** ALSO
   REPORTED by the user (deferred): a **blue-portal warp bug** — entering a portal → bonus area, then re-entering
   → wrong-warps to the Campaigner boss instead of back. Warp/portal level-transition logic to fix next.
 
