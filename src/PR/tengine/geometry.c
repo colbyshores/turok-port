@@ -42,6 +42,24 @@ void CGeometry__ResetDrawModes(void)
 	current_render_mode = -1 ;
 	current_combine_mode = -1 ;
 
+#ifdef PLATFORM_PORT
+	/* PORT: clear the per-object special-effect mode at the per-frame render-state reset (this is
+	 * called from tengine.c:1037 before DrawGAME, and from CScene__DrawSelf before the HUD).
+	 * CGameObjectInstance__PreDraw sets fx_mode (GLARE / TOTRANSPARENT / TOCOLOR / ...) for an enemy
+	 * in a special state, and the reset (romstruc.c:8944 + PostDraw fx_mode=NONE) is gated on
+	 * m_asCurrent.m_pceAnim, which DoAI/Advance can NULL mid-draw (a dying/transitioning enemy) —
+	 * leaking a non-NONE fx_mode. fx_mode is a global never otherwise reset per frame, so the leak
+	 * bleeds into the NEXT frame's WORLD geometry (DrawEnvironment, drawn before objects), which then
+	 * renders transparent/glared/solid-color — the sustained, interactive "camera completely fucked
+	 * up while walking" regression (ANIMOBJ=0 sets no fx_mode, so it stays NONE = stable). Clearing
+	 * it here makes fx_mode strictly per-object-per-frame and cannot corrupt the world or HUD. */
+	{ extern char *getenv(const char*); static int s_on=-1; if(s_on<0) s_on=getenv("TUROK_FXLEAK")?1:0;
+	  if(s_on && fx_mode != FXMODE_NONE){ extern int fprintf(void*,const char*,...); extern void*stderr; extern DWORD frame_number;
+	    static int _c=0; if(_c++<30) fprintf(stderr,"[fxleak] frame=%lu CAUGHT leaked fx_mode=%lu (would render objects/weapon as a solid-color blob) — cleared\n",(unsigned long)frame_number,(unsigned long)fx_mode); } }
+	fx_mode = FXMODE_NONE ;
+	fx_color[0] = fx_color[1] = fx_color[2] = fx_color[3] = fx_color[4] = 255 ;
+#endif
+
 	//rmonPrintf("saved:%d\n", saved) ;
 	//saved = 0 ;
 }

@@ -108,8 +108,17 @@ static std::map<ColorCombinerKey, struct ColorCombiner>::iterator prev_combiner 
 static uint8_t* tex_upload_buffer = nullptr;
 static uint32_t turok_tex_upload_capacity = 0; /* bytes; set when tex_upload_buffer is allocated (gfx_pc.cpp ~3081) */
 
+/* The N64 RSP modelview matrix stack was 10 deep. Turok's DoDraw recurses the per-object skeletal
+ * node hierarchy emitting a paired gSPMatrix(PUSH)/gSPPopMatrix per non-only-child node (romstruc.c
+ * ~10390/10425), so a deep creature/boss hierarchy can nest past the original depth-11 cap. When the
+ * cap was hit, the PUSH was dropped but its matching POP still executed -> the camera-base matrix was
+ * popped away -> the whole frame (world + weapon + HUD) drew with a corrupted modelview. That is the
+ * interactive-only "camera + HUD completely fucked up while walking" regression (a shallow headless
+ * enemy never exceeded 11, so push_dropped read 0 in headless tests). Give generous headroom. */
+#define MODELVIEW_STACK_DEPTH 64
+
 static struct RSP {
-    float modelview_matrix_stack[11][4][4];
+    float modelview_matrix_stack[MODELVIEW_STACK_DEPTH][4][4];
     uint8_t modelview_matrix_stack_size;
 
     float MP_matrix[4][4];
@@ -1224,11 +1233,11 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
         }
     } else { // G_MTX_MODELVIEW
 #ifdef PLATFORM_PORT
-        if ((parameters & G_MTX_PUSH) && rsp.modelview_matrix_stack_size >= 11) {
+        if ((parameters & G_MTX_PUSH) && rsp.modelview_matrix_stack_size >= MODELVIEW_STACK_DEPTH) {
             extern int g_mtx_push_dropped; g_mtx_push_dropped++;
         }
 #endif
-        if ((parameters & G_MTX_PUSH) && rsp.modelview_matrix_stack_size < 11) {
+        if ((parameters & G_MTX_PUSH) && rsp.modelview_matrix_stack_size < MODELVIEW_STACK_DEPTH) {
             ++rsp.modelview_matrix_stack_size;
             memcpy(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1],
                    rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 2], sizeof(matrix));
@@ -3293,11 +3302,21 @@ extern "C" void gfx_run(Gfx* commands) {
 #endif
     gfx_run_dl(commands);
 #ifdef PLATFORM_PORT
-    { static int s_log = -1; if (s_log < 0) s_log = getenv("TUROK_MTXSTACK") ? 1 : 0;
-      if (s_log && (g_mtx_push_dropped || g_mtx_pop_underflow || rsp.modelview_matrix_stack_size != 1)) {
-        fprintf(stderr, "[mtxstack] end-of-run size=%u maxdepth=%d push_dropped=%d pop_underflow=%d  %s\n",
-          rsp.modelview_matrix_stack_size, g_mtx_max_depth, g_mtx_push_dropped, g_mtx_pop_underflow,
-          (g_mtx_push_dropped || g_mtx_pop_underflow) ? "<<< IMBALANCE (was corrupting camera/HUD)" : ""); } }
+    /* ALWAYS warn (capped) on a real stack imbalance — with MODELVIEW_STACK_DEPTH=64 this should
+     * never fire; if it does, a hierarchy exceeded the cap (raise it) or there is another unbalanced
+     * push/pop source. TUROK_MTXSTACK=1 additionally logs benign end-of-run size!=1 details. */
+    if (g_mtx_push_dropped || g_mtx_pop_underflow) {
+        static int s_warned = 0;
+        if (s_warned++ < 8)
+            fprintf(stderr, "[mtxstack] <<< IMBALANCE size=%u maxdepth=%d push_dropped=%d pop_underflow=%d (camera/HUD corruptor)\n",
+              rsp.modelview_matrix_stack_size, g_mtx_max_depth, g_mtx_push_dropped, g_mtx_pop_underflow);
+    }
+    { static int s_log = -1, s_peak = 0; if (s_log < 0) s_log = getenv("TUROK_MTXSTACK") ? 1 : 0;
+      if (s_log && g_mtx_max_depth > s_peak) { s_peak = g_mtx_max_depth;
+        fprintf(stderr, "[mtxstack] new peak modelview depth=%d (old cap was 11 -> %s)\n",
+          g_mtx_max_depth, g_mtx_max_depth > 11 ? "WOULD HAVE OVERFLOWED/corrupted camera" : "ok under old cap"); }
+      if (s_log && rsp.modelview_matrix_stack_size != 1)
+        fprintf(stderr, "[mtxstack] end-of-run size=%u\n", rsp.modelview_matrix_stack_size); }
 #endif
     gfx_flush();
     gfxFramebuffer = 0;

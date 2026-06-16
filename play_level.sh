@@ -53,4 +53,5 @@ exec env DISPLAY="$DISPLAY" \
     TUROK_FPS="$FPS" \
     TUROK_HUD="${HUD:-1}" \
     TUROK_VTXBAD=1 \
+    TUROK_FXLEAK=1 \
     "$OUT/turok"
