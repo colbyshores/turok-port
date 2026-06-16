@@ -728,6 +728,36 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   swap) AND reverse `GetObjectTypeFlag` (index→type, pickup/simple/static visibility). Both need ORDERBYTES.**
   (Triggers/devices were confirmed WORKING — that part of the user report was a false alarm.)
 
+- **★ ENDIANNESS AUDIT (2026-06-16) — 9-agent Workflow diffing decode vs the `#ifdef WIN32` encode spec; 26
+  confirmed un-swapped reads. Fixed the HIGH/live ones (commit 9785b90); LOW ones are gated (M4/attract/option).**
+  - **★ SHARED FIX — `defs.c BinarySearch`/`BinaryRange`**: the big-endian DWORD KEY TABLES (object anim types,
+    particle/sound/binary-block type keys) were compared RAW vs native search keys → lookups never matched. Wrap
+    each `Keys[]` read in `ORDERBYTES` (arrays stay big-endian, monotonic in NATIVE value). One edit fixes ALL
+    four callers. ★ GOTCHA: `scene.c` warp-id BinaryRange had an in-place `ids[]` swap (WarpPointsReceived) —
+    REMOVED it (BinaryRange now swaps on read; keeping it would double-swap → miss the warp point). When you fix
+    a shared search/lookup, audit every caller for a pre-existing per-array swap that now double-swaps.
+  - **ANIM TYPES (romstruc.c `GetAnimType`)**: `usAnimTypes[idx]` read raw → byte-swapped anim type →
+    `IsAbsoluteAnim` wrong (root-motion) + LookupAIAnimType BinarySearch fails → enemies/objects mis-select idle/
+    walk/attack/death anims. LIVE render path. ORDERBYTES the read (left big-endian to avoid double-swap w/ the
+    BinarySearch fix).
+  - **PARTICLES (particle.c `DecompressParticles`)**: the whole `CROMParticleEffect`+`CROMParticleImpact` payload
+    read RAW. Once the type lookup started matching, particles spawned and `CParticle__Advance/EndLife` deref'd
+    the byte-swapped `m_pImpact` index (`&impacts[wild]` → SEGV) with garbage SF physics. Now swap each effect +
+    impact in place once, mirroring the WIN32 encoders (romstruc.c:8352/8373) field-for-field (m_pImpact+m_dwFlags
+    DWORD, 6 short counts, ~32 SF=WORD physics; impact WORD/float arrays; BYTE color/behavior left raw). Verified:
+    40+ particle effects spawn at warps 3000/6000, all 8 warps rc=0 (were SIGSEGV), zero garbage verts.
+    `TUROK_PARTLOG` logs spawns.
+  - **SOUND gated (scene.c `CScene__DoSoundEffect` early-return on PLATFORM_PORT)**: the BinarySearch fix made the
+    SFX type lookup succeed → reached the M4-deferred audio path (no audio mgr → NULL deref in
+    PlayEnvironmentSound). Gated until M4 — which must ALSO ORDERBYTES `CROMSoundElement`/`CROMEnvelope` + add the
+    NULL-bank guard (audit ranks #6/#7).
+  - **DEFERRED (gated, fix when their subsystem lights up)**: CROMSoundElement/CROMEnvelope (M4 audio, scene.c:2827
+    +audiocfx.c); CAttractHeader 16-bit fields (attract.c:737, attract-only — also a stray `;` at scene.c:348 to
+    fix); RGBA5551 palette recolor (textload.c:108, green-blood option-gated, default off). All documented in the
+    audit output. **LESSON: an asset KEY TABLE (BinarySearch/BinaryRange over big-endian DWORD keys) and the
+    STRUCT PAYLOAD it gates are a pair — fixing the key lookup ungates the payload, so fix/gate both together or
+    you trade a silent-no-op for a SEGV (sound + particles both did exactly this).**
+
 The port build infra (not game source): `Makefile.port`, `port/include/turok_port.h` (host compat shim),
 `lib/ultralib/` (vendored libultra headers), `tools/turok_rom.py`.
 
