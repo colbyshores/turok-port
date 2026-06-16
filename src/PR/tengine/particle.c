@@ -1421,6 +1421,11 @@ void CParticleSystem__CreateParticle(CParticleSystem *pThis, CInstanceHdr *pSour
 
 	if (BinaryRange(types, nEffects, nType, &first, &last))
 	{
+#ifdef PLATFORM_PORT
+		{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
+		  static int _ns=0; if(getenv("TUROK_PARTLOG") && _ns++<40)
+		    fprintf(stderr,"[part] spawn #%d: type=%d range=[%d,%d] of %d effects\n", _ns, nType, first, last, nEffects); }
+#endif
 		pbParticles = CIndexedSet__GetBlock(&isParticleEffects, CART_PARTICLEEFFECTS_usParticles);
 		CUnindexedSet__ConstructFromRawData(&usParticles, pbParticles, FALSE);
 		effects = (CROMParticleEffect*) CUnindexedSet__GetBasePtr(&usParticles);
@@ -1886,6 +1891,47 @@ void CParticleSystem__DecompressParticles(CParticleSystem *pThis, CCacheEntry **
 	pbImpacts = CIndexedSet__GetBlock(&isParticleEffects, CART_PARTICLEEFFECTS_usImpacts);
 	CUnindexedSet__ConstructFromRawData(&usImpacts, pbImpacts, FALSE);
 	impacts = (CROMParticleImpact*) CUnindexedSet__GetBasePtr(&usImpacts);
+
+#ifdef PLATFORM_PORT
+	/* PORT: the whole CROMParticleEffect/CROMParticleImpact payload is big-endian and was read RAW —
+	 * mirror the WIN32 encoders (romstruc.c:8352 / 8373) field-for-field, in place once (this is the
+	 * one-shot RNC decompress callback). Without this: m_pImpact index is byte-swapped -> &impacts[wild]
+	 * -> SEGV in CParticle__EndLife; m_nParticles/SF physics are garbage -> wrong/no particles. BYTE
+	 * fields (colors, behaviors, priority, randomize*) are endian-safe and left raw. SF = WORD. */
+	{ int _e, _i, _c, _ni = CUnindexedSet__GetBlockCount(&usImpacts);
+	  for (_i = 0; _i < _ni; _i++)
+	    for (_c = 0; _c < PARTICLE_IMPACTS_AMT; _c++) {
+	      impacts[_i].m_ImpactEventType   [_c] = ORDERBYTES(impacts[_i].m_ImpactEventType   [_c]);
+	      impacts[_i].m_ImpactEventNumber [_c] = ORDERBYTES(impacts[_i].m_ImpactEventNumber [_c]);
+	      impacts[_i].m_ImpactParticleType[_c] = ORDERBYTES(impacts[_i].m_ImpactParticleType[_c]);
+	      impacts[_i].m_ImpactSoundType   [_c] = ORDERBYTES(impacts[_i].m_ImpactSoundType   [_c]); }
+	  for (_e = 0; _e < nEffects; _e++) {
+	    CROMParticleEffect *_p = &effects[_e];
+	    _p->m_pImpact = (CROMParticleImpact*) ORDERBYTES((DWORD)(unsigned long) _p->m_pImpact);  /* swap index BEFORE fixup */
+	    _p->m_dwFlags = ORDERBYTES(_p->m_dwFlags);
+	    _p->m_nTextureSet = ORDERBYTES(_p->m_nTextureSet);
+	    _p->m_nParticles = ORDERBYTES(_p->m_nParticles);
+	    _p->m_nParticleRandom = ORDERBYTES(_p->m_nParticleRandom);
+	    _p->m_nParticleFrames = ORDERBYTES(_p->m_nParticleFrames);
+	    _p->m_nParticleFrameRandom = ORDERBYTES(_p->m_nParticleFrameRandom);
+	    _p->m_nParticleDelayFramesRandom = ORDERBYTES(_p->m_nParticleDelayFramesRandom);
+	    _p->m_BounceEnergy = ORDERBYTES(_p->m_BounceEnergy);
+	    _p->m_DirectionSpray = ORDERBYTES(_p->m_DirectionSpray);
+	    _p->m_SprayX = ORDERBYTES(_p->m_SprayX); _p->m_SprayY = ORDERBYTES(_p->m_SprayY); _p->m_SprayZ = ORDERBYTES(_p->m_SprayZ);
+	    _p->m_DirectionX = ORDERBYTES(_p->m_DirectionX); _p->m_DirectionY = ORDERBYTES(_p->m_DirectionY); _p->m_DirectionZ = ORDERBYTES(_p->m_DirectionZ);
+	    _p->m_Gravity = ORDERBYTES(_p->m_Gravity); _p->m_GravityRandom = ORDERBYTES(_p->m_GravityRandom);
+	    _p->m_GroundFriction = ORDERBYTES(_p->m_GroundFriction); _p->m_FpsVelThreshold = ORDERBYTES(_p->m_FpsVelThreshold);
+	    _p->m_AirFriction = ORDERBYTES(_p->m_AirFriction); _p->m_WaterFriction = ORDERBYTES(_p->m_WaterFriction);
+	    _p->m_Size = ORDERBYTES(_p->m_Size); _p->m_SizeRandom = ORDERBYTES(_p->m_SizeRandom);
+	    _p->m_Scaler = ORDERBYTES(_p->m_Scaler); _p->m_ScalerRandom = ORDERBYTES(_p->m_ScalerRandom);
+	    _p->m_Velocity = ORDERBYTES(_p->m_Velocity); _p->m_VelocityRandom = ORDERBYTES(_p->m_VelocityRandom);
+	    _p->m_PosRandomX = ORDERBYTES(_p->m_PosRandomX); _p->m_PosRandomY = ORDERBYTES(_p->m_PosRandomY); _p->m_PosRandomZ = ORDERBYTES(_p->m_PosRandomZ);
+	    _p->m_Rotation = ORDERBYTES(_p->m_Rotation); _p->m_RotationRandom = ORDERBYTES(_p->m_RotationRandom);
+	    _p->m_RotationInc = ORDERBYTES(_p->m_RotationInc); _p->m_RotationIncRandom = ORDERBYTES(_p->m_RotationIncRandom);
+	    _p->m_RotationPivotX = ORDERBYTES(_p->m_RotationPivotX); _p->m_RotationPivotY = ORDERBYTES(_p->m_RotationPivotY);
+	    _p->m_PosX = ORDERBYTES(_p->m_PosX); _p->m_PosY = ORDERBYTES(_p->m_PosY); _p->m_PosZ = ORDERBYTES(_p->m_PosZ);
+	  } }
+#endif
 
 	for (cEffect=0; cEffect<nEffects; cEffect++)
 		effects[cEffect].m_pImpact = &impacts[(int) effects[cEffect].m_pImpact];

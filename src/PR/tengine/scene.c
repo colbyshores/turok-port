@@ -404,11 +404,8 @@ void CScene__WarpPointsReceived(CScene *pThis, CCacheEntry **ppceTarget)
 	CUnindexedSet__ConstructFromRawData(&usIDs, pbIDs, FALSE);
 	ids = (DWORD*) CUnindexedSet__GetBasePtr(&usIDs);
 	nWarpPoints = CUnindexedSet__GetBlockCount(&usIDs);
-#ifdef PLATFORM_PORT
-	/* warp-dest ID DWORDs are big-endian; BinaryRange does magnitude+equality compares vs the native
-	 * m_nWarpID, so swap to native or it finds the wrong (or no) warp point → wild m_pCurrentRegion. */
-	{ int _i; for (_i = 0; _i < nWarpPoints; _i++) ids[_i] = ORDERBYTES(ids[_i]); }
-#endif
+	/* PORT: warp-dest ID DWORDs are big-endian, but BinaryRange (defs.c) now byte-swaps each key on
+	 * read — so the in-place swap that used to be here is gone (it would double-swap and miss the warp). */
 
 	pbWarpDests = CIndexedSet__GetBlock(&isWarpPoints, CART_WARPDESTS_usWarpDests);
 	CUnindexedSet__ConstructFromRawData(&usWarpDests, pbWarpDests, FALSE);
@@ -2780,6 +2777,16 @@ int CScene__DoSoundEffect(CScene *pThis,
 	OSPri					ospri;
 
 	ASSERT(pvSourcePos);
+
+#ifdef PLATFORM_PORT
+	/* PORT: audio is deferred to M4 — initAudio early-returns before amCreateAudioMgr, so the audio
+	 * manager is NULL and PlayEnvironmentSound/DoSoundElement would NULL-deref. Previously the sound-
+	 * type BinarySearch returned -1 (the big-endian usTypes key table never matched), which masked
+	 * this; now that BinarySearch swaps keys (defs.c), the lookup succeeds and reaches the un-ready
+	 * audio path. Gate the whole SFX dispatch off until M4 (which must also ORDERBYTES CROMSoundElement
+	 * + add the NULL-bank guard — see the endianness audit). */
+	return -1;
+#endif
 
 	if (!cache_is_valid)
 		return -1;

@@ -83,14 +83,17 @@ int BinarySearch(DWORD Keys[], int nItems, DWORD SearchKey)
 		while (left < right)
 		{
 			mid = (left + right) >> 1;
-			
-			if (Keys[mid] < SearchKey)
+
+			/* PORT: Keys[] is a big-endian DWORD key table (object anim types, particle/sound/binary
+			 * type tables) read RAW; swap each key so the magnitude/equality compares match the native
+			 * SearchKey and the array stays monotonic in native value. ORDERBYTES = identity off-port. */
+			if (ORDERBYTES(Keys[mid]) < SearchKey)
 				left = mid + 1;
 			else
 				right = mid;
 		}
 
-		if (Keys[left] == SearchKey)
+		if (ORDERBYTES(Keys[left]) == SearchKey)
 			return (int) left;
 		else
 			return -1;
@@ -111,13 +114,13 @@ BOOL BinaryRange(DWORD Keys[], int nItems, DWORD SearchKey, int *pFirst, int *pL
 
 	first = pos;
 	while (first--)
-		if (Keys[first] != SearchKey)
+		if (ORDERBYTES(Keys[first]) != SearchKey)	/* PORT: big-endian key — see BinarySearch */
 			break;
 	*pFirst = first + 1;
 
 	last = pos;
 	while (++last < nItems)
-		if (Keys[last] != SearchKey)
+		if (ORDERBYTES(Keys[last]) != SearchKey)	/* PORT: big-endian key */
 			break;
 	*pLast = last - 1;
 

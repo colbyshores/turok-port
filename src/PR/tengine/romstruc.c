@@ -2766,7 +2766,10 @@ int CGameObjectInstance__GetAnimType(CGameObjectInstance *pThis, int nAnimIndex)
 	animTypes = (DWORD*) CUnindexedSet__GetBasePtr(&usAnimTypes);
 	ASSERT(nAnimIndex < CUnindexedSet__GetBlockCount(&usAnimTypes));
 
-	nType = animTypes[nAnimIndex];
+	/* PORT: usAnimTypes is a big-endian DWORD table read RAW; swap on read so GetAnimType returns the
+	 * native anim type (IsAbsoluteAnim test + the LookupAIAnimType BinarySearch — now also key-swapped
+	 * in defs.c — see native values). Left big-endian in place to avoid a double-swap with BinarySearch. */
+	nType = ORDERBYTES(animTypes[nAnimIndex]);
 
 	CIndexedSet__Destruct(&isObjectInfo);
 	CUnindexedSet__Destruct(&usAnimTypes);
