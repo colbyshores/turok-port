@@ -4632,19 +4632,18 @@ void CEngineApp__NewLife(CEngineApp *pThis)
 void CEngineApp__UpdateGAME(CEngineApp *pThis)
 {
 #ifdef PLATFORM_PORT
-	/* PORT (M5 collision): a cinematic's model-swap asset loads relocate/evict the collision buffer,
-	 * leaving the player's m_pCurrentRegion pointing at a region whose corner pointers are NULL/stale.
-	 * N64 (no MMU) tolerates the bad-corner reads; the host faults in whatever derefs them. Collision is
-	 * guarded, but camera/map/region-attribute paths deref too. The original code already handles a NULL
-	 * region everywhere (`if(!region)` -> defaults) — it just never produces a bad-but-non-NULL one — so
-	 * detect it ONCE per frame here and NULL it, and every downstream guard degrades gracefully until the
-	 * level reset re-spawns the player with a fresh region. Real fix: keep collision resident across the
-	 * cinematic model-swap (M5). */
+	/* PORT (M5 collision streaming): the N64 streams collision through a small cart cache, so the
+	 * collision buffer is periodically re-decompressed at a NEW address (e.g. when a key cinematic's
+	 * model-swap loads the body model). The engine never updates the player's m_pCurrentRegion after a
+	 * relocation, so it goes stale (corner pointers point into the freed/old buffer). N64 (no MMU)
+	 * tolerates the stale reads; a protected host faults, and the previous workarounds (NULL the region)
+	 * lost fog + dropped the player through the floor. CORRECT FIX: re-acquire the player's region at its
+	 * current position in the LIVE buffer via CScene__NearestRegion, so collision, ground, fog and the
+	 * camera all keep working with a valid region. Detected once per frame here, before the draw runs the
+	 * player's collision. (The Collision3 entry guard still covers the same-frame window before this.) */
 	{ CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
 	  if (_pl && PORT_REGION_BAD(_pl->ah.ih.m_pCurrentRegion))
-	  { extern int fprintf(void*,const char*,...); extern void *stderr; static int _c=0;
-	    if(_c++<10) fprintf(stderr,"[KEYTRACE] UpdateGAME: NULLing bad player region %p\n", (void*)_pl->ah.ih.m_pCurrentRegion);
-	    _pl->ah.ih.m_pCurrentRegion = NULL; } }
+	    _pl->ah.ih.m_pCurrentRegion = CScene__NearestRegion(&pThis->m_Scene, &_pl->ah.ih.m_vPos); }
 #endif
 
 	// Request latest controller information

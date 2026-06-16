@@ -3899,19 +3899,7 @@ void CGameObjectInstance__Advance(CGameObjectInstance *pThis)
 			if (frame_increment != 0)
 			{
 				if (		(!(pThis->m_AI.m_dwStatusFlags & AI_INTERACTIVEANIMATION))
-						&& (!(pThis->m_AI.m_dwStatusFlags & AI_INTERANIMDELAY))
-#ifdef PLATFORM_PORT
-						/* PORT: do NOT run the PLAYER's collision during a cinematic. The cinematic's
-						 * model-swap relocates the collision buffer, so the player's region is bad/NULL;
-						 * Collision3 then either teleports the player (CCollide__TrackGround projects the
-						 * position onto the vZero fallback corner -> snaps X/Z toward the origin) or, with
-						 * a bad-but-non-NULL region, would crash. The player must HOLD its pickup position
-						 * while the cinematic camera plays (the animation still advances above). This block
-						 * only runs for the player when InCinemaMode (see the `(!player)||InCinemaMode`
-						 * gate), so skipping it here freezes the player in place for the cutscene only. */
-						&& !(player && CCamera__InCinemaMode(&GetApp()->m_Camera))
-#endif
-						)
+						&& (!(pThis->m_AI.m_dwStatusFlags & AI_INTERANIMDELAY)) )
 				{
 					collided = CAnimInstanceHdr__Collision3(&pThis->ah, vDesiredPos, pCI);
 				}
