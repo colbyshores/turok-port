@@ -412,6 +412,19 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
 - **`port/src/os_shim.c`** (port infra, not game source) — added **60 Hz frame pacing** in the `osRecvMesg`
   frame-pump (`TUROK_FPS` env, default 60, 0 = unbounded). Without it the intro/attract state machine advances
   by `frame_increment` per pump tick at unbounded speed → constant scene reloads → CPU peg, never presents.
+- **★ LOGIC-TICK / RENDER DECOUPLE (2026-06-16, commit 4aff8df) — fixes the game running ~2x too fast.** Turok's
+  `frame_increment` is sized for a **30fps step** (`CALC_FRAMERATE` floors `nNextFields` at 2 → `frame_increment
+  ≥ 1.0`, tengine.c:4710), but the port renders at 60fps, so it applied a 30fps step 60×/sec = ~2× speed. Fix:
+  render at `TUROK_FPS` (60) but advance the LOGIC only at `TUROK_TICK_FPS` (default 30 = Turok's native rate).
+  **`os_shim.c osViSwapBuffer`** (THE per-frame present — NOT the `osRecvMesg` BLOCK branch, which is only hit
+  per-frame in SDL2, not headless EGL where sched.c→osViSwapBuffer drives frames) runs a real-time clock and sets
+  the global `g_turok_logic_tick=1` only when ~1/TICK_FPS sec has elapsed; **`tengine.c CEngineApp__UpdateGAME`**
+  forces `frame_increment=0` on the other (render-only) frames so they just re-present the same state. Verified
+  by counting ticks over a fixed real time: TICK_FPS=30→~30Hz logic, 60→60Hz, 0→every frame (old too-fast), while
+  the render ran 2700fps headless. `play_level.sh` exposes it as `TICK=<n>` (default 30). NOTE: no interpolation,
+  so visuals update at 30Hz on a 60Hz display (the N64-authentic cadence) — smooth 60fps *content* would need
+  position/anim interpolation between ticks (a later feature). **LESSON: the per-frame hook headless is
+  `osViSwapBuffer` (sched.c drives it), not the `osRecvMesg` BLOCK frame-pump (SDL2 only).**
 - **`sched.c`** — `scSendCommand` (PLATFORM_PORT) now calls **`osViSwapBuffer(pTask->framebuffer)` right after
   dispatching the gfx task**. On N64 the scheduler thread's `__scHandleRetrace` presents finished gfx tasks;
   that thread never runs cooperatively, so without this every frame rendered but was NEVER presented — the
