@@ -452,6 +452,20 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   timer off → render limited only by v-sync = monitor refresh, e.g. 144Hz). (3) **play_level.sh defaults TICK=60
   + FPS=0** (60Hz logic, uncapped render, interpolation fills the gap). qGround (ground slope) NOT yet slerp'd —
   gradual, low judder, follow-up. Enemy/object instances still 30/60Hz (only player/camera/weapon interpolated).
+- **★ "MISSING PLATFORM" — was a v49-vs-retail ASSET issue, NOT a framerate regression (2026-06-16).** User reported
+  the warp-0 fire-pit "initial platform" missing on the branch + suspected the level resources weren't importing.
+  Bisected with byte-identical headless captures: the branch renders the warp-0 spawn **identical to master**
+  (firepit, md5 6ce37827, consistent across frames 200–14000 at TICK=0 and TICK=60) — so the framerate CODE is
+  innocent. The "stone pillar in water" screenshot was a one-off flaky capture, not reproducible. **Root cause:**
+  the level-1 **walkway** over the water is a **RETAIL-only asset** — the v49 leak's `cartdata.dat` lacks it; walk
+  FORWARD at the fire-pit on v49 assets and you drop into a **blue void** (verified: retail-forward = canyon path
+  md5 75db37f2; v49-forward = empty blue d41cfdb3). `play_level.sh` defaulted to v49 unless `ROM=` was passed, so a
+  plain `./play_level.sh` loaded the leak assets → no walkway. **Fix: `play_level.sh` now defaults to the retail ROM
+  (Path B) when `baserom.us.v12.z64` is present** (`ROM=none` forces v49). **LESSON: when geometry is "missing,"
+  first confirm WHICH asset set is loaded (v49 placeholder vs retail Path B) before suspecting code — many "missing
+  stuff" reports are the v49 leak being incomplete, fixed by Path B, not a bug.** Headless-capture gotcha found:
+  `TUROK_CAPTURE_FRAME=N` on no-tick-gate builds needs `TUROK_MAX_FRAMES` WELL above N (render-frame s_frame_no lags
+  the frame-pump g_frame), else the capture silently never fires.
 - **`sched.c`** — `scSendCommand` (PLATFORM_PORT) now calls **`osViSwapBuffer(pTask->framebuffer)` right after
   dispatching the gfx task**. On N64 the scheduler thread's `__scHandleRetrace` presents finished gfx tasks;
   that thread never runs cooperatively, so without this every frame rendered but was NEVER presented — the

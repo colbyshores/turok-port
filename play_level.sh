@@ -3,16 +3,17 @@
 # for visual debugging on your desktop. Close the window (or Ctrl-C) to quit.
 #
 # Usage:
-#   ./play_level.sh                 # uses DISPLAY :1, v49 dev assets (cartdata.dat)
+#   ./play_level.sh                 # DISPLAY :1; RETAIL v1.2 assets if baserom.us.v12.z64 is present
 #   DISPLAY=:0 ./play_level.sh       # if your desktop is on another display
 #   WARP=1000 ./play_level.sh        # boot a different level (0,1000,...,8000)
-#   ROM=baserom.us.v12.z64 ./play_level.sh   # RETAIL v1.2 assets (Path B) — finished art
-#   DEBUG=1 ROM=… ./play_level.sh    # crash-diagnosis build: prints fault addr + backtrace on segfault
+#   ROM=/path/to/other.z64 ./play_level.sh   # use a specific ROM
+#   ROM=none ./play_level.sh         # force the v49 dev assets (cartdata.dat) instead of retail
+#   DEBUG=1 ./play_level.sh          # crash-diagnosis build: prints fault addr + backtrace on segfault
 #
 # Notes:
-#  - ROM=<retail .z64> selects Path B: assets stream from the retail ROM (offset 0x1F00),
-#    giving the FINISHED v1.2 models/textures instead of the v49 leak's placeholder art.
-#    Leave ROM unset to use the in-tree v49 cartdata.dat.
+#  - Path B streams assets from the retail ROM (offset 0x1F00), giving the FINISHED v1.2 geometry/art
+#    — including the level-1 walkway the v49 leak is MISSING. It's now the DEFAULT when the ROM is
+#    present in this dir; use ROM=none to force the v49 cartdata.dat (placeholder art, no walkway).
 #  - DEBUG=1 builds the -O0 + SIGSEGV-handler binary: on a crash it prints the fault address,
 #    last memcpy, and a short backtrace — send that output for diagnosis.
 #  - Input is wired (WASD/arrows + gamepad). Levels 2-8 (WARP 2000+) load slowly;
@@ -31,6 +32,13 @@ cd "$(dirname "$0")"
 # every render frame (the old ~2x-too-fast behaviour). Raise to speed up, lower to slow down.
 : "${TICK:=60}"
 if [ -n "${DEBUG:-}" ] && [ "$DEBUG" != "0" ]; then BUILD_MODE=debug; OUT=/tmp/turok_sdl_dbg; else BUILD_MODE=release; OUT=/tmp/turok_sdl; fi
+
+# Default to the retail ROM (Path B) when it's present: it has the FINISHED level geometry — e.g. the
+# level-1 walkway over the water at the fire-pit start — that the v49 leak's cartdata.dat is MISSING
+# (walk forward on v49 assets and you drop into a blue void). Pass ROM=<path> to use a specific ROM, or
+# ROM=none to force the v49 dev assets.
+if [ -z "${ROM:-}" ] && [ -f "$PWD/baserom.us.v12.z64" ]; then ROM="baserom.us.v12.z64"; fi
+if [ "${ROM:-}" = "none" ]; then ROM=""; fi
 
 # Path B: if ROM is set, resolve to an absolute path and stream retail v1.2 assets.
 ROM_ARG=()
