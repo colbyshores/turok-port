@@ -2051,8 +2051,8 @@ void CScene__InstancesReceived(CScene *pThis, CCacheEntry **ppceTarget)
 	ASSERT(pThis->m_nActiveAnimInstances == 0);
 
 #ifdef PLATFORM_PORT
-	{ extern int fprintf(void*,const char*,...); extern void *stderr;
-	  fprintf(stderr, "[scene] *** m_pPlayer SET = %p ***\n", (void*)&instances[0]); }
+	{ extern int fprintf(void*,const char*,...); extern void *stderr; extern char *getenv(const char*);
+	  if(getenv("TUROK_TRACE")) fprintf(stderr, "[scene] *** m_pPlayer SET = %p ***\n", (void*)&instances[0]); }
 #endif
 	pThis->m_pPlayer = &instances[0];
 

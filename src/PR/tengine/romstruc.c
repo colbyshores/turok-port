@@ -8606,8 +8606,9 @@ void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 	isPlayer = (pThis == CEngineApp__GetPlayer(GetApp())) ;
 
 #ifdef PLATFORM_PORT
-	{ extern int fprintf(void*,const char*,...); extern void *stderr; static int _bc=0;
-	  if(_bc<20){_bc++; fprintf(stderr,"[BT] objDraw type=0x%x\n", (int)CGameObjectInstance__TypeFlag(pThis));} }
+	{ extern int fprintf(void*,const char*,...); extern void *stderr; extern char *getenv(const char*);
+	  static int _bc=0,_tr=-1; if(_tr<0)_tr=getenv("TUROK_TRACE")?1:0;
+	  if(_tr&&_bc<20){_bc++; fprintf(stderr,"[BT] objDraw type=0x%x\n", (int)CGameObjectInstance__TypeFlag(pThis));} }
 #endif
 
 #ifdef PLATFORM_PORT
@@ -10118,8 +10119,9 @@ void CGameObjectInstance__DoDraw(CGameObjectInstance *pThis, CAnimDraw *pAnimDra
 	    static int _c=0; if(_c++<12) fprintf(stderr,"[BT] DoDraw OOB node=%d (bound=%d) — skipped (would corrupt memory)\n", nNode, g_turok_dodraw_bound);
 	    return;
 	  } }
-	{ extern int fprintf(void*,const char*,...); extern void *stderr; static int _bc=0;
-	  if(_bc<30){_bc++; fprintf(stderr,"[BT] DoDraw node=%d\n", nNode);} }
+	{ extern int fprintf(void*,const char*,...); extern void *stderr; extern char *getenv(const char*);
+	  static int _bc=0,_tr=-1; if(_tr<0)_tr=getenv("TUROK_TRACE")?1:0;
+	  if(_tr&&_bc<30){_bc++; fprintf(stderr,"[BT] DoDraw node=%d\n", nNode);} }
 #endif
 
 	BigHead = FALSE ;

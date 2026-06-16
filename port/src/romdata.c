@@ -103,10 +103,11 @@ void romPiRead(void *dst, u32 devAddr, u32 nbytes)
     uintptr_t end  = base + TUROK_CARTDATA_SIZE;
     uintptr_t a    = (uintptr_t)devAddr;
     int oob = (a < base || a + nbytes > end);
-    if (s_dma_calls < 40 || oob)
+    { static int s_tr = -1; if (s_tr < 0) s_tr = getenv("TUROK_TRACE") ? 1 : 0;   /* gate the load spam; keep real OOB always-on */
+      if ((oob && nbytes > 0) || (s_tr && s_dma_calls < 40))
         fprintf(stderr, "[dma %d] dst=%p devAddr=0x%08x nbytes=%u  off=%ld%s\n",
                 s_dma_calls, dst, devAddr, nbytes, (long)(a - base),
-                oob ? "  <<< OUT OF CARTDATA RANGE" : "");
+                oob ? "  <<< OUT OF CARTDATA RANGE" : ""); }
     if (nbytes > 0x1000000u) {                 /* absurd size — show who asked */
         void *bt[16]; int n = backtrace(bt, 16);
         fprintf(stderr, "[dma] ABSURD nbytes=%u — caller backtrace:\n", nbytes);

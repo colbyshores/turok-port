@@ -3187,9 +3187,10 @@ CFrameData* CEngineApp__CreateGraphicsTask(CEngineApp *pThis)
 	pFData->m_DisplayListSize = (((DWORD)pThis->m_pDLP) - ((DWORD)pFData->m_pDisplayList));
 
 #ifdef PLATFORM_PORT
-	{ extern int fprintf(void*,const char*,...); extern void *stderr; static long _mx=0;
+	{ extern int fprintf(void*,const char*,...); extern void *stderr; extern char *getenv(const char*);
+	  static long _mx=0; static int _tr=-1; if(_tr<0)_tr=getenv("TUROK_TRACE")?1:0;
 	  long _n = pThis->m_pDLP - pFData->m_pDisplayList;
-	  if (_n > _mx) { _mx = _n; fprintf(stderr,"[dlcount] new max %ld / GLIST_LEN=%d%s\n",
+	  if (_n > _mx) { _mx = _n; if(_tr || _n>=GLIST_LEN) fprintf(stderr,"[dlcount] new max %ld / GLIST_LEN=%d%s\n",
 	    _n, GLIST_LEN, _n>=GLIST_LEN?"  *** OVERFLOW — corrupting adjacent memory ***":""); } }
 #endif
 
