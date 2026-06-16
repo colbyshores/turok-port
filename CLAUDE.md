@@ -807,7 +807,19 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   no Collision3-bail spam); patrols on all 9 levels stay grounded, no false NULLing in normal play (warps
   4000/5000 NULL once on a transient streaming region — harmless, Y stays grounded). A capped `[KEYTRACE]` in
   pickup.c/tengine.c reports key pickups + when the band-aid engages. **The proper M5 fix remains: keep the
-  collision cache resident (ResetAge) across the cinematic model-swap so the region never goes stale.** ALSO
+  collision cache resident (ResetAge) across the cinematic model-swap so the region never goes stale.**
+  - **★ FOLLOW-UP: the NULL-on-bad caused a TELEPORT regression — fixed (commit b4d6892).** With the region
+    NULLed, `Collision3` no longer bailed (`PORT_REGION_BAD(NULL)` is false), so it ran `CCollide__TrackGround`,
+    which projects the player's position onto the **vZero fallback corner** (unicol.c:245) → snaps X/Z toward the
+    world origin. The player visibly teleported DURING the key cinematic (user-reported regression; previously,
+    the bad-but-non-NULL region made Collision3 bail → position held → correct). **Fix: `romstruc.c
+    CGameObjectInstance__Advance` skips the PLAYER's collision while `CCamera__InCinemaMode`** (that block only
+    runs for the player when in cinema mode). The animation still advances; the player holds `vOldPos` = the
+    pickup position. Verified on warp 3000: player stays at the exact pickup point (-153,0,-536) through the whole
+    cinematic; normal-play collision unaffected (cinema-gated), patrols grounded. NOTE: the key cinematic ends
+    with `MODE_RESETLEVEL` → respawn at `CINEMA_WARP_ID` (-2) → `GetApp()->m_CinemaWarp` (captured at FadeToCinema
+    = the pickup pos, camera.c:1650). So the post-cinematic respawn should also be the pickup point (host-order,
+    no endianness) — user to confirm the FINAL position is right. ALSO
   REPORTED by the user (deferred): a **blue-portal warp bug** — entering a portal → bonus area, then re-entering
   → wrong-warps to the Campaigner boss instead of back. Warp/portal level-transition logic to fix next.
 
