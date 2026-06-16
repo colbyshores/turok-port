@@ -793,6 +793,24 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   parse/relocate correctly + keeping the collision cache entry resident across cinematic asset loads; these guards
   are the host-null-tolerance stopgap until then.**
 
+- **★ KEY-CINEMATIC "PLAYS THEN CRASHES" — root-caused + fixed (2026-06-16, commit d2ace13).** After the guards
+  above, picking up a key showed the cinematic but then SEGV'd again. Runtime traces (CPickup_Pickup + per-frame
+  cinematic + Collision3-bail, reproduced on warp 3000) nailed it: **at the pickup the player's region is valid
+  (`regionBad=0`), but during the cinematic it becomes a DIFFERENT, BAD region** (`bad=1`). The key cinematic's
+  model-swap (`CScene__LoadObjectModelType` → body model + `AI_ANIM_EXTRA10`) loads assets that **relocate/evict
+  the collision buffer**, so the player's `m_pCurrentRegion` ends up on a region whose corner pointers are now
+  NULL/stale. Collision3 bails (guarded), but the camera/map/region-attribute paths also deref the region and
+  fault. **Root fix: `tengine.c CEngineApp__UpdateGAME` detects a `PORT_REGION_BAD` player region once per frame
+  and NULLs it.** The engine already handles a NULL region everywhere (`if(!region)` → defaults) — it just never
+  produced a bad-but-non-NULL one — so every downstream path degrades gracefully until the level reset re-spawns
+  the player with a fresh region. Verified: key cinematic + reset completes rc=0 (cinematic now sees `region=nil`,
+  no Collision3-bail spam); patrols on all 9 levels stay grounded, no false NULLing in normal play (warps
+  4000/5000 NULL once on a transient streaming region — harmless, Y stays grounded). A capped `[KEYTRACE]` in
+  pickup.c/tengine.c reports key pickups + when the band-aid engages. **The proper M5 fix remains: keep the
+  collision cache resident (ResetAge) across the cinematic model-swap so the region never goes stale.** ALSO
+  REPORTED by the user (deferred): a **blue-portal warp bug** — entering a portal → bonus area, then re-entering
+  → wrong-warps to the Campaigner boss instead of back. Warp/portal level-transition logic to fix next.
+
 The port build infra (not game source): `Makefile.port`, `port/include/turok_port.h` (host compat shim),
 `lib/ultralib/` (vendored libultra headers), `tools/turok_rom.py`.
 
