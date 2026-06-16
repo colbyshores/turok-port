@@ -438,6 +438,20 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   yet (they judder at 30Hz — the player/camera/weapon, the dominant FPS view, ARE smooth); look-PITCH not yet
   interpolated (only pos+yaw).** ★ GOTCHA: with the 30Hz gate, headless captures need a LATE `TUROK_CAPTURE_FRAME`
   (the unpaced render runs ~2700fps so render-frame 20 is <1 logic tick in → blank; use frame ~4000+).
+- **★ BRANCH `framerate-interpolation` (2026-06-16).** Per the user, ALL framerate/feel work (tick decouple,
+  player + camera/pitch interpolation, render uncap) lives on the **`framerate-interpolation`** branch; **`master`
+  = correctness fixes only** (ends at the re-acquire key-cinematic fix `ce40c14`, force-pushed back — master runs
+  gameplay-correct but at the old 2x render speed). Merge once the feel is dialed in. The decouple/interp commits
+  (4aff8df, 756cb54, 18d9c68) are on the branch, NOT master.
+- **★ CAMERA INTERPOLATION + RENDER UNCAP (branch, commit 18d9c68).** A 3-agent Workflow mapped the camera
+  view-matrix (`CCamera__Update`: view = m_XPos/YPos/ZPos + m_RotY yaw + **m_RotXOffset pitch** + m_qGround), the
+  SDL2 present (v-sync ON `SwapInterval(1)` + a `target_fps=120` CPU timer), and the look-pitch field
+  (`m_RotXOffset` on CEngineApp, set by `CTMove` tmove.c:919). Added: (1) **pitch interpolation** —
+  `tengine.c CEngineApp__UpdateGAME` snapshots/lerps/restores `pThis->m_RotXOffset` alongside player pos+yaw so
+  looking up/down is smooth. (2) **render uncap** — `gfx_sdl2.cpp` honours TUROK_FPS for `target_fps` (FPS=0 →
+  timer off → render limited only by v-sync = monitor refresh, e.g. 144Hz). (3) **play_level.sh defaults TICK=60
+  + FPS=0** (60Hz logic, uncapped render, interpolation fills the gap). qGround (ground slope) NOT yet slerp'd —
+  gradual, low judder, follow-up. Enemy/object instances still 30/60Hz (only player/camera/weapon interpolated).
 - **`sched.c`** — `scSendCommand` (PLATFORM_PORT) now calls **`osViSwapBuffer(pTask->framebuffer)` right after
   dispatching the gfx task**. On N64 the scheduler thread's `__scHandleRetrace` presents finished gfx tasks;
   that thread never runs cooperatively, so without this every frame rendered but was NEVER presented — the
