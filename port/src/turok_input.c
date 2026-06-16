@@ -46,6 +46,14 @@ void turokInputGetPad(OSContPad *pad)
             pad->button = 0x0008;       /* C-up = U_CBUTTONS = Forward (matches the new kbd map) */
             return;
         }
+        if (fake == 5) {
+            pad->button = 0x0008 | 0x2000;  /* Forward (C-up) + FIRE (Z trigger) — kill creatures to trigger death-fade fx_mode leak */
+            return;
+        }
+        if (fake == 6) {
+            pad->button = 0x2000;           /* FIRE only (stand + shoot what you face) */
+            return;
+        }
         if (fake) {
             pad->stick_y = 64;          /* forward */
             pad->stick_x = (signed char)(fake > 1 ? 28 : 0);  /* TUROK_FAKEINPUT=2 also turns */

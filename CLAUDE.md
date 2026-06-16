@@ -643,6 +643,46 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   is small/distant headless. Pickups (shiny triangle powerups) + key + the pillar trigger should now work too
   (same `AI_VISIBLE`/anim path) — user to confirm interactively.
 
+- **★ CAMERA/HUD CORRUPTION-WHILE-WALKING (2026-06-15, overnight) — 3 render-state-leak fixes.** User report:
+  "camera completely fucked up when I press W," SUSTAINED, a regression that appeared when the animated-object
+  draw was enabled; **`TUROK_ANIMOBJ=0` = completely stable** (user-confirmed). Exhaustively ruled out (NaN/huge
+  matrix+vertex detectors silent; modelview stack balanced+bounded headless; viewport/scissor stable; no node
+  OOB). A **6-agent Workflow** mapped every non-matrix render-state vector; the convergent classes (all:
+  camera/HUD, interactive-only, ANIMOBJ-gated, NOT-NaN so detectors stay silent, NOT headless-reproducible
+  because a fixed/short headless capture never hits the trigger) were fixed:
+  1. **Render/combine cache desync** (`geometry.c` `CGeometry__SetRenderMode/SetCombineMode`). The engine
+     memoizes render/combine in game-side globals `current_render_mode/current_combine_mode` and emits NOTHING
+     on a cache hit; that cache is a *separate shadow* of gfx_pc's PERSISTENT `rdp.other_mode_l/h`/`combine_mode`
+     (camera setup re-issues projection/viewport/scissor each frame but NOT combine/othermode — they persist).
+     A desync → a needed emit is skipped → wrong mode bleeds into world+HUD. **Fix:** on `PLATFORM_PORT` disable
+     the memo — always emit (the globals are read ONLY for dedup; always-emit re-syncs gfx_pc every section; a
+     visual no-op when synced). Also makes the masked-material alpha-compare (`DrawSection ~937`, emitted only on
+     `SetRenderMode`-returns-TRUE) always re-emit.
+  2. **★ `fx_mode` LEAK — CONFIRMED firing at warp 6000 (Campaigner boss), value `FXMODE_TOCOLOR`.**
+     `CGameObjectInstance__PreDraw` (romstruc.c:9003+) sets the file-global `fx_mode` (geometry.c:28) to GLARE/
+     TOTRANSPARENT/TOCOLOR for an enemy in a special state (regenerating, dying-fade `TRANS_FADE_OUT_MODE`
+     @8918). The reset (romstruc.c:8944 + PostDraw `fx_mode=NONE` @9217) is gated on `m_asCurrent.m_pceAnim`,
+     which `DoAI`/`Advance` (8754/8763, **DoAI runs INSIDE the draw**) can NULL mid-draw — leaking a non-NONE
+     `fx_mode`. It's a global never reset per-frame, so it bleeds into later object/weapon draws; `DrawSection`
+     renders those as a **flat solid color** (proven: forcing `fx_mode=TOCOLOR` turns the weapon viewmodel solid
+     red). The WORLD grid does NOT use `fx_mode` — so it's the animated **objects + first-person weapon** that
+     render as solid-color blobs (sustained: frames 155-200+ leaked consecutively at warp 6000). **Fix:** reset
+     `fx_mode=FXMODE_NONE`+`fx_color` in `CGeometry__ResetDrawModes` (the per-frame reset, tengine.c:1037 before
+     DrawGAME + scene.c:2978 before HUD). `TUROK_FXLEAK=1` (default in `play_level.sh`) logs each caught leak.
+  3. **Modelview matrix stack depth 11→64** (`gfx_pc.cpp`, `MODELVIEW_STACK_DEPTH`). DoDraw recurses the
+     skeletal node hierarchy with paired `gSPMatrix(PUSH)`/`gSPPopMatrix`; deeper than 11 → push dropped but pop
+     kept → camera-base matrix popped away → whole-frame camera+HUD corruption. `push_dropped`/`pop_underflow`
+     counters read 0 only headless (shallow enemies, peak depth observed = 5); the imbalance warning is now
+     ALWAYS-ON (capped). Pairs with the earlier pop-floor (pop never drops below the camera base).
+  **STILL OPEN / NEEDS USER VERIFY:** the leak was confirmed at warp 6000 but **NOT reproduced at warp 0** (the
+  user's level) headless — across walking (`TUROK_FAKEINPUT=3` = real C-up forward; 1/2 were stick=LOOK, not
+  move), firing (`=5/6`), and spawning at creatures, every detector stayed silent at warp 0. So warp 0 either
+  triggers the same leak class under an interactive enemy state I can't headlessly hit, OR is a 4th cause. The
+  user should retest `ROM=baserom.us.v12.z64 ./play_level.sh`; if still corrupt, the always-on detectors
+  (`[fxleak]`, `[mtxstack] IMBALANCE`, `[VTXBAD]`, `[CANARY]`) name which class fires on their hardware.
+  New debug knobs: `TUROK_FXLEAK`, `TUROK_RSLOG` (viewport/scissor SET log), `TUROK_MTXSTACK` (per-frame peak
+  modelview depth), `TUROK_FAKEINPUT=3` (forward) / `=5` (forward+fire) / `=6` (fire).
+
 The port build infra (not game source): `Makefile.port`, `port/include/turok_port.h` (host compat shim),
 `lib/ultralib/` (vendored libultra headers), `tools/turok_rom.py`.
 
