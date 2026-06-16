@@ -758,6 +758,41 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     STRUCT PAYLOAD it gates are a pair — fixing the key lookup ungates the payload, so fix/gate both together or
     you trade a silent-no-op for a SEGV (sound + particles both did exactly this).**
 
+- **★ KEY-PICKUP / ALL-CINEMATIC COREDUMP — fixed (2026-06-16, commit 4b359e7).** Picking up any key (and every
+  death/ending cutscene) crashed with a SEGV. Root: a cinematic ENABLES the player's per-frame collision
+  (`romstruc.c CGameObjectInstance__Advance` runs `Collision3` for the player only when `CCamera__InCinemaMode`),
+  and the camera (`KeepBelowCeiling`), minimap (`RevealMap`) and AI reset (`CAIDynamic__Reset`) all run collision
+  queries against the player's region. The **M5 collision parse is still incomplete**, so some regions carry
+  corner pointers that are **NULL**, **stale** (the cinematic's model-swap asset loads evict/move the collision
+  buffer the region's `m_pCurrentRegion` points into → dangling `m_pCorners`), or **uninitialised poison**
+  (`0x14141414`). **N64 (no MMU) tolerates these as harmless low-RDRAM reads; a protected host faults** — the same
+  null-tolerance class as the title-screen guards. Diagnosed by chasing the crash through ~7 distinct
+  corner-deref sites (regicol edge loop → unicol TrackGround → SetCameraToTurok → unicol:249 → map DoRevealMap →
+  ClearRecurseFlags → GetCeilingNormal → CAIDynamic GetGroundHeight); the dummy-corner trace proved indices are
+  **valid at parse time**, so it's a *runtime* stale/poison pointer, not a parse bug. Fixes (all PLATFORM_PORT,
+  graceful no-collision / default fallback):
+  - **`romstruc.h`** — `PORT_CORNER_BAD(rgn,i)` / `PORT_REGION_BAD(rgn)` macros: a corner pointer is bad if NULL,
+    N64-range (≥0x80000000), or **>16MB from its region** (a level's whole collision blob is only a few MB, so the
+    window accepts every real corner yet rejects wild/poison pointers — the distance-from-region heuristic works
+    because corners+regions share one `pBytes` buffer; **256MB was too loose, let 0x14141414 poison slip through
+    ~190MB from a valid heap region → tightened to 16MB**). `(0)` off-port.
+  - **`unicol.c CAnimInstanceHdr__Collision3`** — bail with no collision at the entry when the instance's region is
+    `PORT_REGION_BAD`. **THE single chokepoint** for every collision caller (player Advance, cinecam
+    `GetNearPositionAndRegion`, weapon `GetOffsetPositionAndRegion`).
+  - **`romstruc.c`** — `GetGround/CeilingNormal` + `GetGround/CeilingHeight` fall back to flat-ground/ceiling
+    defaults via `PORT_REGION_BAD` (replaced the older `TUROK_BADPTR`-only guards, which missed host-range
+    garbage). `TakeFromROMRegion` now takes `nCorners` + bounds-checks the corner index, substituting a static
+    zeroed dummy for any OOB/absent corner (belt-and-suspenders; doesn't engage on current data = indices valid).
+  - **`tmove.c`** — skip the dead/cinema "drop to ground" physics (velocity + `Collision3`) on host.
+  - **`tengine.c CEngineApp__SetCameraToTurok`** — NULL-guard `pRegionSet->m_dwFlags` (cinema forces
+    `keepInSphere=TRUE` even when the region has no attributes → the N64-deliberate "let it crash" out-of-bounds
+    snap faulted on host).
+  - **`map.c`** (`RevealMap`/`DoRevealMap`) + **`regicol.c`** (edge loop) — skip `PORT_REGION_BAD` regions.
+  Verified: all 9 levels (warp 0..8000) run the real `FadeToCinema` path 200 frames at rc=0; normal patrols +
+  rendering unaffected (warp 0 ~587 tris, 160 colour buckets). **The real M5 fix is making the collision corners
+  parse/relocate correctly + keeping the collision cache entry resident across cinematic asset loads; these guards
+  are the host-null-tolerance stopgap until then.**
+
 The port build infra (not game source): `Makefile.port`, `port/include/turok_port.h` (host compat shim),
 `lib/ultralib/` (vendored libultra headers), `tools/turok_rom.py`.
 
