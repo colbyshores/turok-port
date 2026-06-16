@@ -70,7 +70,15 @@
 #define	PARTICLES_MAX_COUNT		2
 
 //#define	MATTABLE_MATRICES			400
+#ifdef PLATFORM_PORT
+/* The as-leaked value (32) is far too small: the now-active player + enemy skeletons need ~15
+ * matrices each, so a couple of animated objects exhaust the per-frame pool. On the host we have
+ * RAM to spare — give a generous budget so every animated object gets a valid matrix table
+ * (objects past the pool got a NULL table and were silently skipped / drew stale). */
+#define	MATTABLE_MATRICES			4096
+#else
 #define	MATTABLE_MATRICES			32
+#endif
 
 #define	MAX_TRANSPARENT_INSTANCES	64
 
