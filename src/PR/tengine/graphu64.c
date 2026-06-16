@@ -1781,6 +1781,22 @@ float acos(float x)
 
 	//ASSERT((x >= -1) && (x <= 1));
 
+#ifdef PLATFORM_PORT
+	/* ★ ENDIANNESS — THE "camera completely fucked up when I press W" ROOT BUG. The acos lookup table
+	 * act[] stores its 1024 floats as BIG-ENDIAN bytes (N64 native). On a little-endian host
+	 * ((float*)act)[i] reads byte-swapped GARBAGE, so acos() returns nonsense. acos feeds the
+	 * quaternion blends (CQuatern__BlendThreshold @669 / GetCloser @706) that update the player's
+	 * ground-slope quaternion m_qGround EVERY FRAME WHILE WALKING — garbage acos drifts m_qGround
+	 * non-unit (|q|^2 observed = 6.5 .. 48), and a non-unit q in qRotZ*qRotX*qRotY*qGround SKEWS the
+	 * camera matrix (finite, so the NaN/huge matrix detectors all stayed silent). Same class as the
+	 * documented fmodf bug. Byte-swap the table to host order once, in place. */
+	{ static int s_swapped = 0; if (!s_swapped) { s_swapped = 1;
+	    unsigned char *b = (unsigned char *)act; unsigned int i, nf = (unsigned int)(sizeof(act) / 4);
+	    for (i = 0; i < nf; i++) { unsigned char t0 = b[i*4+0], t1 = b[i*4+1];
+	      b[i*4+0] = b[i*4+3]; b[i*4+3] = t0;
+	      b[i*4+1] = b[i*4+2]; b[i*4+2] = t1; } } }
+#endif
+
 /*
 	if (x < 0)
 		return ANGLE_PI - ((float*)act)[(int) (-x*1023)];

@@ -785,6 +785,21 @@ void CCamera__Update(CCamera *pThis)
 	YPos += pThis->m_vTremor.y ;
 	RotZOffset += pThis->m_vTremor.z ;
 
+#ifdef PLATFORM_PORT
+	/* Camera-LOGIC anomaly detector (always-on, capped): a huge/NaN view angle or a non-unit ground
+	 * quaternion makes the camera point wildly ("camera completely fucked up") while the resulting
+	 * matrix elements stay bounded (sin/cos), so the gfx_pc matrix detectors miss it. Catch it at the
+	 * source — names whether the corruption is a bad pitch/yaw/roll or a bad ground-slope (qGround,
+	 * from collision under the moving player). */
+	{ float qn = qGround.x*qGround.x + qGround.y*qGround.y + qGround.z*qGround.z + qGround.t*qGround.t;
+	  int bad = (RotY!=RotY)||(RotXOffset!=RotXOffset)||(RotZOffset!=RotZOffset)||(RotYOffset!=RotYOffset)
+	          ||(RotXOffset>100.0f)||(RotXOffset<-100.0f)||(RotZOffset>100.0f)||(RotZOffset<-100.0f)
+	          ||(RotY>1000.0f)||(RotY<-1000.0f)||(qn!=qn)||(qn>4.0f)||(qn<0.25f);
+	  if(bad){ extern int fprintf(void*,const char*,...); extern void*stderr; static int _c=0;
+	    if(_c++<12) fprintf(stderr,"[CAMTRACK] camera anomaly: RotY=%.2f RotX=%.2f RotZ=%.2f RotYoff=%.2f |qGround|^2=%.3f pos=(%.0f,%.0f,%.0f)\n",
+	      RotY,RotXOffset,RotZOffset,RotYOffset,qn,XPos,YPos,ZPos); } }
+#endif
+
 	// Add warp spin - THIS CRASHES LEVEL 4!!!!!
 //	RotZOffset += pThis->m_WarpSpin ;
 
