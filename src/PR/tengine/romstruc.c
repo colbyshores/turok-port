@@ -8563,6 +8563,7 @@ void CROMSoundElement__TakeFromElement(CROMSoundElement *pThis, CSoundElement *p
 #ifndef WIN32
 
 extern int g_turok_drawall;
+int g_turok_dodraw_bound = 0;   /* PORT: nNodes of the object currently in DoDraw — bounds pmtDrawMtxs[nNode] */
 void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 										 CCacheEntry *pceTextureSetsIndex)
 {
@@ -8836,6 +8837,9 @@ void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 
 							// get matrix table for drawing animated instances
 							pThis->pmtDrawMtxs = CAnimationMtxs__RequestMtxTable(nNodes);
+#ifdef PLATFORM_PORT
+							g_turok_dodraw_bound = nNodes;   /* DoDraw writes pmtDrawMtxs[nNode]; bound nNode to this */
+#endif
 							if (pThis->pmtDrawMtxs)
 							{
 								// Update head tracking
@@ -10094,6 +10098,15 @@ void CGameObjectInstance__DoDraw(CGameObjectInstance *pThis, CAnimDraw *pAnimDra
 	ASSERT(pThis->pmtDrawMtxs);
 
 #ifdef PLATFORM_PORT
+	/* GUARD: nNode indexes pmtDrawMtxs[nNode] (a 64-byte matrix write) and the node block.
+	 * The node hierarchy's child indices are big-endian DWORDs from the model; a stale/garbage
+	 * one yields an out-of-range nNode that writes far out of bounds, stomping adjacent memory
+	 * and garbling the renderer (the "camera + HUD corrupt while walking" bug). Bound it. */
+	{ extern int g_turok_dodraw_bound; extern int fprintf(void*,const char*,...); extern void *stderr;
+	  if (nNode < 0 || (g_turok_dodraw_bound > 0 && nNode >= g_turok_dodraw_bound)) {
+	    static int _c=0; if(_c++<12) fprintf(stderr,"[BT] DoDraw OOB node=%d (bound=%d) — skipped (would corrupt memory)\n", nNode, g_turok_dodraw_bound);
+	    return;
+	  } }
 	{ extern int fprintf(void*,const char*,...); extern void *stderr; static int _bc=0;
 	  if(_bc<30){_bc++; fprintf(stderr,"[BT] DoDraw node=%d\n", nNode);} }
 #endif
