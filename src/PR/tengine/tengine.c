@@ -2805,7 +2805,10 @@ void CEngineApp__SetCameraToTurok(CEngineApp *pThis)
 
 			pPlayer->ah.ih.m_vPos.y = (pPlayer->ah.ih.m_vPos.y < 0) ? -newY : newY;
 
-			if (pRegionSet->m_dwFlags & REGFLAG_FALLDEATH)
+			/* PORT: in cinema mode keepInSphere is forced TRUE even when pRegionSet is NULL (the
+			 * player's region has no attributes), so this FALLDEATH deref crashes on a NULL pRegionSet.
+			 * The original "let it crash" was an N64-deliberate stuck-player snap; guard it on host. */
+			if (pRegionSet && (pRegionSet->m_dwFlags & REGFLAG_FALLDEATH))
 			{
 				pThis->m_YPos = pPlayer->ah.ih.m_vPos.y;
 

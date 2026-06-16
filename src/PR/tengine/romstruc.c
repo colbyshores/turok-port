@@ -240,8 +240,18 @@ CGameRegion*	CGameRegion__FindNextLowerRegion(CGameRegion *pThis, CVector3 vPos)
 // CGameRegion
 /////////////////////////////////////////////////////////////////////////////
 
+#ifdef PLATFORM_PORT
+/* M5 collision parse safety net: a stand-in corner for a region whose corner index is out of range or
+ * whose corner array is absent (the collision parse is still incomplete for some levels). Substituting
+ * this for &Corners[badIndex] keeps every downstream collision query (GetGroundNormal/Height,
+ * TrackGround, RegionCollision, minimap) from dereferencing wild/NULL memory and crashing — notably
+ * during the key-pickup / death cinematic, where the player's collision runs against such regions. */
+static CROMCorner	s_portDummyCorner;
+static int			s_portBadCorners;
+#endif
+
 void CGameRegion__TakeFromROMRegion(CGameRegion *pThis, CROMRegion *pSource,
-												CROMCorner Corners[], CGameRegion Regions[])
+												CROMCorner Corners[], CGameRegion Regions[], int nCorners)
 {
 	int 				i;
 	unsigned short	neighbor;
@@ -256,7 +266,17 @@ void CGameRegion__TakeFromROMRegion(CGameRegion *pThis, CROMRegion *pSource,
 
 	for (i=0; i<3; i++)
 	{
-		pThis->m_pCorners[i] = &Corners[ORDERBYTES(pSource->m_Corners[i])];
+		unsigned int _ci = (unsigned int) ORDERBYTES(pSource->m_Corners[i]);
+		if (Corners && _ci < (unsigned int) nCorners)
+			pThis->m_pCorners[i] = &Corners[_ci];
+		else
+		{
+			/* out-of-range / absent corner — use the dummy so collision never derefs wild memory */
+			pThis->m_pCorners[i] = &s_portDummyCorner;
+			if (s_portBadCorners++ == 0)
+			{ extern int fprintf(void*,const char*,...); extern void *stderr;
+			  fprintf(stderr, "[coll] PORT: region corner idx %u >= nCorners %d (using dummy; M5 collision parse)\n", _ci, nCorners); }
+		}
 
 		neighbor = ORDERBYTES(pSource->m_Neighbors[i]);
 		if (neighbor == ((unsigned short) -1))
@@ -516,7 +536,7 @@ CVector3 CGameRegion__GetCeilingNormal(CGameRegion *pThis)
 	static CVector3		vNormalCache;
 	CVector3					vLeft, vRight;
 
-	if (!pThis)
+	if (!pThis || PORT_REGION_BAD(pThis))	/* PORT: NULL/stale corners (M5) -> flat-ceiling default */
 	{
 		vNormalCache.x = 0;
 		vNormalCache.y = -1;
@@ -567,7 +587,7 @@ float CGameRegion__GetCeilingHeight(CGameRegion *pThis, float X, float Z)
 	CVector3	vNormal,
 				vPoint;
 
-	if (!pThis)
+	if (!pThis || PORT_REGION_BAD(pThis))	/* PORT: NULL/stale corners (M5) */
 		return 0;
 
 	vNormal = CGameRegion__GetCeilingNormal(pThis);
@@ -606,10 +626,10 @@ CVector3 CGameRegion__GetGroundNormal(CGameRegion *pThis)
 	else if (pThis != pNormalCache
 #ifdef PLATFORM_PORT
 		/* PORT: region corner pointers are not correctly relocated/parsed yet (M5 collision parse) —
-		 * they can be NULL or WILD (N64 0x80xxxxxx-range). Guard against any non-host-range pointer
-		 * and fall back to an up-normal, like the !pThis case above. (Restores the legal screen, which
-		 * now reaches level-0 collision load thanks to the RNC fix.) */
-		&& !TUROK_BADPTR(pThis->m_pCorners[0]) && !TUROK_BADPTR(pThis->m_pCorners[1]) && !TUROK_BADPTR(pThis->m_pCorners[2])
+		 * they can be NULL, N64-range (0x80xxxxxx) or host-range GARBAGE (stale after the cinematic's
+		 * asset loads evict the collision buffer). PORT_REGION_BAD catches all three; fall through to
+		 * the up-normal default below, like the !pThis case. */
+		&& !PORT_REGION_BAD(pThis)
 #endif
 		)
 	{
@@ -665,8 +685,8 @@ float CGameRegion__GetGroundHeight(CGameRegion *pThis, float X, float Z)
 		return -1400.0*SCALING_FACTOR;
 
 #ifdef PLATFORM_PORT
-	if (TUROK_BADPTR(pThis->m_pCorners[0]) || TUROK_BADPTR(pThis->m_pCorners[1]) || TUROK_BADPTR(pThis->m_pCorners[2]))
-		return -1400.0*SCALING_FACTOR;   /* region corners not relocated/parsed yet (M5) */
+	if (PORT_REGION_BAD(pThis))
+		return -1400.0*SCALING_FACTOR;   /* region corners NULL/N64-range/stale (M5 collision parse) */
 #endif
 
 	vNormal = CGameRegion__GetGroundNormal(pThis);

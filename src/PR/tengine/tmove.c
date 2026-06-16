@@ -741,8 +741,19 @@ void CTMove__UpdateTurokInstance(CTMove *pThis, CEngineApp *pApp, CTControl *pCT
 
 		if (waterFlag == PLAYER_NOT_NEAR_WATER)
 		{
+#ifndef PLATFORM_PORT
 			pIns->ah.m_vVelocity.y = -15*SCALING_FACTOR;
 			CAnimInstanceHdr__Collision3(&pIns->ah, pIns->ah.ih.m_vPos, &ci_playerdead);
+#else
+			/* PORT: the dead/cinema "drop to ground" physics crashes — the M5 collision parse is
+			 * incomplete, so some region's corner pointers are host-range GARBAGE (they pass the
+			 * TUROK_BADPTR/N64-range guard in CGameRegion__GetGroundNormal but deref unmapped memory).
+			 * This fires on EVERY key pickup / death cinematic (CCamera__InCinemaMode). Skip the
+			 * downward velocity AND the fall-collision — applying velocity without the (gated) collision
+			 * would drop the frozen player through the floor into a garbage region and crash the next
+			 * collision query anyway. Player holds its pose, which is fine while the cinematic camera is
+			 * on the pickup/death. Restore once the collision corners are parsed/relocated (M5). */
+#endif
 			pThis->pLastCI = &ci_playerdead;
 		}
 	}

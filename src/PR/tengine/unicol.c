@@ -76,6 +76,16 @@ int CAnimInstanceHdr__Collision3(CAnimInstanceHdr *pThis,
 	ASSERT(pThis);
 	ASSERT(pCI);
 
+#ifdef PLATFORM_PORT
+	/* M5 collision parse: if this instance's current region has NULL/stale corner pointers, bail with
+	 * no collision. Every routine below derefs m_pCorners[]->m_vCorner; a NULL/wild corner is a harmless
+	 * low-RDRAM read on N64 but SEGVs on the host. This is the single chokepoint for all Collision3
+	 * callers (player Advance in cinema mode, cinecam GetNearPositionAndRegion, weapon offset queries),
+	 * which is why the key-pickup/death cinematic crashed here. Remove once collision is fully parsed. */
+	if (PORT_REGION_BAD(pThis->ih.m_pCurrentRegion))
+		return 0;
+#endif
+
 	pRegionSet = CScene__GetRegionAttributes(&GetApp()->m_Scene, pThis->ih.m_pCurrentRegion);
 
 	// clear collision results
@@ -1109,7 +1119,7 @@ void CCollide__TrackGround(CCollide *pThis)
 	//pThis->TrackingGround =		((pInst->ih.m_vPos.y - currentGroundHeight) < TRACKGROUND_THRESHOLD)
 	//								&& ((pThis->vDesired.y - desiredGroundHeight) < TRACKGROUND_THRESHOLD);
 
-	if (pInst->ih.m_pCurrentRegion)
+	if (pInst->ih.m_pCurrentRegion && !PORT_CORNER_BAD(pInst->ih.m_pCurrentRegion, 0))
 	{
 		CVector3__Subtract(&vDelta,
 								 &pThis->vDesired,

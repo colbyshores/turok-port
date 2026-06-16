@@ -1378,7 +1378,7 @@ void CScene__DecompressCollision(CScene *pThis, CCacheEntry **ppceTarget)
 		for (cRegion=0; cRegion<nRegions; cRegion++)
 		{
 			CGameRegion__TakeFromROMRegion(&newRegions[cRegion], &regions[cRegion],
-													 newCorners, newRegions);
+													 newCorners, newRegions, nCorners);
 			if (CScene__GetRegionFlag(pThis, cRegion))
 				newRegions[cRegion].m_wFlags |= REGFLAG_REGIONENTERED ;
 		}

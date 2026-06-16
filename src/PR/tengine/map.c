@@ -66,6 +66,15 @@ void DoRevealMap(CGameRegion *pRegion)
 	if ( (DWORD)&pRegion < ((DWORD)main_thread_stack + MAIN_STACKSIZE/10) )
 		return;
 
+#ifdef PLATFORM_PORT
+	/* M5 collision parse: skip a region whose corner pointers are NULL/stale — the m_pCorners[]->m_vCorner
+	 * reads below SEGV on host (harmless low-RDRAM read on N64). Same unparsed-region class the collision
+	 * guard handles; the minimap reveal recurses from the player's region, which during a cinematic can
+	 * be such a region. */
+	if (PORT_REGION_BAD(pRegion))
+		return;
+#endif
+
 	if (!(pRegion->m_wFlags & REGFLAG_REGIONENTERED))
 	{
 		CScene__SetRegionFlag(&GetApp()->m_Scene,
@@ -139,7 +148,14 @@ void RevealMap()
 
 	if (!pPlayer->ah.ih.m_pCurrentRegion)
 		return;
-	
+
+#ifdef PLATFORM_PORT
+	/* M5 collision parse: if the player's region has NULL/stale corner pointers, skip the minimap reveal
+	 * entirely — both DoRevealMap (corners) and ClearRecurseFlags (neighbor pointers) would SEGV. */
+	if (PORT_REGION_BAD(pPlayer->ah.ih.m_pCurrentRegion))
+		return;
+#endif
+
 	DoRevealMap(pPlayer->ah.ih.m_pCurrentRegion);
 	ClearRecurseFlags(pPlayer->ah.ih.m_pCurrentRegion);
 

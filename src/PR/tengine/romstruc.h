@@ -100,11 +100,33 @@ typedef struct CGameRegion_t
 	struct CGameRegion_t	*m_pNeighbors[3];
 } CGameRegion;
 
+#ifdef PLATFORM_PORT
+/* M5 collision parse incomplete: a region's corner pointer can be NULL or stale/wild at runtime — the
+ * corner indices are valid at parse time, but the key-pickup/death cinematic's asset loads evict/move
+ * the collision buffer the player's m_pCurrentRegion points into, leaving its m_pCorners dangling.
+ * Every collision query that derefs (rgn)->m_pCorners[i]->m_vCorner must skip (taking the geometry's
+ * no-corner fallback) when this is TRUE, or it SEGVs. Real corners share the (few-MB) collision buffer
+ * with the region, so a corner NULL/N64-range or implausibly far (>256MB) from the region is bad.
+ * Remove once collision-buffer lifetime/relocation is fixed (M5). The 16MB window comfortably covers
+ * a level's whole collision blob (a few MB even for the largest levels) yet rejects NULL/wild/poison
+ * (e.g. 0x14141414 uninitialised) corner pointers that sit further from their region than that. */
+#define PORT_CORNER_BAD(rgn, i) ( \
+		(unsigned long)((rgn)->m_pCorners[i]) < 0x10000UL || \
+		(unsigned long)((rgn)->m_pCorners[i]) >= 0x80000000UL || \
+		(long)((unsigned long)((rgn)->m_pCorners[i]) - (unsigned long)(rgn)) < -0x1000000L || \
+		(long)((unsigned long)((rgn)->m_pCorners[i]) - (unsigned long)(rgn)) > 0x1000000L )
+/* TRUE if region rgn is non-NULL but any of its 3 corner pointers is bad (so collision must skip it). */
+#define PORT_REGION_BAD(rgn) ( (rgn) && (PORT_CORNER_BAD((rgn),0) || PORT_CORNER_BAD((rgn),1) || PORT_CORNER_BAD((rgn),2)) )
+#else
+#define PORT_CORNER_BAD(rgn, i) (0)
+#define PORT_REGION_BAD(rgn) (0)
+#endif
+
 // CGameRegion operations
 /////////////////////////////////////////////////////////////////////////////
 
 void				CGameRegion__TakeFromROMRegion(CGameRegion *pThis, CROMRegion *pSource,
-															 CROMCorner Corners[], CGameRegion Regions[]);
+															 CROMCorner Corners[], CGameRegion Regions[], int nCorners);
 
 CVector3			CGameRegion__GetGroundNormal(CGameRegion *pThis);
 CVector3			CGameRegion__GetGroundUnitNormal(CGameRegion *pThis);

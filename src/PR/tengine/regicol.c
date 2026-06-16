@@ -192,6 +192,22 @@ void CCollide__RegionCollision(CCollide *pThis)
 
 			for (cEdge=0; cEdge<3; cEdge++)
 			{
+#ifdef PLATFORM_PORT
+				/* PORT (M5 collision parse incomplete): some regions carry un-relocated/garbage corner
+				 * pointers that pass the NULL/N64-range guard but deref UNMAPPED host memory -> SEGV.
+				 * This is the common crash site for every collision caller (player ground-track, weapon
+				 * GetOffsetPositionAndRegion, and the key-pickup/death CINEMATIC camera). Real corners
+				 * live in the same collision blob as the region, so skip an edge whose corner pointer is
+				 * NULL/wild or implausibly far (>256MB) from its region. Remove once the corner parse/
+				 * relocation is fixed (M5). */
+				{ unsigned long _ca = (unsigned long)(*ppCurrentRegion)->m_pCorners[cEdge];
+				  unsigned long _cb = (unsigned long)(*ppCurrentRegion)->m_pCorners[(cEdge == 2) ? 0 : (cEdge + 1)];
+				  long _da = (long)(_ca - (unsigned long)(*ppCurrentRegion));
+				  long _db = (long)(_cb - (unsigned long)(*ppCurrentRegion));
+				  if (_ca < 0x10000UL || _ca >= 0x80000000UL || _cb < 0x10000UL || _cb >= 0x80000000UL
+				      || _da < -0x10000000L || _da > 0x10000000L || _db < -0x10000000L || _db > 0x10000000L)
+				    continue; }
+#endif
 				pvCornerA = &(*ppCurrentRegion)->m_pCorners[cEdge]->m_vCorner;
 				pvCornerB = &(*ppCurrentRegion)->m_pCorners[(cEdge == 2) ? 0 : (cEdge + 1)]->m_vCorner;
 
