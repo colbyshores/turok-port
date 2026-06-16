@@ -8723,6 +8723,15 @@ void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 
 		isAlive = !(pThis->m_AI.m_dwStatusFlags & AI_ALREADY_DEAD);
 
+#ifdef PLATFORM_PORT
+		/* DEBUG: TUROK_KILLALL forces every non-player enemy into the death/teleport fade
+		 * (TRANS_FADE_OUT_MODE -> fx_mode=TOTRANSPARENT) so the fx_mode-leak path that a real kill
+		 * would hit can be exercised headless. */
+		{ extern char *getenv(const char*); static int s_ka=-1; if(s_ka<0) s_ka=getenv("TUROK_KILLALL")?1:0;
+		  if(s_ka && !isPlayer && !isDevice && pThis->m_Mode != TRANS_FADE_OUT_MODE){
+		    pThis->m_Mode = TRANS_FADE_OUT_MODE; pThis->m_ModeTime = MIN_TRANS; pThis->m_ModeMisc1 = (MAX_TRANS - MIN_TRANS)/SECONDS_TO_FRAMES(2.0f); } }
+#endif
+
 		if (!pThis->m_asCurrent.m_pceAnim)
 			CGameObjectInstance__RequestInitialAnimation(pThis);
 
