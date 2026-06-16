@@ -50,11 +50,20 @@ void CGeometry__ResetDrawModes(void)
 /////////////////////////////////////////////////////////////////////////////
 void CGeometry__SetCombineMode(Gfx **ppDLP, DWORD mode)
 {
+#ifndef PLATFORM_PORT
+	/* N64: memoize to skip redundant combine emits. PORT: the memo (current_combine_mode) is a
+	 * game-side shadow of gfx_pc's PERSISTENT rdp.combine_mode. The camera setup re-issues
+	 * projection/viewport/scissor each frame but NOT the combine/render/othermode, so these persist
+	 * across frames and the only guard is this desyncable cache. If gfx_pc's real combine ever
+	 * diverges from the cache (a raw emit, an interactive fx_mode draw order), a cache HIT skips the
+	 * needed re-emit and the wrong combiner bleeds into the world AND the HUD. Always emit on the
+	 * port: when synced this is a visual no-op; when desynced it re-syncs gfx_pc every section. */
 	if (current_combine_mode == mode)
 	{
 		//saved++;
 		return ;
 	}
+#endif
 
 	current_combine_mode = mode;
 
@@ -250,8 +259,14 @@ void CGeometry__SetCombineMode(Gfx **ppDLP, DWORD mode)
 /////////////////////////////////////////////////////////////////////////////
 BOOL CGeometry__SetRenderMode(Gfx **ppDLP, DWORD mode)
 {
+#ifndef PLATFORM_PORT
+	/* PORT: always emit — see CGeometry__SetCombineMode. Returning TRUE on every call also makes the
+	 * masked-material path (DrawSection ~937) ALWAYS re-emit gDPSetAlphaCompare(G_AC_THRESHOLD) +
+	 * gDPSetBlendColor, so the alpha-compare (independent persistent other_mode_l state, untracked by
+	 * this cache) can never be left stale across draws. */
 	if (current_render_mode == mode)
 		return FALSE;
+#endif
 
 	current_render_mode = mode;
 

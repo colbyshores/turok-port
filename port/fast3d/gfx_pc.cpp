@@ -2110,6 +2110,11 @@ static void gfx_calc_and_set_viewport(const Vp_t* viewport) {
     gfx_adjust_viewport_or_scissor(&rdp.viewport);
 
     rdp.viewport_or_scissor_changed = true;
+#ifdef PLATFORM_PORT
+    { static int s_on=-1; if(s_on<0) s_on=getenv("TUROK_RSLOG")?1:0;
+      if(s_on){ extern int g_rs_vp_sets; g_rs_vp_sets++;
+        fprintf(stderr,"[rs] VIEWPORT set#%d  x=%.0f y=%.0f w=%.0f h=%.0f\n", g_rs_vp_sets, x, y, width, height); } }
+#endif
 }
 
 static void gfx_sp_movemem(uint8_t index, uint8_t offset, const void* data) {
@@ -2180,6 +2185,12 @@ static void gfx_dp_set_scissor(uint32_t mode, uint32_t ulx, uint32_t uly, uint32
     gfx_adjust_viewport_or_scissor(&rdp.scissor, rsp.aspect_mode != 0);
 
     rdp.viewport_or_scissor_changed = true;
+#ifdef PLATFORM_PORT
+    { static int s_on=-1; if(s_on<0) s_on=getenv("TUROK_RSLOG")?1:0;
+      if(s_on){ extern int g_rs_sc_sets; g_rs_sc_sets++;
+        fprintf(stderr,"[rs] SCISSOR set#%d  x=%.0f y=%.0f w=%.0f h=%.0f (mode raw ulx=%u uly=%u lrx=%u lry=%u)\n",
+          g_rs_sc_sets, x, y, width, height, ulx, uly, lrx, lry); } }
+#endif
 }
 
 static void gfx_dp_set_texture_image(uint32_t format, uint32_t size, uint32_t width, uint32_t tex_flags, const void* addr) {
@@ -3232,9 +3243,17 @@ extern "C" void gfx_start_frame(void) {
 }
 
 uint32_t num_dls = 0;
+#ifdef PLATFORM_PORT
+int g_rs_vp_sets = 0, g_rs_sc_sets = 0;   /* per-frame viewport/scissor SET counters (TUROK_RSLOG) */
+#endif
 
 extern "C" void gfx_run(Gfx* commands) {
     ++num_dls;
+#ifdef PLATFORM_PORT
+    { static int s_on=-1; if(s_on<0) s_on=getenv("TUROK_RSLOG")?1:0;
+      if(s_on) fprintf(stderr,"[rs] ---- frame dl#%u (vp_sets=%d sc_sets=%d last frame) ----\n", num_dls, g_rs_vp_sets, g_rs_sc_sets);
+      g_rs_vp_sets = 0; g_rs_sc_sets = 0; }
+#endif
     BK_TR(BK_TR_GFX, "gfx_run #%u dl=%p dims=%ux%u aspect=%.3f", num_dls, (void*)commands,
           gfx_current_window_dimensions.width, gfx_current_window_dimensions.height,
           gfx_current_window_dimensions.aspect_ratio);
