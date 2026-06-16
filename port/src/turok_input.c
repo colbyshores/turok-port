@@ -54,6 +54,14 @@ void turokInputGetPad(OSContPad *pad)
             pad->button = 0x2000;           /* FIRE only (stand + shoot what you face) */
             return;
         }
+        if (fake == 7) {
+            /* PATROL: walk forward (C-up) + sweep the look-stick to turn, so the headless player
+             * navigates the level (covers ground, faces/engages objects) instead of walling-in. */
+            static unsigned t = 0; t++;
+            pad->button = 0x0008;                                  /* forward */
+            pad->stick_x = (signed char)((t % 240) < 120 ? 40 : -40);  /* turn one way, then the other */
+            return;
+        }
         if (fake) {
             pad->stick_y = 64;          /* forward */
             pad->stick_x = (signed char)(fake > 1 ? 28 : 0);  /* TUROK_FAKEINPUT=2 also turns */
