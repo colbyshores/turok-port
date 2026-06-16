@@ -81,8 +81,22 @@ static short g_retrace_msg = OS_SC_RETRACE_MSG;
 
 /* PORT: 1 on frames where the game LOGIC should advance, 0 on render-only frames. Read by
  * CEngineApp__UpdateGAME (tengine.c) to force frame_increment=0 when 0, decoupling the logic tick
- * rate from the render/present rate. See the TUROK_TICK_FPS block in the frame-pump below. */
+ * rate from the render/present rate. See the TUROK_TICK_FPS block in osViSwapBuffer below. */
 int g_turok_logic_tick = 1;
+static struct timespec g_tick_last = {0, 0};   /* real time of the last logic tick */
+static long g_tick_interval_ns = 0;            /* 1/TICK_FPS in ns; 0 = no logic-rate cap */
+
+/* PORT: render-side interpolation factor (0..1) — how far the current real time is from the last
+ * logic tick toward the next. CEngineApp__UpdateGAME renders the player at lerp(prev,cur,alpha) so
+ * motion is smooth at the 60fps render rate despite the 30Hz logic. 0 when TUROK_TICK_FPS=0. */
+float turok_render_alpha(void)
+{
+    if (g_tick_interval_ns <= 0 || g_tick_last.tv_sec == 0) return 0.0f;
+    struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+    long el = (now.tv_sec - g_tick_last.tv_sec) * 1000000000L + (now.tv_nsec - g_tick_last.tv_nsec);
+    float a = (float)el / (float)g_tick_interval_ns;
+    return a < 0.0f ? 0.0f : (a > 1.0f ? 1.0f : a);
+}
 
 s32 osRecvMesg(OSMesgQueue *mq, OSMesg *msg, s32 flag)
 {
@@ -176,15 +190,14 @@ void osViSwapBuffer(void *frameBuf)
         static int s_tick = -1;
         if (s_tick < 0) { const char *e = getenv("TUROK_TICK_FPS"); s_tick = e ? atoi(e) : 30; }
         if (s_tick > 0) {
-            static struct timespec lt = {0, 0};
+            g_tick_interval_ns = 1000000000L / s_tick;
             struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
-            if (lt.tv_sec == 0) { lt = now; g_turok_logic_tick = 1; }
+            if (g_tick_last.tv_sec == 0) { g_tick_last = now; g_turok_logic_tick = 1; }
             else {
-                long tgt = 1000000000L / s_tick;
-                long el = (now.tv_sec - lt.tv_sec) * 1000000000L + (now.tv_nsec - lt.tv_nsec);
-                if (el >= tgt) { lt = now; g_turok_logic_tick = 1; } else g_turok_logic_tick = 0;
+                long el = (now.tv_sec - g_tick_last.tv_sec) * 1000000000L + (now.tv_nsec - g_tick_last.tv_nsec);
+                if (el >= g_tick_interval_ns) { g_tick_last = now; g_turok_logic_tick = 1; } else g_turok_logic_tick = 0;
             }
-        } else g_turok_logic_tick = 1;
+        } else { g_turok_logic_tick = 1; g_tick_interval_ns = 0; }
     }
     /* DIAGNOSTIC: if the game spins presenting (level-load/fade wait loop that never
      * advances the main frame counter), dump the call stack once so we can see which

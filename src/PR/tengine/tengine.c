@@ -4632,6 +4632,12 @@ void CEngineApp__NewLife(CEngineApp *pThis)
 void CEngineApp__UpdateGAME(CEngineApp *pThis)
 {
 #ifdef PLATFORM_PORT
+	/* render-interpolation state: the player's true pos+yaw at the last two logic ticks. The render draws
+	 * the player (and thus the camera that follows it + the 1st-person weapon) at lerp(prev,cur,alpha) so
+	 * motion is smooth at 60fps despite 30Hz logic. Snapshot below after CTMove; restore after the task. */
+	static CVector3 _ipPrevPos, _ipCurPos; static float _ipPrevRotY, _ipCurRotY; static int _ipHave = 0, _ipActive = 0;
+#endif
+#ifdef PLATFORM_PORT
 	/* PORT (M5 collision streaming): the N64 streams collision through a small cart cache, so the
 	 * collision buffer is periodically re-decompressed at a NEW address (e.g. when a key cinematic's
 	 * model-swap loads the body model). The engine never updates the player's m_pCurrentRegion after a
@@ -4731,6 +4737,43 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	if ((pThis->m_bPause==FALSE) && (pThis->m_Warp == WARP_NOT_WARPING) && (pThis->m_Death == DEATH_NOT_DIEING) &&(pThis->m_bTraining ==FALSE))
 		CTMove__UpdateTurokInstance(pCTMove, pThis, pCTControl);
 
+#ifdef PLATFORM_PORT
+	/* PORT render interpolation: snapshot the player's true pos/yaw on logic-tick frames, then render
+	 * the player at lerp(prev,cur,alpha) every frame so the camera (which follows the player) and the
+	 * 1st-person weapon move smoothly between the 30Hz logic ticks. The graphics task built below uses
+	 * the interpolated pos; it's restored to the exact logic pos right after, so the next tick is exact.
+	 * A large jump between ticks (warp/respawn/teleport) snaps instead of sliding across the level. */
+	{
+		extern int g_turok_logic_tick; extern float turok_render_alpha(void);
+		CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
+		if (_pl)
+		{
+			if (g_turok_logic_tick || !_ipHave)
+			{
+				if (_ipHave) { _ipPrevPos = _ipCurPos; _ipPrevRotY = _ipCurRotY; }
+				else         { _ipPrevPos = _pl->ah.ih.m_vPos; _ipPrevRotY = _pl->m_RotY; }
+				_ipCurPos = _pl->ah.ih.m_vPos; _ipCurRotY = _pl->m_RotY; _ipHave = 1;
+				{ float dx=_ipCurPos.x-_ipPrevPos.x, dy=_ipCurPos.y-_ipPrevPos.y, dz=_ipCurPos.z-_ipPrevPos.z;
+				  if (dx*dx+dy*dy+dz*dz > 1000.0f*1000.0f) { _ipPrevPos = _ipCurPos; _ipPrevRotY = _ipCurRotY; } }
+			}
+			{
+				float a = turok_render_alpha();
+				if (a > 0.0f)
+				{
+					_pl->ah.ih.m_vPos.x = _ipPrevPos.x + (_ipCurPos.x - _ipPrevPos.x)*a;
+					_pl->ah.ih.m_vPos.y = _ipPrevPos.y + (_ipCurPos.y - _ipPrevPos.y)*a;
+					_pl->ah.ih.m_vPos.z = _ipPrevPos.z + (_ipCurPos.z - _ipPrevPos.z)*a;
+					{ float d = _ipCurRotY - _ipPrevRotY;
+					  while (d >  3.14159265f) d -= 6.28318531f;
+					  while (d < -3.14159265f) d += 6.28318531f;
+					  _pl->m_RotY = _ipPrevRotY + d*a; }
+					_ipActive = 1;
+				}
+			}
+		}
+	}
+#endif
+
 	CEngineApp__SetCameraToTurok(pThis);
 	CCamera__Update(&pThis->m_Camera) ;
 	CEngineApp__UpdateCameraAttributes(pThis);
@@ -4740,6 +4783,12 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	pFrameData = CEngineApp__CreateGraphicsTask(pThis);
 	pFrameData->m_nPredictFields = nNextFields;
 	CEngineApp__SendGraphicsTask(pThis, pFrameData);
+
+#ifdef PLATFORM_PORT
+	/* restore the player's exact logic pos/yaw after the interpolated render (see above) */
+	if (_ipActive) { CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
+	  if (_pl) { _pl->ah.ih.m_vPos = _ipCurPos; _pl->m_RotY = _ipCurRotY; } _ipActive = 0; }
+#endif
 
 	// Update Region Music
 	UpdateSeq();
