@@ -697,6 +697,20 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   And when render-state detectors are silent on a "camera" bug, check the camera ANGLES/quaternions at the source
   (a wild angle's sin/cos stay finite, so it never shows as a NaN/huge matrix).**
 
+- **★ FIRST-PERSON WEAPON — "Turok's leg up on the screen" (2026-06-16) — Object Types WORD-array endianness.**
+  After the acos camera fix, the first-person view showed Turok's full standing BODY (a boot at eye level), not
+  the weapon. Root: `CScene__LookupObjectType` (scene.c:2063) scans the Object Types block (`m_pceObjectTypes`,
+  a big-endian WORD array consumed RAW — `CScene__ObjectTypesReceived` never swaps it); on the LE host every
+  entry is byte-swapped, so the player's weapon-type lookup (100 = `AI_OBJECT_WEAPON_KNIFE`) never matches →
+  returns -1 → `CScene__LoadObjectModelType` bails → the player keeps the BODY model stuck on anim 0 (idle), and
+  the `FollowView` placement put its feet where the weapon should be. **Fix:** wrap the compare in `ORDERBYTES`
+  (scene.c, identity off-PLATFORM_PORT). Now lookup(100)→object 664, the player loads the knife model (type
+  0x64, 10 anims), hand+knife render lower-right. The cinema-mode guard in `LoadObjectModelType` is untouched, so
+  the **full body still loads for cutscenes (death / key pickup / ending)** — the body draw is correct + needed
+  there. `TUROK_VMLOG` logs the viewmodel type/anim/weapon + the `[lookup]` type→object result. Verified warps
+  0/2000/6000/8000 rc=0, camera healthy, weapon loads. (Commit 3434348.) NOTE: the player briefly shows type=0x0
+  for the first spawn frames until the async weapon model finishes loading — expected.
+
 The port build infra (not game source): `Makefile.port`, `port/include/turok_port.h` (host compat shim),
 `lib/ultralib/` (vendored libultra headers), `tools/turok_rom.py`.
 
