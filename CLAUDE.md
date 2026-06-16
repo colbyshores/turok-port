@@ -711,6 +711,23 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   0/2000/6000/8000 rc=0, camera healthy, weapon loads. (Commit 3434348.) NOTE: the player briefly shows type=0x0
   for the first spawn frames until the async weapon model finishes loading — expected.
 
+- **★ MISSING ITEM PICKUPS (2026-06-16) — Object Types REVERSE-lookup endianness (sibling of the weapon fix).**
+  Item pickups (floating gold triangle/token powerups, health, ammo) never drew. Pickups are
+  `CGameSimpleInstance` (the simple pool / static grid-section simples, NOT animated instances), drawn at
+  scene.c:3749 / via `CSimplePool__Draw`. `CGameSimpleInstance__Draw` (romstruc.c:1593) bails unless
+  `m_wFlags & SIMPLE_FLAG_VISIBLE` (1618), which `TakeFromROMSimpleInstance` (romstruc.c:1336) sets only when
+  `AI_IsPickup(CInstanceHdr__TypeFlag(...))`. For simple/static instances `CInstanceHdr__TypeFlag` →
+  `CScene__GetObjectTypeFlag` (scene.c:2114) which did `return objectTypes[nObjType]` RAW — the same big-endian
+  Object Types WORD array, so on LE the pickup type came back byte-swapped (409/438 → garbage) → `AI_IsPickup`
+  false → never VISIBLE → decodes + activates + reaches the draw call but emits nothing. **Fix:** `ORDERBYTES`
+  the return (scene.c, identity off-port). This is the REVERSE companion to the forward `LookupObjectType` fix
+  (commit 3434348, the weapon). Verified: warp 0 pickups now type 409/438, wFlags=0x2, render as gold floating
+  pickups; warps 0/2000/8000 visible simples, rc=0, no regression. (Commit f23ed93.) Debug: `TUROK_SIMPLOG`
+  (simple decode `[simple]` / draw-gate `[simdraw]` / pool `[simpool]`), `TUROK_INSTLOG` (`[inst]` anim types).
+  **LESSON: the Object Types WORD array has TWO read sites — forward `LookupObjectType` (type→index, weapon
+  swap) AND reverse `GetObjectTypeFlag` (index→type, pickup/simple/static visibility). Both need ORDERBYTES.**
+  (Triggers/devices were confirmed WORKING — that part of the user report was a false alarm.)
+
 The port build infra (not game source): `Makefile.port`, `port/include/turok_port.h` (host compat shim),
 `lib/ultralib/` (vendored libultra headers), `tools/turok_rom.py`.
 
