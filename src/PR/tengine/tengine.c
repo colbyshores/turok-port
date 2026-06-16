@@ -3186,6 +3186,13 @@ CFrameData* CEngineApp__CreateGraphicsTask(CEngineApp *pThis)
 
 	pFData->m_DisplayListSize = (((DWORD)pThis->m_pDLP) - ((DWORD)pFData->m_pDisplayList));
 
+#ifdef PLATFORM_PORT
+	{ extern int fprintf(void*,const char*,...); extern void *stderr; static long _mx=0;
+	  long _n = pThis->m_pDLP - pFData->m_pDisplayList;
+	  if (_n > _mx) { _mx = _n; fprintf(stderr,"[dlcount] new max %ld / GLIST_LEN=%d%s\n",
+	    _n, GLIST_LEN, _n>=GLIST_LEN?"  *** OVERFLOW — corrupting adjacent memory ***":""); } }
+#endif
+
 #ifndef MAKE_CART
 	if ((pThis->m_pDLP - pFData->m_pDisplayList) > GLIST_LEN)
 		rmonPrintf("over by:%d\n", (pThis->m_pDLP - pFData->m_pDisplayList) - GLIST_LEN) ;

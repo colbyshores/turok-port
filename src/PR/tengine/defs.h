@@ -37,7 +37,15 @@
 //#define	GLIST_LEN			16384		// should include space for matrix, texture loads, material settings,
 //												// and branch to geometry list for each node
 #define	LINELIST_LEN		2048
+#ifdef PLATFORM_PORT
+/* The N64 used a 14336-Gfx per-frame budget. On the host we have RAM to spare, and the
+ * now-active player viewmodel/model + enemies can push past 14336 in dense scenes, silently
+ * overrunning display_list_a/b into adjacent Fast3D render state (no live bounds check exists).
+ * Give a large headroom so the per-frame list cannot overflow. */
+#define	GLIST_LEN			(262144 - LINELIST_LEN)
+#else
 #define	GLIST_LEN			(16384 - LINELIST_LEN)
+#endif
 
 #define	FRAME_FPS			15					// 3D anim playback fps
 //#define	FRAME_FPS			(60/FRAME_RATE)		// anim playback

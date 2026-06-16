@@ -1071,6 +1071,9 @@ void COnScreen__Draw(COnScreen *pThis, Gfx **ppDLP)
 
 		//--------------------------------------------------------------------------------------
 		// Display run / walk icon
+#ifdef PLATFORM_PORT
+		{ extern char *getenv(const char*); if (getenv("TUROK_FORCERUN")) pThis->m_RunWalkOverlay.m_OnScreen = 1; }
+#endif
 		if (COverlay__OnScreen(&pThis->m_RunWalkOverlay))
 		{
 			if (pThis->m_WalkRunIcon==ONSCRN_WALK_ICON)
@@ -1078,6 +1081,14 @@ void COnScreen__Draw(COnScreen *pThis, Gfx **ppDLP)
 			else
 				nRunWalkMode = 1;
 
+#ifdef PLATFORM_PORT
+			{ extern int fprintf(void*,const char*,...); extern void *stderr;
+			  C16BitGraphic *_g = (C16BitGraphic *)pRunWalkIcons[nRunWalkMode];
+			  static int _c=0; if(_c++<4) fprintf(stderr,"[runicon] mode=%d X=%.1f Y=%.1f swDims=(across=%u down=%u w=%u h=%u)\n",
+			    nRunWalkMode, pThis->m_RunWalkOverlay.m_X, pThis->m_RunWalkOverlay.m_Y,
+			    ONSCRN_SW16(_g->m_BlocksAcross), ONSCRN_SW16(_g->m_BlocksDown),
+			    ONSCRN_SW16(_g->m_Width), ONSCRN_SW16(_g->m_Height)); }
+#endif
 			COnScreen__Draw16BitGraphic(ppDLP,
 												(C16BitGraphic *)pRunWalkIcons[nRunWalkMode],
 												pThis->m_RunWalkOverlay.m_X,

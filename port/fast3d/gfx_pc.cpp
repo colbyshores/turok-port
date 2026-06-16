@@ -106,6 +106,7 @@ static std::map<ColorCombinerKey, struct ColorCombiner> color_combiner_pool;
 static std::map<ColorCombinerKey, struct ColorCombiner>::iterator prev_combiner = color_combiner_pool.end();
 
 static uint8_t* tex_upload_buffer = nullptr;
+static uint32_t turok_tex_upload_capacity = 0; /* bytes; set when tex_upload_buffer is allocated (gfx_pc.cpp ~3081) */
 
 static struct RSP {
     float modelview_matrix_stack[11][4][4];
@@ -2236,6 +2237,19 @@ static void gfx_dp_load_block(uint8_t tile, uint32_t uls, uint32_t ult, uint32_t
     // The lrs field rather seems to be number of pixels to load
     uint32_t orig_size_bytes = (lrs + 1) << rdp.texture_to_load.siz >> 1;
     uint32_t size_bytes = orig_size_bytes;
+#ifdef PLATFORM_PORT
+    /* PORT: the importers expand into tex_upload_buffer (i4 -> 8*size_bytes is the worst case).
+     * A corrupted/garbage texture dimension (e.g. an unswapped big-endian width/height in a
+     * model/weapon texture) yields a huge size_bytes that silently overruns the shared buffer
+     * and smashes adjacent globals/heap. Clamp it so a bad dimension can never corrupt memory. */
+    if (turok_tex_upload_capacity && (uint64_t)size_bytes * 8u > (uint64_t)turok_tex_upload_capacity) {
+        static int _c = 0;
+        if (_c++ < 16)
+            fprintf(stderr, "[F3D] CLAMP load-block size_bytes=%u (lrs=%u siz=%u) -> %u (cap=%u) — bad texture dimension\n",
+                    size_bytes, lrs, (unsigned)rdp.texture_to_load.siz, turok_tex_upload_capacity / 8u, turok_tex_upload_capacity);
+        size_bytes = orig_size_bytes = turok_tex_upload_capacity / 8u;
+    }
+#endif
     if (rdp.texture_to_load.raw_tex_metadata.h_byte_scale != 1 ||
         rdp.texture_to_load.raw_tex_metadata.v_pixel_scale != 1) {
         size_bytes *= rdp.texture_to_load.raw_tex_metadata.h_byte_scale;
@@ -3073,6 +3087,7 @@ extern "C" void gfx_init(const GfxInitSettings *settings) {
         // We cap texture max to 8k, because why would you need more?
         int max_tex_size = std::min(8192, gfx_rapi->get_max_texture_size());
         tex_upload_buffer = (uint8_t*)malloc(max_tex_size * max_tex_size * 4);
+        turok_tex_upload_capacity = (uint32_t)max_tex_size * (uint32_t)max_tex_size * 4u;
     }
 
     rsp.lookat[0].dir[0] = rsp.lookat[1].dir[1] = 0x7F;
