@@ -316,6 +316,11 @@ void CSimplePool__Draw(CSimplePool *pThis, Gfx **ppDLP, CCacheEntry *pceTextureS
 	ASSERT(pThis->m_pCache);
 
 	pDyn = pThis->m_pActiveHead;
+#ifdef PLATFORM_PORT
+	{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
+	  static int _c=0; if(getenv("TUROK_SIMPLOG") && _c<8){ int _n=0; CDynamicSimple*_d=pDyn; while(_d){_n++;_d=_d->m_pNext;}
+	    _c++; fprintf(stderr,"[simpool] active simple instances to draw: %d\n", _n); } }
+#endif
 	while (pDyn)
 	{
 		// Set draw mode back to normal

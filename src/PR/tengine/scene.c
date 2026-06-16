@@ -1672,6 +1672,11 @@ void CScene__DecompressInstances(CScene *pThis, CCacheEntry **ppceTarget)
 
 			nTypeFlag = CGameObjectInstance__TypeFlag(pGameInstance);
 
+#ifdef PLATFORM_PORT
+			{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
+			  if(getenv("TUROK_INSTLOG")) fprintf(stderr,"[inst] #%d type=%d (0x%x) nInstances=%d\n", cInstance, nTypeFlag, nTypeFlag, nInstances); }
+#endif
+
 			CAIDynamic__SetHealth(&pGameInstance->m_AI,
 										 pGameInstance->ah.ih.m_pEA,
 										 nTypeFlag);
@@ -2122,7 +2127,11 @@ int CScene__GetObjectTypeFlag(CScene *pThis, int nObjType)
 
 	CUnindexedSet__Destruct(&usObjectTypes);
 
-	return objectTypes[nObjType];
+	/* PORT: the Object Types block is a big-endian WORD array consumed RAW; on a little-endian host
+	 * the reverse lookup (object index -> logical type) for simple/static instances returns a byte-
+	 * swapped type, so AI_IsPickup() fails -> SIMPLE_FLAG_VISIBLE is never set (romstruc.c:1336) ->
+	 * item PICKUPS never draw. (Sibling of the LookupObjectType fix.) ORDERBYTES = identity off-port. */
+	return ORDERBYTES(objectTypes[nObjType]);
 }
 
 void CScene__LoadObjectModelType(CScene *pThis, CGameObjectInstance *pInstance,
@@ -2553,8 +2562,17 @@ void CScene__DecompressGridSection(CScene *pThis, CCacheEntry **ppceTarget)
 																		  &romSimpleInstances[cSimple],
 																		  rpObjectAddress,
 																		  regions, variations);
-			if (CScene__GetPickupFlag(pThis, &gameSimpleInstances[cSimple]))
-				gameSimpleInstances[cSimple].m_wFlags |= SIMPLE_FLAG_GONE;
+			{ BOOL _pf = CScene__GetPickupFlag(pThis, &gameSimpleInstances[cSimple]);
+#ifdef PLATFORM_PORT
+			  { extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
+			    static int _c=0; if(getenv("TUROK_SIMPLOG") && _c++<20)
+			      fprintf(stderr,"[simple] #%d/%d nID=%d objType=%d pickupFlag=%d wFlags=0x%x => %s\n",
+			        cSimple, nSimples, gameSimpleInstances[cSimple].m_nID,
+			        ORDERBYTES(romSimpleInstances[cSimple].m_nObjType),
+			        _pf, gameSimpleInstances[cSimple].m_wFlags, _pf?"GONE":"shown"); }
+#endif
+			  if (_pf)
+				gameSimpleInstances[cSimple].m_wFlags |= SIMPLE_FLAG_GONE; }
 		}
 
 		offset += newSimpleSize;
@@ -3723,6 +3741,15 @@ void CScene__DrawEnvironment(CScene *pThis, Gfx **ppDLP)
 					pSimple = &simpleInstances[cSimpleInst];
 
 					ASSERT(pSimple->ah.ih.m_Type == I_SIMPLE);
+#ifdef PLATFORM_PORT
+						{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
+						  static int _c=0; if(getenv("TUROK_SIMPLOG") && _c++<24)
+						    fprintf(stderr,"[simdraw] #%d/%d wFlags=0x%x GONE=%d IsActive=%d transp=%d type=%d pos=(%.0f,%.0f,%.0f)\n",
+						      cSimpleInst, nSimpleInsts, pSimple->m_wFlags, (pSimple->m_wFlags&SIMPLE_FLAG_GONE)?1:0,
+						      CScene__IsActive(pThis, pSimple)?1:0, (pSimple->m_wFlags&SIMPLE_FLAG_TRANSPARENCY)?1:0,
+						      CScene__GetObjectTypeFlag(pThis, pSimple->ah.ih.m_nObjType),
+						      pSimple->ah.ih.m_vPos.x, pSimple->ah.ih.m_vPos.y, pSimple->ah.ih.m_vPos.z); }
+#endif
 
 					if (!(pSimple->m_wFlags & SIMPLE_FLAG_GONE) && CScene__IsActive(pThis, pSimple))
 					{
