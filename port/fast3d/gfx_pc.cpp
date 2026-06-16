@@ -1204,6 +1204,18 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
           matrix[2][0], matrix[2][1], matrix[2][2], matrix[3][0], matrix[3][1], matrix[3][2]); } }
 #endif
 
+#ifdef PLATFORM_PORT
+    /* Camera canary: the game emits its view/projection at frame start. If EITHER is NaN/huge the
+     * whole 3D view is corrupt ("camera completely fucked up"). Catch it the instant it loads, with
+     * a frame number, so an interactive repro pinpoints WHEN the camera goes bad (vs a node matrix). */
+    { int _i,_j,_bad=0; for(_i=0;_i<4;_i++)for(_j=0;_j<4;_j++){ float _v=matrix[_i][_j];
+        if(_v!=_v || _v>1e8f || _v<-1e8f) _bad=1; }
+      if(_bad){ static int s_on=-1; if(s_on<0) s_on=getenv("TUROK_VTXBAD")?1:0;
+        if(s_on){ extern uint32_t num_dls; static int _c=0; if(_c++<20)
+          fprintf(stderr,"[CAMBAD] %s%s matrix corrupt (dl#%u): m00=%.2f m11=%.2f m22=%.2f m33=%.2f t=(%.1f,%.1f,%.1f)\n",
+            (parameters&G_MTX_PROJECTION)?"PROJ":"MODELVIEW",(parameters&G_MTX_LOAD)?" LOAD":" MUL", num_dls,
+            matrix[0][0],matrix[1][1],matrix[2][2],matrix[3][3],matrix[3][0],matrix[3][1],matrix[3][2]); } } }
+#endif
     if (parameters & G_MTX_PROJECTION) {
         if (parameters & G_MTX_LOAD) {
             memcpy(rsp.P_matrix, matrix, sizeof(matrix));
@@ -1211,10 +1223,18 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
             gfx_matrix_mul(rsp.P_matrix, matrix, rsp.P_matrix);
         }
     } else { // G_MTX_MODELVIEW
+#ifdef PLATFORM_PORT
+        if ((parameters & G_MTX_PUSH) && rsp.modelview_matrix_stack_size >= 11) {
+            extern int g_mtx_push_dropped; g_mtx_push_dropped++;
+        }
+#endif
         if ((parameters & G_MTX_PUSH) && rsp.modelview_matrix_stack_size < 11) {
             ++rsp.modelview_matrix_stack_size;
             memcpy(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1],
                    rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 2], sizeof(matrix));
+#ifdef PLATFORM_PORT
+            { extern int g_mtx_max_depth; if ((int)rsp.modelview_matrix_stack_size > g_mtx_max_depth) g_mtx_max_depth = rsp.modelview_matrix_stack_size; }
+#endif
         }
         if (parameters & G_MTX_LOAD) {
             memcpy(rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], matrix, sizeof(matrix));
@@ -1239,8 +1259,21 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
 #endif
 }
 
+#ifdef PLATFORM_PORT
+int g_mtx_push_dropped = 0;   /* PUSH requested while stack already full (depth 11) — push lost */
+int g_mtx_pop_underflow = 0;  /* POP requested at/below the camera base level (size <= 1) */
+int g_mtx_max_depth = 0;      /* high-water mark of the modelview stack within a frame */
+#endif
+
 static void gfx_sp_pop_matrix(uint32_t count) {
     while (count--) {
+#ifdef PLATFORM_PORT
+        /* The camera/view matrix lives at base level (size 1). A POP that would drop the stack
+         * to 0 pops the camera away, corrupting the modelview for everything drawn afterward in
+         * this same gfx_run (later objects AND the HUD). Real N64 DLs are push/pop balanced, but
+         * a push dropped at the depth cap (or a stray pop) drifts the stack down. Floor at 1. */
+        if (rsp.modelview_matrix_stack_size <= 1) { g_mtx_pop_underflow++; continue; }
+#endif
         if (rsp.modelview_matrix_stack_size > 0) {
             --rsp.modelview_matrix_stack_size;
             if (rsp.modelview_matrix_stack_size > 0) {
@@ -1296,6 +1329,17 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
             fprintf(stderr, "[vtx] ob=(%d,%d,%d) -> clip=(%.1f,%.1f,%.1f,w=%.2f)%s%s%s\n",
               v->ob[0], v->ob[1], v->ob[2], x, y, z, w,
               nan?" NAN":"", behind?" BEHIND":"", huge?" HUGE":""); } }
+        /* Always-on (uncapped) corruption detector: a NaN or wildly-huge transformed vertex means
+         * a bad MP_matrix — i.e. the camera/modelview got corrupted before this draw. Reports the
+         * frame so a long run catches a late, animation-frame-dependent corruption. */
+        { static int s_vb = -1; if (s_vb < 0) s_vb = getenv("TUROK_VTXBAD") ? 1 : 0;
+          if (s_vb) { int nan = (x != x) || (w != w);
+            int huge = (x>1e8f||x<-1e8f||y>1e8f||y<-1e8f||z>1e8f||z<-1e8f);
+            if (nan || huge) { static int _c=0; if(_c++<40) {
+              extern int g_turok_cur_obj_type, g_turok_cur_node;
+              fprintf(stderr, "[VTXBAD] obj=0x%x node=%d  clip=(%.1f,%.1f,%.1f,w=%.2f)%s%s  MP00=%.3f MP33=%.3f\n",
+                g_turok_cur_obj_type, g_turok_cur_node, x, y, z, w, nan?" NAN":"", huge?" HUGE":"",
+                rsp.MP_matrix[0][0], rsp.MP_matrix[3][3]); } } } }
 #endif
         x = gfx_adjust_x_for_aspect_ratio(x, w);
 
@@ -3225,7 +3269,17 @@ extern "C" void gfx_run(Gfx* commands) {
     rdp.viewport_or_scissor_changed = true;
     rendering_state.viewport = {};
     rendering_state.scissor = {};
+#ifdef PLATFORM_PORT
+    g_mtx_push_dropped = 0; g_mtx_pop_underflow = 0; g_mtx_max_depth = (int)rsp.modelview_matrix_stack_size;
+#endif
     gfx_run_dl(commands);
+#ifdef PLATFORM_PORT
+    { static int s_log = -1; if (s_log < 0) s_log = getenv("TUROK_MTXSTACK") ? 1 : 0;
+      if (s_log && (g_mtx_push_dropped || g_mtx_pop_underflow || rsp.modelview_matrix_stack_size != 1)) {
+        fprintf(stderr, "[mtxstack] end-of-run size=%u maxdepth=%d push_dropped=%d pop_underflow=%d  %s\n",
+          rsp.modelview_matrix_stack_size, g_mtx_max_depth, g_mtx_push_dropped, g_mtx_pop_underflow,
+          (g_mtx_push_dropped || g_mtx_pop_underflow) ? "<<< IMBALANCE (was corrupting camera/HUD)" : ""); } }
+#endif
     gfx_flush();
     gfxFramebuffer = 0;
 

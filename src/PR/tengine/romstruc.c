@@ -8564,6 +8564,8 @@ void CROMSoundElement__TakeFromElement(CROMSoundElement *pThis, CSoundElement *p
 
 extern int g_turok_drawall;
 int g_turok_dodraw_bound = 0;   /* PORT: nNodes of the object currently in DoDraw — bounds pmtDrawMtxs[nNode] */
+int g_turok_cur_obj_type = -1;  /* PORT: type of the object whose node DL was most recently emitted (canary context) */
+int g_turok_cur_node = -1;
 void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 										 CCacheEntry *pceTextureSetsIndex)
 {
@@ -10350,6 +10352,21 @@ void CGameObjectInstance__DoDraw(CGameObjectInstance *pThis, CAnimDraw *pAnimDra
 #endif
 
 	pmFinal = &(pThis->pmtDrawMtxs[nNode]) ;
+
+#ifdef PLATFORM_PORT
+	/* Source-side corruption canary: if the just-computed node matrix is NaN or wildly huge, the
+	 * subsequent G_MTX_MUL would multiply garbage into the shared modelview, corrupting the camera/
+	 * HUD for the rest of this frame's DL. Log it (with object+node) and sanitize to identity so it
+	 * cannot poison the modelview. mfProd1 feeds both the swoosh (mfFinal=mfProd1*mfParent) and the
+	 * normal path, so checking it per node covers the whole chain. */
+	g_turok_cur_obj_type = (int)CGameObjectInstance__TypeFlag(pThis); g_turok_cur_node = nNode;
+	{ int _i,_j,_bad=0; for(_i=0;_i<4;_i++)for(_j=0;_j<4;_j++){ float _v=mfProd1[_i][_j];
+	    if(_v!=_v || _v>1e8f || _v<-1e8f) _bad=1; }
+	  if(_bad){ extern int fprintf(void*,const char*,...); extern void *stderr; static int _c=0;
+	    if(_c++<20) fprintf(stderr,"[CANARY] DoDraw bad node matrix obj=0x%x node=%d m00=%.2f m33=%.2f blend=(%.1f,%.1f,%.1f)\n",
+	      g_turok_cur_obj_type, nNode, mfProd1[0][0], mfProd1[3][3], vFinalBlendPos.x, vFinalBlendPos.y, vFinalBlendPos.z);
+	    for(_i=0;_i<4;_i++)for(_j=0;_j<4;_j++) mfProd1[_i][_j] = (_i==_j)?1.0f:0.0f; } }
+#endif
 
 	// Only keep track of matrices if swooshes are active on object
 	if ((pThis->m_ActiveSwooshes) || (pThis->m_pBoss))

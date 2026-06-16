@@ -42,10 +42,15 @@ echo "[play_level] launching first level (WARP=$WARP, DISPLAY=$DISPLAY) — clos
 
 # Force SDL2's x11 video driver: on a Wayland session SDL2 picks the Wayland driver even with
 # DISPLAY set, and its GL window creation segfaults. We launch against XWayland (DISPLAY), so x11.
+# TUROK_VTXBAD=1: corruption detectors. They print ONLY when a matrix/vertex actually goes
+# NaN/huge (i.e. the camera/HUD-corruption moment) — silent otherwise. If the camera glitches,
+# the [CANARY]/[CAMBAD]/[VTXBAD] lines name exactly what went bad. Set HUD=0 to hide the HUD.
 exec env DISPLAY="$DISPLAY" \
     SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-x11}" \
     TUROK_CARTDATA="$PWD/src/PR/cartdata.dat" \
     "${ROM_ARG[@]}" \
     TUROK_WARP="$WARP" \
     TUROK_FPS="$FPS" \
+    TUROK_HUD="${HUD:-1}" \
+    TUROK_VTXBAD=1 \
     "$OUT/turok"
