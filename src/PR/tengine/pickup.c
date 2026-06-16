@@ -513,6 +513,19 @@ void CPickup_Pickup(CGameSimpleInstance *pPickup)
 
 	noammo = FALSE ;
 
+#ifdef PLATFORM_PORT
+	/* KEY-CRASH TRACE (remove after fix): log key pickups + the player's region health at the moment. */
+	{ int _t = CInstanceHdr__TypeFlag(&pPickup->ah.ih);
+	  if (_t >= 440 && _t <= 449)
+	  { extern int fprintf(void*,const char*,...); extern void *stderr;
+	    CGameRegion *_rg = pPlayer ? pPlayer->ah.ih.m_pCurrentRegion : 0;
+	    fprintf(stderr,"[KEYTRACE] CPickup_Pickup KEY type=%d playerRegion=%p regionBad=%d pos=(%.0f,%.0f,%.0f) m_pEA=%p\n",
+	      _t, (void*)_rg, _rg?PORT_REGION_BAD(_rg):-1,
+	      pPlayer?pPlayer->ah.ih.m_vPos.x:0, pPlayer?pPlayer->ah.ih.m_vPos.y:0, pPlayer?pPlayer->ah.ih.m_vPos.z:0,
+	      (void*)pPickup->ah.ih.m_pEA); }
+	}
+#endif
+
 	// do whatever is needed
 	switch (CInstanceHdr__TypeFlag(&pPickup->ah.ih))
 	{

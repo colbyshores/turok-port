@@ -4631,6 +4631,22 @@ void CEngineApp__NewLife(CEngineApp *pThis)
 
 void CEngineApp__UpdateGAME(CEngineApp *pThis)
 {
+#ifdef PLATFORM_PORT
+	/* PORT (M5 collision): a cinematic's model-swap asset loads relocate/evict the collision buffer,
+	 * leaving the player's m_pCurrentRegion pointing at a region whose corner pointers are NULL/stale.
+	 * N64 (no MMU) tolerates the bad-corner reads; the host faults in whatever derefs them. Collision is
+	 * guarded, but camera/map/region-attribute paths deref too. The original code already handles a NULL
+	 * region everywhere (`if(!region)` -> defaults) — it just never produces a bad-but-non-NULL one — so
+	 * detect it ONCE per frame here and NULL it, and every downstream guard degrades gracefully until the
+	 * level reset re-spawns the player with a fresh region. Real fix: keep collision resident across the
+	 * cinematic model-swap (M5). */
+	{ CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
+	  if (_pl && PORT_REGION_BAD(_pl->ah.ih.m_pCurrentRegion))
+	  { extern int fprintf(void*,const char*,...); extern void *stderr; static int _c=0;
+	    if(_c++<10) fprintf(stderr,"[KEYTRACE] UpdateGAME: NULLing bad player region %p\n", (void*)_pl->ah.ih.m_pCurrentRegion);
+	    _pl->ah.ih.m_pCurrentRegion = NULL; } }
+#endif
+
 	// Request latest controller information
 	if (validcontrollers && !cntrlReadInProg)
 	{
