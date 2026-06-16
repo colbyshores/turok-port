@@ -425,6 +425,19 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   so visuals update at 30Hz on a 60Hz display (the N64-authentic cadence) — smooth 60fps *content* would need
   position/anim interpolation between ticks (a later feature). **LESSON: the per-frame hook headless is
   `osViSwapBuffer` (sched.c drives it), not the `osRecvMesg` BLOCK frame-pump (SDL2 only).**
+- **★ RENDER INTERPOLATION — PLAYER (2026-06-16, commit 756cb54) — smooth 60fps motion from 30Hz logic.** The
+  tick decouple fixed the speed but left motion at 30Hz (choppy on 60Hz). `os_shim.c turok_render_alpha()` returns
+  0..1 (real-time progress from the last logic tick to the next, from the file-scope `g_tick_last`/`g_tick_interval_ns`).
+  `tengine.c CEngineApp__UpdateGAME` snapshots the player's true `m_vPos`+`m_RotY` on logic-tick frames (`_ip*`
+  statics) and, every frame, renders the player at `lerp(prev,cur,alpha)` **before `SetCameraToTurok`/
+  `CreateGraphicsTask`** (so the camera that follows the player + the 1st-person weapon are smooth), then
+  **restores the exact logic pos right after `SendGraphicsTask`** so the next tick is exact + gameplay is
+  unaffected. A >1000-unit inter-tick jump (warp/respawn) SNAPS not slides; yaw lerps the short way around the
+  2π wrap. Verified: `renderZ=lerp(prevZ,curZ,alpha)` sweeps ~40 intermediate positions per ~12.8-unit logic step;
+  patrols rc=0, warp-0 renders 171 colour buckets. **OPEN follow-ups: enemy/object instances are NOT interpolated
+  yet (they judder at 30Hz — the player/camera/weapon, the dominant FPS view, ARE smooth); look-PITCH not yet
+  interpolated (only pos+yaw).** ★ GOTCHA: with the 30Hz gate, headless captures need a LATE `TUROK_CAPTURE_FRAME`
+  (the unpaced render runs ~2700fps so render-frame 20 is <1 logic tick in → blank; use frame ~4000+).
 - **`sched.c`** — `scSendCommand` (PLATFORM_PORT) now calls **`osViSwapBuffer(pTask->framebuffer)` right after
   dispatching the gfx task**. On N64 the scheduler thread's `__scHandleRetrace` presents finished gfx tasks;
   that thread never runs cooperatively, so without this every frame rendered but was NEVER presented — the
