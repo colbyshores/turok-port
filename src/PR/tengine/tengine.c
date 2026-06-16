@@ -4711,6 +4711,15 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	else
 		frame_increment = REFRESHES_TO_FRAME_INC(nNextFields, refresh_rate) ;
 
+#ifdef PLATFORM_PORT
+	/* PORT: Turok's frame_increment is sized for a 30fps step (CALC_FRAMERATE floors nNextFields at 2),
+	 * but the host renders at 60fps — applying a 30fps step every 60fps frame ran the game ~2x too fast.
+	 * Render at TUROK_FPS but advance the LOGIC only at TUROK_TICK_FPS (default 30): on render-only
+	 * frames the frame-pump clears g_turok_logic_tick and we freeze the step so the frame just
+	 * re-presents the same state. (port/src/os_shim.c owns the timing.) */
+	{ extern int g_turok_logic_tick; if (!g_turok_logic_tick) frame_increment = 0.0; }
+#endif
+
 	// Process player controller values
 	ProcessPlayerController() ;
 

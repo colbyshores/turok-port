@@ -23,6 +23,10 @@ cd "$(dirname "$0")"
 : "${DISPLAY:=:1}"
 : "${WARP:=0}"
 : "${FPS:=60}"
+# Game LOGIC tick rate (Turok's native step is 30fps). The render runs at FPS (60), the logic at TICK
+# (30) — decoupled so the game plays at the correct speed instead of ~2x fast. TICK=0 = logic every
+# render frame (the old too-fast behaviour); raise TICK to speed the game up, lower it to slow down.
+: "${TICK:=30}"
 if [ -n "${DEBUG:-}" ] && [ "$DEBUG" != "0" ]; then BUILD_MODE=debug; OUT=/tmp/turok_sdl_dbg; else BUILD_MODE=release; OUT=/tmp/turok_sdl; fi
 
 # Path B: if ROM is set, resolve to an absolute path and stream retail v1.2 assets.
@@ -51,6 +55,7 @@ exec env DISPLAY="$DISPLAY" \
     "${ROM_ARG[@]}" \
     TUROK_WARP="$WARP" \
     TUROK_FPS="$FPS" \
+    TUROK_TICK_FPS="$TICK" \
     TUROK_HUD="${HUD:-1}" \
     TUROK_VTXBAD=1 \
     TUROK_FXLEAK=1 \

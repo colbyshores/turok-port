@@ -79,6 +79,11 @@ s32 osJamMesg(OSMesgQueue *mq, OSMesg msg, s32 flag)
 #define OS_SC_RETRACE_MSG 1
 static short g_retrace_msg = OS_SC_RETRACE_MSG;
 
+/* PORT: 1 on frames where the game LOGIC should advance, 0 on render-only frames. Read by
+ * CEngineApp__UpdateGAME (tengine.c) to force frame_increment=0 when 0, decoupling the logic tick
+ * rate from the render/present rate. See the TUROK_TICK_FPS block in the frame-pump below. */
+int g_turok_logic_tick = 1;
+
 s32 osRecvMesg(OSMesgQueue *mq, OSMesg *msg, s32 flag)
 {
     if (mq->validCount == 0) {
@@ -161,6 +166,26 @@ extern void turokGfxStartFrame(void);                /* open the next frame */
 void osViSwapBuffer(void *frameBuf)
 {
 #ifdef PLATFORM_PORT
+    /* PORT: decouple the game LOGIC tick rate (TUROK_TICK_FPS, default 30 = Turok's native step — its
+     * frame_increment is sized for 30fps) from the render/present rate. This is THE per-frame present;
+     * advance the logic only when ~1/TICK_FPS sec has really elapsed (g_turok_logic_tick=1), else the
+     * next CEngineApp__UpdateGAME forces frame_increment=0 and the frame just re-presents the same
+     * state. Without this the 30fps-sized step was applied at the 60fps render rate -> game ran ~2x too
+     * fast. TUROK_TICK_FPS=0 = logic every frame (old behaviour); higher = faster, lower = slower. */
+    {
+        static int s_tick = -1;
+        if (s_tick < 0) { const char *e = getenv("TUROK_TICK_FPS"); s_tick = e ? atoi(e) : 30; }
+        if (s_tick > 0) {
+            static struct timespec lt = {0, 0};
+            struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+            if (lt.tv_sec == 0) { lt = now; g_turok_logic_tick = 1; }
+            else {
+                long tgt = 1000000000L / s_tick;
+                long el = (now.tv_sec - lt.tv_sec) * 1000000000L + (now.tv_nsec - lt.tv_nsec);
+                if (el >= tgt) { lt = now; g_turok_logic_tick = 1; } else g_turok_logic_tick = 0;
+            }
+        } else g_turok_logic_tick = 1;
+    }
     /* DIAGNOSTIC: if the game spins presenting (level-load/fade wait loop that never
      * advances the main frame counter), dump the call stack once so we can see which
      * game loop is driving it. Enabled via TUROK_SWAP_BT=1. */
