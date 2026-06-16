@@ -22,11 +22,14 @@ cd "$(dirname "$0")"
 
 : "${DISPLAY:=:1}"
 : "${WARP:=0}"
-: "${FPS:=60}"
-# Game LOGIC tick rate (Turok's native step is 30fps). The render runs at FPS (60), the logic at TICK
-# (30) — decoupled so the game plays at the correct speed instead of ~2x fast. TICK=0 = logic every
-# render frame (the old too-fast behaviour); raise TICK to speed the game up, lower it to slow down.
-: "${TICK:=30}"
+# Render cap. FPS=0 = uncapped: render runs at the monitor's refresh (v-sync, e.g. 144Hz) so the
+# interpolation has extra frames to fill between logic ticks -> liquid-smooth camera. FPS=N caps render
+# at N (e.g. FPS=60 to force 60).
+: "${FPS:=0}"
+# Game LOGIC tick rate, decoupled from render. TICK=60 = the speed/feel sweet spot; the render runs faster
+# (uncapped above) and interpolates between ticks. TICK=30 = authentic N64 real-time speed; TICK=0 = logic
+# every render frame (the old ~2x-too-fast behaviour). Raise to speed up, lower to slow down.
+: "${TICK:=60}"
 if [ -n "${DEBUG:-}" ] && [ "$DEBUG" != "0" ]; then BUILD_MODE=debug; OUT=/tmp/turok_sdl_dbg; else BUILD_MODE=release; OUT=/tmp/turok_sdl; fi
 
 # Path B: if ROM is set, resolve to an absolute path and stream retail v1.2 assets.

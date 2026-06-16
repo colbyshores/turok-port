@@ -4635,7 +4635,9 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	/* render-interpolation state: the player's true pos+yaw at the last two logic ticks. The render draws
 	 * the player (and thus the camera that follows it + the 1st-person weapon) at lerp(prev,cur,alpha) so
 	 * motion is smooth at 60fps despite 30Hz logic. Snapshot below after CTMove; restore after the task. */
-	static CVector3 _ipPrevPos, _ipCurPos; static float _ipPrevRotY, _ipCurRotY; static int _ipHave = 0, _ipActive = 0;
+	static CVector3 _ipPrevPos, _ipCurPos; static float _ipPrevRotY, _ipCurRotY;
+	static float _ipPrevPitch, _ipCurPitch;   /* m_RotXOffset (look up/down) — engine field, set by CTMove */
+	static int _ipHave = 0, _ipActive = 0;
 #endif
 #ifdef PLATFORM_PORT
 	/* PORT (M5 collision streaming): the N64 streams collision through a small cart cache, so the
@@ -4750,11 +4752,11 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 		{
 			if (g_turok_logic_tick || !_ipHave)
 			{
-				if (_ipHave) { _ipPrevPos = _ipCurPos; _ipPrevRotY = _ipCurRotY; }
-				else         { _ipPrevPos = _pl->ah.ih.m_vPos; _ipPrevRotY = _pl->m_RotY; }
-				_ipCurPos = _pl->ah.ih.m_vPos; _ipCurRotY = _pl->m_RotY; _ipHave = 1;
+				if (_ipHave) { _ipPrevPos = _ipCurPos; _ipPrevRotY = _ipCurRotY; _ipPrevPitch = _ipCurPitch; }
+				else         { _ipPrevPos = _pl->ah.ih.m_vPos; _ipPrevRotY = _pl->m_RotY; _ipPrevPitch = pThis->m_RotXOffset; }
+				_ipCurPos = _pl->ah.ih.m_vPos; _ipCurRotY = _pl->m_RotY; _ipCurPitch = pThis->m_RotXOffset; _ipHave = 1;
 				{ float dx=_ipCurPos.x-_ipPrevPos.x, dy=_ipCurPos.y-_ipPrevPos.y, dz=_ipCurPos.z-_ipPrevPos.z;
-				  if (dx*dx+dy*dy+dz*dz > 1000.0f*1000.0f) { _ipPrevPos = _ipCurPos; _ipPrevRotY = _ipCurRotY; } }
+				  if (dx*dx+dy*dy+dz*dz > 1000.0f*1000.0f) { _ipPrevPos = _ipCurPos; _ipPrevRotY = _ipCurRotY; _ipPrevPitch = _ipCurPitch; } }
 			}
 			{
 				float a = turok_render_alpha();
@@ -4767,6 +4769,12 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 					  while (d >  3.14159265f) d -= 6.28318531f;
 					  while (d < -3.14159265f) d += 6.28318531f;
 					  _pl->m_RotY = _ipPrevRotY + d*a; }
+					/* look-pitch (m_RotXOffset, engine field set by CTMove): interpolate so looking up/down
+					 * is smooth too. Camera reads it in CCamera__Update right after SetCameraToTurok. */
+					{ float dp = _ipCurPitch - _ipPrevPitch;
+					  while (dp >  3.14159265f) dp -= 6.28318531f;
+					  while (dp < -3.14159265f) dp += 6.28318531f;
+					  pThis->m_RotXOffset = _ipPrevPitch + dp*a; }
 					_ipActive = 1;
 				}
 			}
@@ -4785,9 +4793,9 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	CEngineApp__SendGraphicsTask(pThis, pFrameData);
 
 #ifdef PLATFORM_PORT
-	/* restore the player's exact logic pos/yaw after the interpolated render (see above) */
+	/* restore the player's exact logic pos/yaw/pitch after the interpolated render (see above) */
 	if (_ipActive) { CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
-	  if (_pl) { _pl->ah.ih.m_vPos = _ipCurPos; _pl->m_RotY = _ipCurRotY; } _ipActive = 0; }
+	  if (_pl) { _pl->ah.ih.m_vPos = _ipCurPos; _pl->m_RotY = _ipCurRotY; } pThis->m_RotXOffset = _ipCurPitch; _ipActive = 0; }
 #endif
 
 	// Update Region Music
