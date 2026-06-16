@@ -674,14 +674,28 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
      kept → camera-base matrix popped away → whole-frame camera+HUD corruption. `push_dropped`/`pop_underflow`
      counters read 0 only headless (shallow enemies, peak depth observed = 5); the imbalance warning is now
      ALWAYS-ON (capped). Pairs with the earlier pop-floor (pop never drops below the camera base).
-  **STILL OPEN / NEEDS USER VERIFY:** the leak was confirmed at warp 6000 but **NOT reproduced at warp 0** (the
-  user's level) headless — across walking (`TUROK_FAKEINPUT=3` = real C-up forward; 1/2 were stick=LOOK, not
-  move), firing (`=5/6`), and spawning at creatures, every detector stayed silent at warp 0. So warp 0 either
-  triggers the same leak class under an interactive enemy state I can't headlessly hit, OR is a 4th cause. The
-  user should retest `ROM=baserom.us.v12.z64 ./play_level.sh`; if still corrupt, the always-on detectors
-  (`[fxleak]`, `[mtxstack] IMBALANCE`, `[VTXBAD]`, `[CANARY]`) name which class fires on their hardware.
-  New debug knobs: `TUROK_FXLEAK`, `TUROK_RSLOG` (viewport/scissor SET log), `TUROK_MTXSTACK` (per-frame peak
-  modelview depth), `TUROK_FAKEINPUT=3` (forward) / `=5` (forward+fire) / `=6` (fire).
+  4. **★★ THE ACTUAL WARP-0 "camera fucked up when I press W" BUG — `acos` LOOKUP-TABLE ENDIANNESS (graphu64.c).**
+     Found by adding a camera-ANGLE anomaly detector (`[CAMTRACK]`, camera.c) after the render-state ones stayed
+     silent — it fired 12× at warp 0 while walking, with `|qGround|^2 = 6.488` (the ground-slope quaternion was
+     NON-UNIT, should be 1.0; 48 at warp 8000). `graphu64.c acos()` is a 1024-entry float lookup table `act[]`
+     stored BIG-ENDIAN (N64), read via `((float*)act)[i]` → byte-swapped GARBAGE on the LE host. acos feeds the
+     quaternion blends `CQuatern__BlendThreshold`(669)/`GetCloser`(706) that update the player's `m_qGround`
+     EVERY FRAME WHILE WALKING (romstruc.c:3934) → garbage angle → m_qGround drifts non-unit → a non-unit q in
+     `qRotZ*qRotX*qRotY*qGround` (camera.c:792-797) SKEWS the view matrix = "camera completely fucked up." FINITE
+     (sin/cos of garbage stay bounded) → all NaN/huge matrix+vertex detectors stayed silent; WALK-triggered (the
+     blend only runs when moving) + SUSTAINED (non-unit accumulates). Same class as the documented `fmodf` bug —
+     and acos garbage was likely the TRUE root of the earlier garbage-angle hangs the fmodf wraps band-aided (AI
+     angles, head-tracking, particle alignment all call acos). **Fix:** byte-swap `act[]` to host order once,
+     in place, on first call (graphu64.c, PLATFORM_PORT). **Verified: camera anomalies 12→0, |qGround|^2=1.0000,
+     all 8 levels render clean rc=0, camera upright while walking.** The only `((float*)table)` cast in graphu64.c
+     is `act` (no sibling lookup-table bugs; sin/cos/sqrt redefine to libc). ★ This is the fix the user wanted.
+     ANIMOBJ=0 "fixing" it was a red herring overlap (skipping the player Advance also skips the qGround blend).
+  New debug knobs: `[CAMTRACK]` (always-on camera-angle/qGround anomaly), `TUROK_FXLEAK`, `TUROK_RSLOG`,
+  `TUROK_MTXSTACK`, `TUROK_FAKEINPUT=3` (forward) / `=5` (fwd+fire) / `=6` (fire) / `=7` (patrol), `TUROK_KILLALL`.
+  **LESSON (re-confirmed): any libc-style math fn the N64 source reimplements with a STATIC FLOAT TABLE or that
+  the host implicitly declares is an endianness/ABI trap — check acos-family + lookup tables for big-endian bytes.
+  And when render-state detectors are silent on a "camera" bug, check the camera ANGLES/quaternions at the source
+  (a wild angle's sin/cos stay finite, so it never shows as a NaN/huge matrix).**
 
 The port build infra (not game source): `Makefile.port`, `port/include/turok_port.h` (host compat shim),
 `lib/ultralib/` (vendored libultra headers), `tools/turok_rom.py`.
