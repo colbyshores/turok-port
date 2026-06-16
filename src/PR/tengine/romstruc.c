@@ -3031,6 +3031,15 @@ void CGameObjectInstance__CalculateOrientationMatrix(CGameObjectInstance *pThis,
 
 #endif
 
+#ifdef PLATFORM_PORT
+		{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
+		  static int _c=0; if(getenv("TUROK_VMLOG") && _c++<8)
+		    fprintf(stderr,"[vm] type=0x%x wOff=(%.1f,%.1f,%.1f) scale=(%.3f,%.3f,%.3f) curWeapon=%d anim=%d nAnims=%d\n",
+		      (int)CGameObjectInstance__TypeFlag(pThis), vWeaponOffset.x,vWeaponOffset.y,vWeaponOffset.z,
+		      pThis->m_vScale.x,pThis->m_vScale.y,pThis->m_vScale.z, CTurokMovement.WeaponCurrent,
+		      pThis->m_asCurrent.m_nAnim, pThis->m_nAnims); }
+#endif
+
 	}
 	else
 	{

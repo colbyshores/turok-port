@@ -2082,12 +2082,24 @@ int CScene__LookupObjectType(CScene *pThis, int nType)
 
 	for (cObj=0; cObj<nObjs; cObj++)
 	{
-		if (objectTypes[cObj] == wType)
+		/* PORT: the Object Types block is a big-endian WORD array, consumed RAW here; on a little-
+		 * endian host objectTypes[cObj] is byte-swapped, so the lookup (e.g. the player's weapon
+		 * model type 100=knife) never matches -> CScene__LoadObjectModelType bails -> the player keeps
+		 * the full BODY model (anim 0) instead of the first-person WEAPON model. ORDERBYTES is identity
+		 * off-PLATFORM_PORT. */
+		if (ORDERBYTES(objectTypes[cObj]) == wType)
 		{
 			foundObject = cObj;
 			break;
 		}
 	}
+
+#ifdef PLATFORM_PORT
+	{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
+	  static int _c=0; if(getenv("TUROK_VMLOG") && _c++<8)
+	    fprintf(stderr,"[lookup] type=%d -> object=%d (nObjs=%d, raw[0]=0x%x swapped[0]=0x%x)\n",
+	      nType, foundObject, nObjs, nObjs>0?objectTypes[0]:0, nObjs>0?ORDERBYTES(objectTypes[0]):0); }
+#endif
 
 	CUnindexedSet__Destruct(&usObjectTypes);
 
