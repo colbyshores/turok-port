@@ -656,6 +656,35 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   still zero-span (`turok_runtime.c` aliases) would run real `alBnkfNew` on an empty bank → likely crash. So the
   lib add + the disk-bank load/endian-swap + the un-gate must be one commit. (S1 thread is independent + already
   landed; S2 is the next coupled unit.)
+  **★ S2 ATTEMPTED → confirmed ALL-OR-NOTHING; reverted to clean S1; 3 sub-findings banked (2026-06-17).** Tried
+  integrating the lib incrementally (add lib + drop stub + guard the SEQ-bank prologue + KEEP initAudio's
+  early-return). It LINKS (105 TUs) but CRASHES at runtime: the game calls real al* EVERY FRAME
+  (`CEngineApp__Main → SetAudioVolume → alCSPSetVol → alEvtqPostEvent`, fault 0x48) on the CSP/sound players the
+  early-return never created — the STUB made these no-ops, the real lib derefs the uninitialised players. So the
+  lib CANNOT be added while initAudio defers: **S2 is ONE atomic commit = add lib + load/swap banks + un-gate
+  (create the players), together.** Sub-findings for the focused next session:
+  - **COMMITTABILITY: `turoksnd/` is UNTRACKED** (user-supplied leaked SDK, like the ROM; only `.tbl`/`.ctl` are
+    gitignored — `src/PR/tengine` IS tracked, `turoksnd` is NOT). So the bank endian-swap + any host shim MUST
+    live in TRACKED files (port/ or tengine), NOT by editing `turoksnd/abi/*.c` (e.g. NOT bnkf.c). Provide a
+    TRACKED `turokBnkfNew` (swap+relocate) and call it from audio.c under PLATFORM_PORT instead of `alBnkfNew`.
+  - **MISSING SYMBOL: `alReverbSetType`** — referenced by `turoksnd/abi/synsetfxtype.c` (`alSynSetFXtype`),
+    defined NOWHERE in the leak. Provide a tracked host stub (no-op resolves the link; `SOUND_USE_REVERB` is on so
+    SFX/music play DRY until reverb is ported or `AL_FX_NONE` is forced). Put it in a tracked port file.
+  - **THE BANK SWAP — worked out, ready to write in a TRACKED file:** swap-on-read during the relocation walk,
+    AFTER each struct's `flags` guard (so shared structs aren't double-swapped): revision/bankCount; per ALBank
+    instCount/sampleRate + bank/perc/inst offsets; per ALInstrument bendRange/soundCount + sound offsets; per
+    ALSound the 3 offsets (envelope/keyMap/wavetable); per ALWaveTable len + base/book/loop offsets; then the
+    LEAF structs the walk only points at — ALEnvelope (3×s32 times), ALADPCMBook (order, npredictors,
+    book[order*npredictors*8] s16 with a >4096 garbage-cap), ALADPCMloop (start/end/count, state[]). The `.tbl`
+    VADPCM payload stays raw big-endian. Banks: `src/PR/tengine/sfx.ctl` (127,688 B, `B1`=0x4231 BE) + `sfx.tbl`
+    (7,298,152 B — too big for the 292 KB audio heap, malloc it as the wave base passed to alBnkfNew); music
+    `turoksnd/sequences/testbank.ctl/.tbl`.
+  - **THE S2 ATOMIC COMMIT (next session):** build_port.sh add turoksnd/abi (recipe `-Ituroksnd/abi
+    -Ilib/ultralib/include/PR -Ilib/ultralib/include -Ituroksnd/abi/buildss` + game defines) + skip
+    audio_lib_stub.c; tracked alReverbSetType stub + tracked turokBnkfNew + disk bank loader; audio.c load
+    SFX+SEQ banks from disk via turokBnkfNew + REMOVE the early-return so amCreateAudioMgr/alCSPNew/alSndpNew/
+    SortSounds create the players. Verify rc=0 (players exist, banks parse, per-frame al* now safe), still
+    SILENT. Then S3 drives the synth on the audio thread (amgrPumpOneFrame → alAudioFrame), S4 the Acmd mixer.
 
 - **★ ANIMATED-OBJECT RENDERING (Item 3, 2026-06-14) — objects were all invisibly at the origin; fixed.**
   Found via a multi-agent workflow + runtime gate-counting: every animated instance (enemies, AI_OBJECT_DEVICE_*
