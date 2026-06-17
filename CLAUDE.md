@@ -643,6 +643,19 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   swaps to the real synth+mixer — the threading never changes again. **NEXT: S2** (un-gate `initAudio`, load +
   endian-swap the disk banks, replacing the `turok_runtime.c` zero-span aliases; drop `audio_lib_stub.c` to avoid
   shadowing the real `turoksnd/abi` once it's added to the build).
+  **★ S2 GATEWAY CONFIRMED (2026-06-17):** all **105** `turoksnd/abi/*.c` compile clean in the host build with
+  `-Ituroksnd/abi -Ilib/ultralib/include/PR -Ilib/ultralib/include -Ituroksnd/abi/buildss` + the game defines
+  (`-DPLATFORM_PORT -D_LANGUAGE_C=1 -D_MIPS_SZLONG=32 -DF3DEX_GBI`). **Use the GAME's `libaudio.h`
+  (`lib/ultralib/include/PR`), NOT turoksnd's `buildss/libaudio.h`** — they DIFFER (961 vs 935 lines), so ABI
+  consistency requires the game + the lib share ONE header (PR-first in the `-I`; `buildss` only supplies `em.h`,
+  which exists nowhere else). The real lib DEFINES the `al*` the stub does (`alAudioFrame`=synthesizer.o,
+  `alSndpNew`=sndplayer.o, `alCSPNew`=csplayer.o, `alBnkfNew`=bnkf.o, `alHeapInit`=heapinit.o), so
+  **`audio_lib_stub.c` MUST be dropped** when the lib is added (duplicate-symbol otherwise). **★ COUPLING — S2
+  lib+banks+un-gate land TOGETHER, not separably:** `initAudio`'s PROLOGUE (lines 130/136, *before* the
+  early-return at 191) already calls the real `alHeapInit`+`alBnkfNew`, so integrating the lib while the banks are
+  still zero-span (`turok_runtime.c` aliases) would run real `alBnkfNew` on an empty bank → likely crash. So the
+  lib add + the disk-bank load/endian-swap + the un-gate must be one commit. (S1 thread is independent + already
+  landed; S2 is the next coupled unit.)
 
 - **★ ANIMATED-OBJECT RENDERING (Item 3, 2026-06-14) — objects were all invisibly at the origin; fixed.**
   Found via a multi-agent workflow + runtime gate-counting: every animated instance (enemies, AI_OBJECT_DEVICE_*
