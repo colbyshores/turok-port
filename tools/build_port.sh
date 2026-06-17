@@ -63,8 +63,19 @@ echo "[build] game TUs: $ng"
 
 # Port layer (turok_gfx.c needs the fast3d headers too).
 for f in port/src/*.c; do
-  b=$(basename "$f" .c); $CC -DPLATFORM_PORT=1 -D_LANGUAGE_C=1 -DF3DEX_GBI -DNDEBUG $GFX_DEF $PORT_I -Iport/fast3d -Iport/fast3d/shaders $WARN -c "$f" -o "$OBJ/port_$b.o"
+  b=$(basename "$f" .c)
+  [ "$b" = audio_lib_stub ] && continue   # M4: the real libaudio (turoksnd/abi) below provides the al* symbols
+  $CC -DPLATFORM_PORT=1 -D_LANGUAGE_C=1 -DF3DEX_GBI -DNDEBUG $GFX_DEF $PORT_I -Iport/fast3d -Iport/fast3d/shaders $WARN -c "$f" -o "$OBJ/port_$b.o"
 done
+# turok's OWN libaudio (turoksnd/abi) — the real synth + CSP music player (M4 audio). Compiled against
+# the GAME's libaudio.h (PR before buildss) so the game + lib share one ABI; buildss only supplies em.h
+# (it exists nowhere else). All 105 TUs compile -m32.
+TSND_I="-Ituroksnd/abi -Ilib/ultralib/include/PR -Ilib/ultralib/include -Ituroksnd/abi/buildss"
+nta=0
+for f in turoksnd/abi/*.c; do
+  b=$(basename "$f" .c); $CC -DPLATFORM_PORT=1 -D_LANGUAGE_C=1 -D_MIPS_SZLONG=32 -DF3DEX_GBI -DNDEBUG $TSND_I $WARN -c "$f" -o "$OBJ/tsnd_$b.o"; nta=$((nta+1))
+done
+echo "[build] libaudio TUs: $nta"
 # libultra gu (matrix utils).
 for f in mtxutil ortho perspective lookat lookatref; do
   $CC -DPLATFORM_PORT=1 -D_LANGUAGE_C=1 -DF3DEX_GBI -DNDEBUG $GU_I $WARN -c lib/ultralib/src/gu/$f.c -o "$OBJ/gu_$f.o"

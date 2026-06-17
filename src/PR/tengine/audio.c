@@ -130,10 +130,24 @@ void initAudio(void)
    alHeapInit(&hp, (u8*)audioHeap, AUDIO_HEAP_SIZE);
 
 	// Load the SEQ sound ctl file from ROM
+#ifdef PLATFORM_PORT
+   /* PORT (M4-S2): load the real SEQ (music) bank from disk — the N64 ROM segment is a zero-span
+    * alias on the host — and endian-swap+relocate via the tracked turokBnkfNew (NOT the SGI alBnkfNew,
+    * which assumes a host-order in-place blob). The .ctl is the spec's "seqctl" = testbank.ctl. */
+   {
+      extern u8 *turokAudioLoadBank(const char *path, u32 *outLen);
+      extern void turokBnkfNew(ALBankFile *file, u8 *table);
+      u32 seqtblLen; u8 *seqtbl;
+      seqbankPtr = (ALBankFile *)turokAudioLoadBank("src/PR/testbank.ctl", &bankLen);
+      seqtbl     = turokAudioLoadBank("src/PR/testbank.tbl", &seqtblLen);
+      if (seqbankPtr && seqtbl) turokBnkfNew(seqbankPtr, seqtbl);
+   }
+#else
    bankLen = _seqctlSegmentRomEnd - _seqctlSegmentRomStart;
    seqbankPtr = alHeapAlloc(&hp, 1, bankLen);
    romcpy(_seqctlSegmentRomStart, (char *)seqbankPtr, bankLen);
    alBnkfNew(seqbankPtr, (u8 *) _seqtblSegmentRomStart);
+#endif
 
 	/*
      * Create the Audio Manager
@@ -182,14 +196,11 @@ void initAudio(void)
 		InsertQueueEntryBefore(AvailQueue.Next,&AW.SFXWaitQue[i]);
 	}
 
-#ifdef PLATFORM_PORT
-	/* PORT (CLAUDE.md M1/M4): defer the audio HARDWARE manager + sequence player + SFX-bank
-	 * parsing. No real bank data is loaded yet (audio segments are zero-span, the al* synth is
-	 * stubbed), so e.g. `sfxBank = sfxBankPtr->bankArray[0]` would be NULL and the following
-	 * `sfxBank->instArray[0]` faults. The AudioWorld (AW) globals above ARE initialized so later
-	 * code never reads uninitialised audio state. Wire real audio at M4 (mixer + bank load). */
-	return;
-#endif
+	/* PORT (M4-S2): the early-return that deferred the audio manager + players is REMOVED — the real
+	 * libaudio (turoksnd/abi) is linked and the SEQ + SFX banks are loaded from disk (above / below)
+	 * and endian-swapped via turokBnkfNew, so initAudio now runs fully: amCreateAudioMgr + alCSPNew +
+	 * the SFX player + SortSounds all build real state. The synth is driven on the dedicated audio
+	 * thread (port/src/audio.c). */
 
 	amCreateAudioMgr(&c, PRIORITY_AUDIO, &amc);
 
@@ -216,11 +227,24 @@ void initAudio(void)
 
 
  	//load SFX sound info
+#ifdef PLATFORM_PORT
+	/* PORT (M4-S2): load the real SFX bank from disk + endian-swap+relocate via turokBnkfNew. */
+	{
+		extern u8 *turokAudioLoadBank(const char *path, u32 *outLen);
+		extern void turokBnkfNew(ALBankFile *file, u8 *table);
+		u32 sfxtblLen; u8 *sfxtbl;
+		AW.SndPlayerList.sfxBankPtr = turokAudioLoadBank("src/PR/tengine/sfx.ctl", &bankLen);
+		sfxtbl = turokAudioLoadBank("src/PR/tengine/sfx.tbl", &sfxtblLen);
+		if (AW.SndPlayerList.sfxBankPtr && sfxtbl)
+			turokBnkfNew((ALBankFile *) AW.SndPlayerList.sfxBankPtr, sfxtbl);
+	}
+#else
 	bankLen = _sfxctlSegmentRomEnd - _sfxctlSegmentRomStart;
 	AW.SndPlayerList.sfxBankPtr = alHeapAlloc(&hp, 1, bankLen);
 	ASSERT(AW.SndPlayerList.sfxBankPtr);
 	romcpy(_sfxctlSegmentRomStart,  AW.SndPlayerList.sfxBankPtr, bankLen);
 	alBnkfNew((ALBankFile *) AW.SndPlayerList.sfxBankPtr, _sfxtblSegmentRomStart);
+#endif
 	AW.SndPlayerList.sfxBank = ((ALBankFile *) AW.SndPlayerList.sfxBankPtr)->bankArray[0];
 	ASSERT(AW.SndPlayerList.sfxBank);
 	//sort sfx
