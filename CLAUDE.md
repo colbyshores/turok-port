@@ -617,6 +617,32 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   `mixer.c aXxxImpl` is NOT a drop-in — needs a classic-ABI Acmd interpreter (~multi-session). Turok's own
   libaudio (`turoksnd/abi/*.c`, 105 TUs incl. the CSP music player) all compile on host; banks on disk
   (`src/PR/tengine/sfx.ctl`+`sfx.tbl`). `audio.c initAudio` still early-returns.
+- **★ AUDIO THREAD — branch `audio-thread`; S1 (threaded skeleton) DONE (2026-06-17).** Goal: audio working under
+  its OWN THREAD like PD/banjo/forsaken. A 5-agent study mapped the siblings' audio threading + turok's state.
+  **KEY INSIGHT:** the N64 already runs audio on its own thread (`audiomgr.c osCreateThread(THREAD_AUDIO,__amMain)`);
+  the port made every libultra thread a cooperative no-op, so audio never ran. The fix = make the AUDIO thread
+  REAL (pthread on PC, `threadCreate` on 3DS) while game/gfx stay cooperative — exactly the N64's own split + the
+  sibling pattern (PD/banjo `sSynthLock`, forsaken `LightLock`). **MIXER DE-RISKED** (corrects the old "PD mixer
+  not a drop-in" worry): PD's `port/src/mixer.c` `aXxxImpl` kernels ARE classic-ABI (over an emulated 3072-byte
+  `rspa` DMEM struct); turok needs only the packed-`Acmd` DISPATCH LOOP that PD/banjo deleted (their `audioRunAcmd`
+  is a no-op because n_audio never builds a list) — ~150 LOC new + ~600 LOC kernels lifted from PD. The difference:
+  turok's synth (`turoksnd/abi/synthesizer.c:142 alAudioFrame`) emits a packed Acmd list (classic ABI, `abi.h`
+  A_SETBUFF=8 stateful), PD's calls the mixer inline (`n_abi.h`). **STAGED PLAN (each headless-testable via
+  `TUROK_AUDIO_WAV`):** S1 thread+device+sync+test-tone (DONE) → S2 un-gate `initAudio` + load+endian-swap the
+  on-disk banks (`sfx.ctl/tbl`, `testbank.*`; ALBankFile is big-endian, `.tbl` payload stays raw-BE) → S3 drive
+  the real synth (`amgrPumpOneFrame`→`alAudioFrame`→Acmd list) on the thread → S4 the mixer (`turokAcmdRun`: Acmd
+  → PCM, audible) → S5 SFX correct → S6 music (CSP `csplayer.c`). **S1 = `port/src/turok_audio_thread.c`** (NEW):
+  the dedicated pthread audio thread; a RECURSIVE `synthLock` mutex (`audioSynthLock/Unlock`, taken by the game
+  thread around synth voice-list mutations at S3+); a poll-paced refill loop (2ms; back-pressure = device queue
+  depth `turokAudioQueuedBytes`); `produce_one_frame()` = SILENCE by default / a 440Hz tone with
+  `TUROK_AUDIO_TESTTONE=1` → `turokAudioPush` sink. `turok_main.c` starts it post-`boot()` + joins+closes pre-exit;
+  `turok_audio.c` `TUROK_AUDIO_WAV` now takes precedence in ANY build (headless verify even on GFX=sdl2);
+  `build_port.sh` links `-lpthread`. `TUROK_AUDIO_THREAD=0` disables (inline/none). **VERIFIED:** egl+sdl2 build;
+  the test tone is a clean 440Hz, peak-8000, 22050Hz WAV; silence by default; patrols all warps rc=0 (thread
+  stable alongside the game); clean start/stop/join. The loop body's `produce_one_frame()` is the SINGLE seam S3+
+  swaps to the real synth+mixer — the threading never changes again. **NEXT: S2** (un-gate `initAudio`, load +
+  endian-swap the disk banks, replacing the `turok_runtime.c` zero-span aliases; drop `audio_lib_stub.c` to avoid
+  shadowing the real `turoksnd/abi` once it's added to the build).
 
 - **★ ANIMATED-OBJECT RENDERING (Item 3, 2026-06-14) — objects were all invisibly at the origin; fixed.**
   Found via a multi-agent workflow + runtime gate-counting: every animated instance (enemies, AI_OBJECT_DEVICE_*

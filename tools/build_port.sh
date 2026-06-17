@@ -88,5 +88,5 @@ fi
 # Link with g++ (C++ runtime for Fast3D) + OSMesa/GL for headless rendering.
 # The 32-bit libs ship only as versioned .so (no -dev symlinks), so link them by exact name.
 GLLIBS="-L/usr/lib/i386-linux-gnu $GFX_LIB"
-g++ -m32 $SAN -no-pie -fno-pie -rdynamic $WRAP "$OBJ"/*.o $GLLIBS -lm -o "$OUT/turok"
+g++ -m32 $SAN -no-pie -fno-pie -rdynamic $WRAP "$OBJ"/*.o $GLLIBS -lm -lpthread -o "$OUT/turok"
 echo "[build] linked -> $OUT/turok"

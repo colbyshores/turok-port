@@ -28,6 +28,11 @@ extern int romdataInit(void);
 extern void turokGfxInit(int w, int h);
 extern int  turokGfxSavePng(const char *path);
 
+/* dedicated audio thread (turok_audio_thread.c) — the N64 audio-manager thread, real */
+extern void audioThreadStart(void);
+extern void audioThreadStop(void);
+extern void turokAudioClose(void);   /* flush/close the sink (finalize the WAV header) */
+
 static jmp_buf  g_escape;
 static long     g_frame      = 0;
 static long     g_max_frames = 0;          /* 0 = run unbounded */
@@ -77,11 +82,14 @@ int main(int argc, char **argv)
          * pump in osRecvMesg drives CEngineApp__Main's loop. */
         fprintf(stderr, "[turok] -> boot()\n");
         boot();
+        audioThreadStart();   /* start the dedicated audio thread (post OS/app init) */
         fprintf(stderr, "[turok] -> mainproc() (idle bypassed)\n");
         mainproc(NULL);  /* CEngineApp__Main — game loop (escapes via turokVideoSwap longjmp) */
         fprintf(stderr, "[turok] mainproc returned (unexpected)\n");
     }
 
+    audioThreadStop();    /* signal + join the audio thread before exit (no more pushes after) */
+    turokAudioClose();    /* then flush/close the device or finalize the WAV header */
     fprintf(stderr, "[turok] exited cleanly after %ld frame(s)\n", g_frame);
     return 0;
 }

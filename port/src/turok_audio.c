@@ -72,6 +72,16 @@ static void tka_open_once(void)
     e = getenv("TUROK_NOAUDIO");
     if (e && atoi(e)) { s_enabled = 0; return; }
 
+    /* TUROK_AUDIO_WAV takes precedence over the live device, so headless WAV
+     * verification of the audio thread works in ANY build (including GFX=sdl2). */
+    e = getenv("TUROK_AUDIO_WAV");
+    if (e && *e) {
+        s_wav = fopen(e, "wb");
+        if (s_wav) { tka_wav_header(s_wav, s_rate); s_wav_data_bytes = 0;
+            fprintf(stderr, "[audio] WAV dump -> %s (%d Hz)\n", e, s_rate); }
+        return;
+    }
+
 #if defined(GFX_USE_SDL2)
     {
         SDL_AudioSpec want, got;
@@ -93,14 +103,6 @@ static void tka_open_once(void)
         fprintf(stderr, "[audio] SDL_OpenAudioDevice failed: %s\n", SDL_GetError());
     }
 #endif
-
-    /* headless fallback: dump PCM to a WAV for offline verification */
-    e = getenv("TUROK_AUDIO_WAV");
-    if (e && *e) {
-        s_wav = fopen(e, "wb");
-        if (s_wav) { tka_wav_header(s_wav, s_rate); s_wav_data_bytes = 0;
-            fprintf(stderr, "[audio] WAV dump -> %s (%d Hz)\n", e, s_rate); }
-    }
 }
 
 /* AI seam -> here: queue one finished PCM buffer (16-bit stereo, native-endian). */
