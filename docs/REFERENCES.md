@@ -3,6 +3,10 @@
 Digested 2026-06-12 from the sibling ports in `/mnt/nas/Development/`. These are the "rosetta stones"
 the Turok port draws on. Keep this current so future sessions don't have to re-read every sibling repo.
 
+> **Companion doc:** [`N64_PORTING_PLAYBOOK.md`](N64_PORTING_PLAYBOOK.md) distills the *generalizable*
+> engineering findings (the reusable bug-class catalogue + the `port/` layout) for any future N64→PC/3DS port.
+> This file is the per-sibling *reference notes*; the playbook is the *lessons*.
+
 ---
 
 ## The shared architecture (all N64 ports converge on this)

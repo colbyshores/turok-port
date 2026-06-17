@@ -318,6 +318,12 @@ Keep a decompressed working ROM image cached on disk; the runtime `romdata.c` re
 
 ## 7. Reference projects (the rosetta stones) — see `docs/REFERENCES.md` for detail
 
+> 📘 **Starting a NEW N64→PC/3DS port?** Read [`docs/N64_PORTING_PLAYBOOK.md`](docs/N64_PORTING_PLAYBOOK.md)
+> first — the generalizable, cross-cutting findings distilled from this port (endianness traps incl. the
+> lookup-table/key-table/aggregate gotchas, N64 null-tolerance, streaming re-acquire-by-position, the
+> present-pipeline blocker, frame-pacing/tick-decouple/interpolation, the `fmodf` implicit-decl ABI trap, the
+> memcpy-guard + state-trace debug methodology, headless EGL/GBM, and the shared `port/` layout & milestones).
+
 | Project | Path | Borrow this |
 |---------|------|-------------|
 | **Banjo-Kazooie** | `/mnt/nas/Development/banjo-kazooie` | **Closest match.** F3DEX-1.x `gfx_pc.cpp`; entire `port/` skeleton; `Makefile.port`/`Makefile.3ds`; byteswap registry; mixer; milestone discipline. |
