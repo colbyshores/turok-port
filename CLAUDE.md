@@ -507,6 +507,21 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   because the dead player is frozen (no gravity) and the top-of-frame re-acquire catches it the next frame. So I
   could NOT reproduce the user's *sustained* interactive fall headlessly; the fix tightens the same-frame window
   (correct + low-risk) but needs interactive confirmation. If it persists, get: death type (enemy/water/fell) + where.
+- **★★ DEATH GHOST/FALL — REAL root cause = PLAYER RENDER-INTERPOLATION sliding across the respawn (2026-06-17,
+  2nd 3-agent audit).** The re-acquire above did NOT fix it. User then reported the KEY clue: on death a CORPSE
+  body stays grounded while a separate alpha/BLINKING model (the respawned player) "moves into standing position",
+  and the camera follows the corpse DOWN through the floor. Commit audit (all 3 agents agreed): **756cb54 (player
+  render interpolation)**. On RESPAWN the player's m_vPos teleports (death-anim spot → respawn/checkpoint spot); that
+  jump is UNDER the 1000-unit snap guard, so the interp LERPS across it — sliding the player model ("ghost") and,
+  because `SetCameraToTurok` reads the (interpolated) player pos, dragging the camera to ground level → clipping
+  through the floor. My KILLSELF firepit death didn't reproduce it because there the death+respawn spots ~coincide
+  (no jump); a far/checkpoint/fall death has the big gap. **Fix (tengine.c CEngineApp__UpdateGAME interp block):
+  SNAP (don't lerp) the player while `CCamera__InCinemaMode` AND for a ~12-tick window after (the respawn teleport
+  can land a frame or two after the cinematic ends) — cinematics move the player abruptly, so never interpolate
+  across them. `_ipWasCin` countdown.** Verified: egl+sdl2 build, normal-play patrols rc=0 (gameplay interp
+  unaffected — only cinematic frames snap), no slide in the trace. The earlier re-acquire (990a06a) is kept as a
+  harmless low-risk collision safety-net. **LESSON: render-interpolation MUST snap across teleports/respawns/cutscene
+  cuts; a fixed distance threshold (1000) misses short teleports — gate on the cinematic/teleport STATE, not distance.**
 - **★ "MISSING PLATFORM" — was a v49-vs-retail ASSET issue, NOT a framerate regression (2026-06-16).** User reported
   the warp-0 fire-pit "initial platform" missing on the branch + suspected the level resources weren't importing.
   Bisected with byte-identical headless captures: the branch renders the warp-0 spawn **identical to master**

@@ -4645,7 +4645,7 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	static float _ipPrevRotYO, _ipCurRotYO;   /* m_RotYOffset (head yaw offset) — engine field */
 	static float _ipPrevRotZO, _ipCurRotZO;   /* m_RotZOffset (head roll offset) — engine field */
 	static CQuatern _ipPrevQG, _ipCurQG;      /* player m_qGround (ground-slope quat, fed into the view) */
-	static int _ipHave = 0, _ipActive = 0;
+	static int _ipHave = 0, _ipActive = 0, _ipWasCin = 0;
 #endif
 #ifdef PLATFORM_PORT
 	/* PORT (M5 collision streaming): the N64 streams collision through a small cart cache, so the
@@ -4767,7 +4767,17 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 				_ipCurPos = _pl->ah.ih.m_vPos; _ipCurRotY = _pl->m_RotY; _ipCurPitch = pThis->m_RotXOffset;
 				_ipCurRotYO = pThis->m_RotYOffset; _ipCurRotZO = pThis->m_RotZOffset; _ipCurQG = _pl->m_qGround; _ipHave = 1;
 				{ float dx=_ipCurPos.x-_ipPrevPos.x, dy=_ipCurPos.y-_ipPrevPos.y, dz=_ipCurPos.z-_ipPrevPos.z;
-				  if (dx*dx+dy*dy+dz*dz > 1000.0f*1000.0f) { _ipPrevPos = _ipCurPos; _ipPrevRotY = _ipCurRotY; _ipPrevPitch = _ipCurPitch;
+				  /* SNAP (don't lerp) on a big jump OR while in a cinematic + the frame it ends. A DEATH cinematic
+				   * teleports the player from the death-anim spot (on the ground) to the respawn spot (standing
+				   * height) — a jump UNDER the 1000-unit guard — so interpolating slides the model ("ghost") AND,
+				   * since SetCameraToTurok reads the player pos, drags the camera down to ground level → clipping
+				   * through the floor. Cinematics move the player abruptly, so never interpolate across them. */
+				  extern int CCamera__InCinemaMode(CCamera*); int _cin = CCamera__InCinemaMode(&pThis->m_Camera);
+				  /* hold the snap for a window of ticks AFTER the cinematic too — the respawn teleport can land
+				   * a frame or two after the cinematic ends, and we must not lerp across it. */
+				  if (_cin) _ipWasCin = 12; else if (_ipWasCin > 0) _ipWasCin--;
+				  if (dx*dx+dy*dy+dz*dz > 1000.0f*1000.0f || _cin || _ipWasCin > 0) {
+				    _ipPrevPos = _ipCurPos; _ipPrevRotY = _ipCurRotY; _ipPrevPitch = _ipCurPitch;
 				    _ipPrevRotYO = _ipCurRotYO; _ipPrevRotZO = _ipCurRotZO; _ipPrevQG = _ipCurQG; } }
 			}
 			{
