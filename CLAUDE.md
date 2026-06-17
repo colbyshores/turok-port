@@ -522,6 +522,23 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   unaffected — only cinematic frames snap), no slide in the trace. The earlier re-acquire (990a06a) is kept as a
   harmless low-risk collision safety-net. **LESSON: render-interpolation MUST snap across teleports/respawns/cutscene
   cuts; a fixed distance threshold (1000) misses short teleports — gate on the cinematic/teleport STATE, not distance.**
+- **★★★ DEATH FALL-THROUGH — ACTUAL ROOT CAUSE = respawn leaves a VALID-but-WRONG region (2026-06-17, fixed via the
+  user's TUROK_DEATHLOG trace).** The two fixes above (re-acquire timing; interp snap) did NOT fix it — both were
+  wrong. The user's death log was the key: on respawn the position NEVER teleports (prev==cur, interp snapped) — the
+  Y just **free-falls under gravity** (`819→803→…`, accelerating) because the respawned player has **no floor**. AND
+  the region pointer is **rbad=0 (valid)** the whole time. So it's NOT a NULL/stale region (what PORT_REGION_BAD
+  catches) — the respawn sets `m_pCurrentRegion` to a **valid region that does NOT contain the player's new X/Z**, so
+  `GetGroundHeight`/Collision3 find no ground and the player drops through. Reproduced exactly with
+  `TUROK_SPAWNAT=-1988,819,-7703` (spawn far from the streamed start → same wrong-region free-fall), and **forcing a
+  `CScene__NearestRegion` re-acquire holds the player rock-solid grounded** (region corrected). **FIX (tengine.c
+  CEngineApp__UpdateGAME, the post-CCamera__Update re-acquire): re-acquire the CORRECT region (NearestRegion at the
+  live pos) whenever `_rw>0 || PORT_REGION_BAD`, where `_rw` is a 30-frame countdown armed by `CCamera__InCinemaMode`
+  — i.e. for the whole death/resurrect cinematic + a window after, when the respawn lands. Scoped to cinematics, so
+  normal play keeps the game's own region tracking (no per-frame NearestRegion cost/override).** Verified headless:
+  SPAWNAT-far + kill → respawn stays grounded (Y stable) instead of free-falling; normal patrols rc=0. **LESSON:
+  PORT_REGION_BAD only validates the region POINTER (NULL/range/distance) — it does NOT verify the region CONTAINS
+  the player. A respawn/warp that sets position without correctly setting the region produces a valid-but-wrong
+  region → no ground → fall-through. Re-acquire by position (NearestRegion) on respawn, not just on a bad pointer.**
 - **★ "MISSING PLATFORM" — was a v49-vs-retail ASSET issue, NOT a framerate regression (2026-06-16).** User reported
   the warp-0 fire-pit "initial platform" missing on the branch + suspected the level resources weren't importing.
   Bisected with byte-identical headless captures: the branch renders the warp-0 spawn **identical to master**

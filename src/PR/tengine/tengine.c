@@ -4787,15 +4787,6 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 					_pl->ah.ih.m_vPos.x = _ipPrevPos.x + (_ipCurPos.x - _ipPrevPos.x)*a;
 					_pl->ah.ih.m_vPos.y = _ipPrevPos.y + (_ipCurPos.y - _ipPrevPos.y)*a;
 					_pl->ah.ih.m_vPos.z = _ipPrevPos.z + (_ipCurPos.z - _ipPrevPos.z)*a;
-					/* TUROK_DEATHLOG=1: dump the player interp around death/respawn so we can see the real jump +
-					 * whether the cinematic snap fired. (prev==cur => snapped; prev!=cur while cin/wasCin set =>
-					 * the snap missed it.) Gated; remove once the death fall-through is confirmed fixed. */
-					{ static int _dl=-1; if(_dl<0){extern char*getenv(const char*);_dl=getenv("TUROK_DEATHLOG")?1:0;}
-					  if(_dl){ extern int CCamera__InCinemaMode(CCamera*); int _c2=CCamera__InCinemaMode(&pThis->m_Camera);
-					    if(_c2||_ipWasCin>0||_pl->m_AI.m_Health<=0){ extern int fprintf(void*,const char*,...); extern void*stderr;
-					      fprintf(stderr,"[DEATHLOG] hp=%d cin=%d wasCin=%d a=%.2f prev=(%.0f,%.0f,%.0f) cur=(%.0f,%.0f,%.0f) interp=(%.0f,%.0f,%.0f)\n",
-					        _pl->m_AI.m_Health,_c2,_ipWasCin,a, _ipPrevPos.x,_ipPrevPos.y,_ipPrevPos.z,
-					        _ipCurPos.x,_ipCurPos.y,_ipCurPos.z, _pl->ah.ih.m_vPos.x,_pl->ah.ih.m_vPos.y,_pl->ah.ih.m_vPos.z); } } }
 					{ float d = _ipCurRotY - _ipPrevRotY;
 					  while (d >  3.14159265f) d -= 6.28318531f;
 					  while (d < -3.14159265f) d += 6.28318531f;
@@ -4837,14 +4828,18 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	CEngineApp__SetCameraToTurok(pThis);
 	CCamera__Update(&pThis->m_Camera) ;
 #ifdef PLATFORM_PORT
-	/* PORT (death fall-through fix): a DEATH/cinematic model-swap inside CCamera__Update (cinecam.c
-	 * CScene__LoadObjectModelType) streams assets that RELOCATE the cart-cache collision buffer, re-staling
-	 * the player's region AFTER the once-per-frame re-acquire at the top of UpdateGAME. Re-acquire again here
-	 * — post-cinematic, before the graphics task runs the player's Collision3 — so it finds valid ground
-	 * instead of bailing on a bad region and dropping the player through the floor. (Mirrors the top-of-frame
-	 * re-acquire; same root fix as the key-pickup cinematic.) */
-	{ CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
-	  if (_pl && PORT_REGION_BAD(_pl->ah.ih.m_pCurrentRegion))
+	/* PORT (death fall-through fix, corrected): the death/resurrect cinematic respawns the player but leaves
+	 * m_pCurrentRegion pointing at a VALID-but-WRONG region — one whose pointer passes PORT_REGION_BAD yet
+	 * does NOT contain the player's new X/Z — so the ground query finds nothing and the player free-falls
+	 * through the floor. (Confirmed empirically: the region pointer is valid (rbad=0) while Y free-falls, and
+	 * forcing a NearestRegion re-acquire holds the player rock-solid on the ground.) PORT_REGION_BAD only
+	 * catches a NULL/stale/wild pointer, never a wrong-but-valid one, so re-acquire the CORRECT region
+	 * (NearestRegion at the live position) for the whole cinematic + a window after it — the respawn lands as
+	 * the cinematic ends. Scoped to cinematics, so normal play keeps the game's own region tracking. */
+	{ static int _rw = 0; extern int CCamera__InCinemaMode(CCamera*);
+	  CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
+	  if (CCamera__InCinemaMode(&pThis->m_Camera)) _rw = 30; else if (_rw > 0) _rw--;
+	  if (_pl && (_rw > 0 || PORT_REGION_BAD(_pl->ah.ih.m_pCurrentRegion)))
 	    _pl->ah.ih.m_pCurrentRegion = CScene__NearestRegion(&pThis->m_Scene, &_pl->ah.ih.m_vPos); }
 #endif
 	CEngineApp__UpdateCameraAttributes(pThis);
