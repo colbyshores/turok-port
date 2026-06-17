@@ -13,7 +13,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <execinfo.h>
 
 #include <PR/gbi.h>          /* Gfx */
 #include "gfx_api.h"         /* GfxInitSettings + gfx_init/gfx_run/... */
@@ -65,30 +64,10 @@ void turokGfxInit(int w, int h)
 }
 
 /* Interpret one N64 display list (the gfx task's data_ptr) through Fast3D. */
-static int s_dump = -1;
-static int gfxDump(void) { if (s_dump < 0) { const char *e = getenv("TUROK_GFX_DUMP"); s_dump = e ? atoi(e) : 0; } return s_dump; }
-static int s_run_calls = 0;
 void turokGfxRun(void *dl)
 {
     if (!s_inited || !dl) return;
     if (!s_frame_open) { gfx_start_frame(); s_frame_open = 1; }
-    if (gfxDump() && s_run_calls < 6) {
-        unsigned int *w = (unsigned int *)dl;
-        fprintf(stderr, "[gfx] run #%d dl=%p first cmds: %08x %08x | %08x %08x\n",
-                s_run_calls, dl, w[0], w[1], w[2], w[3]);
-    }
-    s_run_calls++;
-#ifdef PLATFORM_PORT
-    /* DIAGNOSTIC: if the game submits gfx tasks in a tight loop (a load/wait loop that never
-     * presents via osViSwapBuffer), dump the call stack once to find which game loop drives it. */
-    { const char *e = getenv("TUROK_RUN_BT");
-      if (e && *e == '1' && s_run_calls == 2000) {
-          void *bt[30]; int n = backtrace(bt, 30);
-          fprintf(stderr, "[turokGfxRun] call #%d — backtrace:\n", s_run_calls);
-          backtrace_symbols_fd(bt, n, 2);
-          fflush(stderr);
-      } }
-#endif
     gfx_run((Gfx *)dl);
 }
 
@@ -103,12 +82,6 @@ void turokGfxEndFrame(void)
     if (s_frame_open) { gfx_end_frame(); s_frame_open = 0; }   /* buffer now holds this render frame */
 
     if (s_cap_render == -2) { const char *e = getenv("TUROK_CAPTURE_FRAME"); s_cap_render = e ? atoi(e) : -1; }
-    if (gfxDump() && s_frame_no < 400) {
-        extern unsigned long g_turok_tri_calls, g_turok_tri_cliprej;
-        fprintf(stderr, "[gfx] render-frame %d: %lu tris drawn | %lu tri1 calls | %lu clip-rejected\n",
-                s_frame_no, g_turok_tris, g_turok_tri_calls, g_turok_tri_cliprej);
-        g_turok_tri_calls = 0; g_turok_tri_cliprej = 0;
-    }
     /* Capture keys off REAL render frames (not the osRecvMesg frame-pump ticks). */
     if (s_cap_render >= 0 && s_frame_no == s_cap_render) {
         const char *p = getenv("TUROK_CAPTURE_PATH"); if (!p) p = "turok_frame.png";

@@ -3054,15 +3054,6 @@ void CGameObjectInstance__CalculateOrientationMatrix(CGameObjectInstance *pThis,
 
 #endif
 
-#ifdef PLATFORM_PORT
-		{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
-		  static int _c=0; if(getenv("TUROK_VMLOG") && _c++<8)
-		    fprintf(stderr,"[vm] type=0x%x wOff=(%.1f,%.1f,%.1f) scale=(%.3f,%.3f,%.3f) curWeapon=%d anim=%d nAnims=%d\n",
-		      (int)CGameObjectInstance__TypeFlag(pThis), vWeaponOffset.x,vWeaponOffset.y,vWeaponOffset.z,
-		      pThis->m_vScale.x,pThis->m_vScale.y,pThis->m_vScale.z, CTurokMovement.WeaponCurrent,
-		      pThis->m_asCurrent.m_nAnim, pThis->m_nAnims); }
-#endif
-
 	}
 	else
 	{
@@ -3075,20 +3066,6 @@ void CGameObjectInstance__CalculateOrientationMatrix(CGameObjectInstance *pThis,
 			CQuatern__Mult(&qTemp1, &pThis->m_qRot, &qRotY);
 			CQuatern__Mult(&qTemp2, &qTemp1, &pThis->m_qGround);
 		}
-#ifdef PLATFORM_PORT
-		{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
-		  static int s_q=-1, s_seen[256], s_ns=0; if(s_q<0) s_q=getenv("TUROK_QLOG")?1:0;
-		  if(s_q){ int _t=(int)CGameObjectInstance__TypeFlag(pThis),_i,_d=0;
-		    for(_i=0;_i<s_ns;_i++) if(s_seen[_i]==_t){_d=1;break;}
-		    if(!_d&&s_ns<256){ s_seen[s_ns++]=_t;
-		      fprintf(stderr,"[qlog] type=0x%x RotY=%.3f qRot=(%.2f,%.2f,%.2f,%.2f) qGround=(%.2f,%.2f,%.2f,%.2f) qTemp2=(%.2f,%.2f,%.2f,%.2f) scale=(%.3f,%.3f,%.3f)\n",
-		        _t, pThis->m_RotY,
-		        pThis->m_qRot.x,pThis->m_qRot.y,pThis->m_qRot.z,pThis->m_qRot.t,
-		        pThis->m_qGround.x,pThis->m_qGround.y,pThis->m_qGround.z,pThis->m_qGround.t,
-		        qTemp2.x,qTemp2.y,qTemp2.z,qTemp2.t,
-		        pThis->m_vScale.x,pThis->m_vScale.y,pThis->m_vScale.z); } } }
-#endif
-
 
 		// allow rotation of gallery portraits on the spot
 		if (GetApp()->m_Mode == MODE_GALLERY)
@@ -3144,17 +3121,6 @@ void CGameObjectInstance__CalculateOrientationMatrix(CGameObjectInstance *pThis,
 		}
 	}
 	CMtxF__ToMtx(mfOrient, CGameObjectInstance__GetOrientationMatrix(pThis));
-#ifdef PLATFORM_PORT
-	{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
-	  static int s_m=-1, s_seen[256], s_ns=0; if(s_m<0) s_m=getenv("TUROK_QLOG")?1:0;
-	  if(s_m && !FollowView){ int _t=(int)CGameObjectInstance__TypeFlag(pThis),_i,_d=0;
-	    for(_i=0;_i<s_ns;_i++) if(s_seen[_i]==_t){_d=1;break;}
-	    if(!_d&&s_ns<256){ s_seen[s_ns++]=_t;
-	      fprintf(stderr,"[mtx] type=0x%x mfOrient diag=(%.3f,%.3f,%.3f) row0=(%.3f,%.3f,%.3f) trans=(%.0f,%.0f,%.0f)\n",
-	        _t, mfOrient[0][0],mfOrient[1][1],mfOrient[2][2],
-	        mfOrient[0][0],mfOrient[0][1],mfOrient[0][2],
-	        mfOrient[3][0],mfOrient[3][1],mfOrient[3][2]); } } }
-#endif
 
 
 	// find bounds corners
@@ -8594,7 +8560,6 @@ void CROMSoundElement__TakeFromElement(CROMSoundElement *pThis, CSoundElement *p
 
 #ifndef WIN32
 
-extern int g_turok_drawall;
 int g_turok_dodraw_bound = 0;   /* PORT: nNodes of the object currently in DoDraw — bounds pmtDrawMtxs[nNode] */
 int g_turok_cur_obj_type = -1;  /* PORT: type of the object whose node DL was most recently emitted (canary context) */
 int g_turok_cur_node = -1;
@@ -8627,41 +8592,12 @@ void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 	int						nNodes;
 	CAnimDraw				AnimDraw;
 
-#ifdef PLATFORM_PORT
-	/* PORT: animated-object drawing (model node hierarchy + anim streams: CROMNodeIndex /
-	 * CTranslationOffset / CPosFrame / events / transitions) is now byte-swapped (the anim endian
-	 * sweep), so it draws by default. TUROK_ANIMOBJ=0 disables it for debugging. */
-	{ extern char *getenv(const char *); const char *e = getenv("TUROK_ANIMOBJ");
-	  if (e && *e == '0') return; }
-#endif
-
 	isPlayer = (pThis == CEngineApp__GetPlayer(GetApp())) ;
 #ifdef PLATFORM_PORT
 	/* render-interpolation: snapshot this instance's pre-tick world pos/yaw (DoAI/Advance below advance it to
 	 * the current tick) so the orientation matrix draws at lerp(prev,cur,alpha). Tick frames only. */
 	{ extern int g_turok_logic_tick;
 	  if (g_turok_logic_tick && !isPlayer) { pThis->m_ipPrevPos = pThis->ah.ih.m_vPos; pThis->m_ipPrevRotY = pThis->m_RotY; } }
-#endif
-
-#ifdef PLATFORM_PORT
-	{ extern int fprintf(void*,const char*,...); extern void *stderr; extern char *getenv(const char*);
-	  static int _bc=0,_tr=-1; if(_tr<0)_tr=getenv("TUROK_TRACE")?1:0;
-	  if(_tr&&_bc<20){_bc++; fprintf(stderr,"[BT] objDraw type=0x%x\n", (int)CGameObjectInstance__TypeFlag(pThis));} }
-#endif
-
-#ifdef PLATFORM_PORT
-	{ extern int fprintf(void*,const char*,...); extern void *stderr; extern char *getenv(const char*);
-	  static int _seen[512], _ns=0; int _i, _ot;
-	  if (getenv("TUROK_OBJLOG")) { _ot = (int)CGameObjectInstance__TypeFlag(pThis); for(_i=0;_i<_ns;_i++) if(_seen[_i]==_ot) goto _done;
-	    if(_ns<512){_seen[_ns++]=_ot; fprintf(stderr,"[objdraw] type=0x%x isPlayer=%d (call #%d)\n",_ot,isPlayer,_ns);} _done:; }
-	  /* TUROK_OBJPOS: per-object world pos + distance from player, so we can aim a close-up. */
-	  if (!isPlayer && getenv("TUROK_OBJPOS")) {
-	    CGameObjectInstance *pl = (CGameObjectInstance*)CEngineApp__GetPlayer(GetApp());
-	    CVector3 o = pThis->ah.ih.m_vPos;
-	    if (pl) { CVector3 p = pl->ah.ih.m_vPos; float dx=o.x-p.x,dy=o.y-p.y,dz=o.z-p.z; float d2=dx*dx+dy*dy+dz*dz;
-	      if (d2 < 4000.0f*4000.0f) fprintf(stderr,"[objpos] type=0x%x pos=(%.0f,%.0f,%.0f) d=%.0f\n",
-	        (int)CGameObjectInstance__TypeFlag(pThis), o.x,o.y,o.z, __builtin_sqrtf(d2)); }
-	  } }
 #endif
 
 	// Clear incase anything uses it (TRex!!)
@@ -8762,15 +8698,6 @@ void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 
 		isAlive = !(pThis->m_AI.m_dwStatusFlags & AI_ALREADY_DEAD);
 
-#ifdef PLATFORM_PORT
-		/* DEBUG: TUROK_KILLALL forces every non-player enemy into the death/teleport fade
-		 * (TRANS_FADE_OUT_MODE -> fx_mode=TOTRANSPARENT) so the fx_mode-leak path that a real kill
-		 * would hit can be exercised headless. */
-		{ extern char *getenv(const char*); static int s_ka=-1; if(s_ka<0) s_ka=getenv("TUROK_KILLALL")?1:0;
-		  if(s_ka && !isPlayer && !isDevice && pThis->m_Mode != TRANS_FADE_OUT_MODE){
-		    pThis->m_Mode = TRANS_FADE_OUT_MODE; pThis->m_ModeTime = MIN_TRANS; pThis->m_ModeMisc1 = (MAX_TRANS - MIN_TRANS)/SECONDS_TO_FRAMES(2.0f); } }
-#endif
-
 		if (!pThis->m_asCurrent.m_pceAnim)
 			CGameObjectInstance__RequestInitialAnimation(pThis);
 
@@ -8853,25 +8780,13 @@ void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 						CGameObjectInstance__SendAnimEvents(pThis, &isCurrentAnim, mfOrient);
 				}
 
-#ifdef PLATFORM_PORT
-				{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
-				  static int s_gl=-1, s_seen[256], s_ns=0; if(s_gl<0) s_gl=getenv("TUROK_GATELOG")?1:0;
-				  if(s_gl && !isPlayer){ int _t=(int)CGameObjectInstance__TypeFlag(pThis), _i, _dup=0;
-				    for(_i=0;_i<s_ns;_i++) if(s_seen[_i]==_t){_dup=1;break;}
-				    if(!_dup && s_ns<256){ s_seen[s_ns++]=_t;
-				      int bov=CBoundsRect__IsOverlapping(&pThis->m_BoundsRect,&view_bounds_rect);
-				      int vis=(pThis->m_AI.m_dwStatusFlags2 & AI_VISIBLE)?1:0;
-				      int vvo=CViewVolume__IsOverlapping(&view_volume,8,vTCorners);
-				      fprintf(stderr,"[gate] type=0x%x dev=%d boundsOverlap=%d AI_VISIBLE=%d viewVol=%d => %s\n",
-				        _t,isDevice,bov,vis,vvo, ((bov&&(isDevice||vis))&&vvo)?"DRAWS":"CULLED"); } } }
-#endif
 				// bounds check against view rect
-				if (		isPlayer || g_turok_drawall
+				if (		isPlayer
 						|| (		CBoundsRect__IsOverlapping(&pThis->m_BoundsRect, &view_bounds_rect)
 								&& (isDevice || (pThis->m_AI.m_dwStatusFlags2 & AI_VISIBLE)) ) )
 				{
 					// bounds check against view volume
-					if (isPlayer || g_turok_drawall || CViewVolume__IsOverlapping(&view_volume, 8, isPlayer ? vt_player_corners : vTCorners))
+					if (isPlayer || CViewVolume__IsOverlapping(&view_volume, 8, isPlayer ? vt_player_corners : vTCorners))
 					{
 						CGameObjectInstance__SetVisible(pThis);
 
@@ -10193,9 +10108,6 @@ void CGameObjectInstance__DoDraw(CGameObjectInstance *pThis, CAnimDraw *pAnimDra
 	    static int _c=0; if(_c++<12) fprintf(stderr,"[BT] DoDraw OOB node=%d (bound=%d) — skipped (would corrupt memory)\n", nNode, g_turok_dodraw_bound);
 	    return;
 	  } }
-	{ extern int fprintf(void*,const char*,...); extern void *stderr; extern char *getenv(const char*);
-	  static int _bc=0,_tr=-1; if(_tr<0)_tr=getenv("TUROK_TRACE")?1:0;
-	  if(_tr&&_bc<30){_bc++; fprintf(stderr,"[BT] DoDraw node=%d\n", nNode);} }
 #endif
 
 	BigHead = FALSE ;
@@ -10226,16 +10138,6 @@ void CGameObjectInstance__DoDraw(CGameObjectInstance *pThis, CAnimDraw *pAnimDra
 
 	vC			= CGameObjectInstance__GetNodePos(pAnimDraw->pisCurrentAnim, nNode, nFrameC);
 	vNextC	= CGameObjectInstance__GetNodePos(pAnimDraw->pisCurrentAnim, nNode, nNextFrameC);
-
-#ifdef PLATFORM_PORT
-	{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
-	  static int s_qc=-1, s_n=0; if(s_qc<0) s_qc=getenv("TUROK_QCLOG")?1:0;
-	  if(s_qc && s_n<16){ s_n++;
-	    fprintf(stderr,"[qc] node=%d frameC=%d rotSet=%d qC=(%.4f,%.4f,%.4f,%.4f) vC=(%.1f,%.1f,%.1f)\n",
-	      nNode, nFrameC,
-	      CGameObjectInstance__GetNodeAnimIndex(pAnimDraw->pisCurrentAnim, nNode).m_nRotationSet,
-	      qC.x,qC.y,qC.z,qC.t, vC.x,vC.y,vC.z); } }
-#endif
 
 	if (blending)
 	{

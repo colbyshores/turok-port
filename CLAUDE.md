@@ -976,6 +976,18 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     lifecycle ROOT — re-acquiring a relocated resource beats nulling/skipping around the stale handle.** ALSO
   REPORTED by the user (deferred): a **blue-portal warp bug** — entering a portal → bonus area, then re-entering
   → wrong-warps to the Campaigner boss instead of back. Warp/portal level-transition logic to fix next.
+- **★ DEBUG-KNOB CLEANUP (2026-06-17, 9-agent Workflow).** Stripped ~36 one-off `TUROK_*` debug env knobs that
+  accreted across the porting sessions — the `*LOG` trace prints (OBJLOG/GATELOG/BLENDLOG/RSLOG/MTXLOG/VTXLOG/
+  QLOG/QCLOG/SIMPLOG/INSTLOG/XINSTLOG/PARTLOG/MATLOG/VMLOG/VP_LOG/CAMLOG/MOVELOG/GFX_DUMP/GFX_DRAWLOG/OBJLOG/
+  OBJPOS/MTXSTACK/TRACE/SWAP_BT/RUN_BT) and the headless debug BEHAVIOR toggles (SPAWNAT/DRAWALL/NOWORLD/
+  ANIMOBJ/KILLALL/PITCH/YAW/FACE/DRAW_NOCLIP/CLEAR_MAGENTA/EGL_GREEN/EGL_BLUE_CAP). Toggles were removed by
+  deleting the debug branch and keeping the production default (normal cull/draw/spawn/clip). **KEPT** (so any
+  inline references above are now historical): gameplay/asset/infra knobs (`TUROK_WARP`/`FPS`/`TICK_FPS`/`ROM`/
+  `CARTDATA`/`MAX_FRAMES`/`CAPTURE_FRAME`/`CAPTURE_PATH`/`HUD`/`NOAUDIO`/`AUDIO_WAV`/`FAKEINPUT`/`EGL_SURFACELESS`/
+  `DRI_NODE`/`FORCERUN`) and the always-on anomaly detectors (`[CAMTRACK]`/`[CANARY]`/`[CAMBAD]`/`VTXBAD`/
+  `FXLEAK` + the GLIST-overflow / DMA-OOB / byte-swap-implausible safety prints, which fire only on a real
+  anomaly). Verified: egl+sdl2 clean build+link (cross-file `g_turok_drawall` removal consistent), patrols all
+  warps rc=0, 0 removed-knob `getenv` sites remain.
 
 The port build infra (not game source): `Makefile.port`, `port/include/turok_port.h` (host compat shim),
 `lib/ultralib/` (vendored libultra headers), `tools/turok_rom.py`.

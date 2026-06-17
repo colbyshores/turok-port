@@ -1421,11 +1421,6 @@ void CParticleSystem__CreateParticle(CParticleSystem *pThis, CInstanceHdr *pSour
 
 	if (BinaryRange(types, nEffects, nType, &first, &last))
 	{
-#ifdef PLATFORM_PORT
-		{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
-		  static int _ns=0; if(getenv("TUROK_PARTLOG") && _ns++<40)
-		    fprintf(stderr,"[part] spawn #%d: type=%d range=[%d,%d] of %d effects\n", _ns, nType, first, last, nEffects); }
-#endif
 		pbParticles = CIndexedSet__GetBlock(&isParticleEffects, CART_PARTICLEEFFECTS_usParticles);
 		CUnindexedSet__ConstructFromRawData(&usParticles, pbParticles, FALSE);
 		effects = (CROMParticleEffect*) CUnindexedSet__GetBasePtr(&usParticles);

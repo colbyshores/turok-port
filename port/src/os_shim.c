@@ -16,7 +16,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include <execinfo.h>
 #include <ultra64.h>
 /* note: no <string.h> — glibc's <strings.h> bcopy/bzero conflict with libultra's
  * os_libc.h declarations. Use __builtin_mem* (no header, no conflict). */
@@ -213,17 +212,6 @@ void osViSwapBuffer(void *frameBuf)
             }
         } else { g_turok_logic_tick = 1; g_tick_interval_ns = 0; }
     }
-    /* DIAGNOSTIC: if the game spins presenting (level-load/fade wait loop that never
-     * advances the main frame counter), dump the call stack once so we can see which
-     * game loop is driving it. Enabled via TUROK_SWAP_BT=1. */
-    { static long _c = 0; ++_c;
-      const char *e = getenv("TUROK_SWAP_BT");
-      if (e && *e == '1' && _c == 400) {
-          void *bt[28]; int n = backtrace(bt, 28);
-          fprintf(stderr, "[osViSwapBuffer] call #%ld — backtrace:\n", _c);
-          backtrace_symbols_fd(bt, n, 2);
-          fflush(stderr);
-      } }
 #endif
     turokGfxEndFrame();          /* finish + present this frame's Fast3D rendering */
     turokVideoSwap(frameBuf);    /* frame count; capture PNG if requested; longjmp at max */

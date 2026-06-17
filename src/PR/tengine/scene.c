@@ -1634,16 +1634,6 @@ void CScene__DecompressInstances(CScene *pThis, CCacheEntry **ppceTarget)
 			 * this the player double-swaps to a garbage position -> garbage camera -> world clip-rejects. */
 			{
 				float realRotY = ORDERBYTES(pThis->m_WarpPoint.m_RotY);   /* big -> host */
-				{ extern char *getenv(const char*); extern int sscanf(const char*,const char*,...);
-				  const char*sp=getenv("TUROK_SPAWNAT"); float tx,ty,tz,tr;
-				  if(sp){ int _n=sscanf(sp,"%f,%f,%f,%f",&tx,&ty,&tz,&tr);
-				    if(_n>=3){ pThis->m_WarpPoint.m_vPos.x=tx; pThis->m_WarpPoint.m_vPos.y=ty; pThis->m_WarpPoint.m_vPos.z=tz; }
-				    if(_n==4) realRotY=tr; } }
-				/* TUROK_FACE: add radians to the PLAYER's spawn facing (rotates the real cull frustum,
-				 * unlike TUROK_YAW which only spins the render camera) — lets a headless capture aim at a
-				 * side-culled creature without teleporting (which would break region streaming). */
-				{ extern char *getenv(const char*); extern double atof(const char*);
-				  const char*fc=getenv("TUROK_FACE"); if(fc) realRotY += (float)atof(fc); }
 				NormalizeRotation(&realRotY);
 				pROMInstance->m_RotY = ORDERBYTES((INT16)FLOAT2INT16(
 				                          max(-ANGLE_PI, min(ANGLE_PI, realRotY)), ANGLE_PI));  /* host -> big */
@@ -1668,11 +1658,6 @@ void CScene__DecompressInstances(CScene *pThis, CCacheEntry **ppceTarget)
 																		  regions, variations);
 
 			nTypeFlag = CGameObjectInstance__TypeFlag(pGameInstance);
-
-#ifdef PLATFORM_PORT
-			{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
-			  if(getenv("TUROK_INSTLOG")) fprintf(stderr,"[inst] #%d type=%d (0x%x) nInstances=%d\n", cInstance, nTypeFlag, nTypeFlag, nInstances); }
-#endif
 
 			CAIDynamic__SetHealth(&pGameInstance->m_AI,
 										 pGameInstance->ah.ih.m_pEA,
@@ -2052,10 +2037,6 @@ void CScene__InstancesReceived(CScene *pThis, CCacheEntry **ppceTarget)
 	ASSERT(pThis->m_nInstances == 0);
 	ASSERT(pThis->m_nActiveAnimInstances == 0);
 
-#ifdef PLATFORM_PORT
-	{ extern int fprintf(void*,const char*,...); extern void *stderr; extern char *getenv(const char*);
-	  if(getenv("TUROK_TRACE")) fprintf(stderr, "[scene] *** m_pPlayer SET = %p ***\n", (void*)&instances[0]); }
-#endif
 	pThis->m_pPlayer = &instances[0];
 
 	CUnindexedSet__Destruct(&usInstances);
@@ -2095,13 +2076,6 @@ int CScene__LookupObjectType(CScene *pThis, int nType)
 			break;
 		}
 	}
-
-#ifdef PLATFORM_PORT
-	{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
-	  static int _c=0; if(getenv("TUROK_VMLOG") && _c++<8)
-	    fprintf(stderr,"[lookup] type=%d -> object=%d (nObjs=%d, raw[0]=0x%x swapped[0]=0x%x)\n",
-	      nType, foundObject, nObjs, nObjs>0?objectTypes[0]:0, nObjs>0?ORDERBYTES(objectTypes[0]):0); }
-#endif
 
 	CUnindexedSet__Destruct(&usObjectTypes);
 
@@ -2560,14 +2534,6 @@ void CScene__DecompressGridSection(CScene *pThis, CCacheEntry **ppceTarget)
 																		  rpObjectAddress,
 																		  regions, variations);
 			{ BOOL _pf = CScene__GetPickupFlag(pThis, &gameSimpleInstances[cSimple]);
-#ifdef PLATFORM_PORT
-			  { extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
-			    static int _c=0; if(getenv("TUROK_SIMPLOG") && _c++<20)
-			      fprintf(stderr,"[simple] #%d/%d nID=%d objType=%d pickupFlag=%d wFlags=0x%x => %s\n",
-			        cSimple, nSimples, gameSimpleInstances[cSimple].m_nID,
-			        ORDERBYTES(romSimpleInstances[cSimple].m_nObjType),
-			        _pf, gameSimpleInstances[cSimple].m_wFlags, _pf?"GONE":"shown"); }
-#endif
 			  if (_pf)
 				gameSimpleInstances[cSimple].m_wFlags |= SIMPLE_FLAG_GONE; }
 		}
@@ -2714,11 +2680,7 @@ void CScene__Draw(CScene *pThis, Gfx **ppDLP)
 		}
 
 
-#ifdef PLATFORM_PORT
-		{ extern char *getenv(const char*); if (!getenv("TUROK_NOWORLD")) CScene__DrawEnvironment(pThis, ppDLP); }
-#else
 		CScene__DrawEnvironment(pThis, ppDLP);
-#endif
 		CScene__SendStaticEvents(pThis);
 
 		CScene__DrawInstances(pThis, ppDLP, &usInstances);
@@ -2879,7 +2841,6 @@ void CScene__DrawParticles(CScene *pThis, Gfx **ppDLP)
 	CParticleSystem__Draw(&pThis->m_ParticleSystem, ppDLP);
 }
 
-int g_turok_drawall=0;
 void CScene__DrawInstances(CScene *pThis, Gfx **ppDLP, CUnindexedSet *pusInstances)
 {
 	int 						cInstance, nInstances;
@@ -2891,9 +2852,6 @@ void CScene__DrawInstances(CScene *pThis, Gfx **ppDLP, CUnindexedSet *pusInstanc
 
    nInstances = CUnindexedSet__GetBlockCount(pusInstances);
    instances = (CGameObjectInstance*) CUnindexedSet__GetBasePtr(pusInstances);
-#ifdef PLATFORM_PORT
-	{ extern char *getenv(const char*); static int dq=-1; if(dq<0){const char*e=getenv("TUROK_DRAWALL");dq=e?atoi(e):0;} g_turok_drawall=dq; }
-#endif
 
 	// performance tuned
 	gSPClipRatio((*ppDLP)++, FRUSTRATIO_5);
@@ -2908,7 +2866,7 @@ void CScene__DrawInstances(CScene *pThis, Gfx **ppDLP, CUnindexedSet *pusInstanc
 		{
 			if (pInst->m_asCurrent.m_pceAnim)
 			{
-				if ((CBoundsRect__IsOverlapping(&pInst->m_BoundsRect, &anim_bounds_rect) || pInst->m_pBoss || g_turok_drawall) && CScene__IsActive(pThis, pInst))
+				if ((CBoundsRect__IsOverlapping(&pInst->m_BoundsRect, &anim_bounds_rect) || pInst->m_pBoss) && CScene__IsActive(pThis, pInst))
 				{
 					if (CGameObjectInstance__IsVisible(pInst) && CGameObjectInstance__HasTransparency(pInst))
 					{
@@ -2927,7 +2885,7 @@ void CScene__DrawInstances(CScene *pThis, Gfx **ppDLP, CUnindexedSet *pusInstanc
 			}
 			else
 			{
-				if ((CBoundsRect__IsOverlapping(&pInst->m_BoundsRect, &anim_bounds_rect) || pInst->m_pBoss || g_turok_drawall) && CScene__IsActive(pThis, pInst))
+				if ((CBoundsRect__IsOverlapping(&pInst->m_BoundsRect, &anim_bounds_rect) || pInst->m_pBoss) && CScene__IsActive(pThis, pInst))
 				{
 					CGameObjectInstance__Draw(pInst, ppDLP,
 													  pThis->m_pceTextureSetsIndex);
@@ -3748,15 +3706,6 @@ void CScene__DrawEnvironment(CScene *pThis, Gfx **ppDLP)
 					pSimple = &simpleInstances[cSimpleInst];
 
 					ASSERT(pSimple->ah.ih.m_Type == I_SIMPLE);
-#ifdef PLATFORM_PORT
-						{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
-						  static int _c=0; if(getenv("TUROK_SIMPLOG") && _c++<24)
-						    fprintf(stderr,"[simdraw] #%d/%d wFlags=0x%x GONE=%d IsActive=%d transp=%d type=%d pos=(%.0f,%.0f,%.0f)\n",
-						      cSimpleInst, nSimpleInsts, pSimple->m_wFlags, (pSimple->m_wFlags&SIMPLE_FLAG_GONE)?1:0,
-						      CScene__IsActive(pThis, pSimple)?1:0, (pSimple->m_wFlags&SIMPLE_FLAG_TRANSPARENCY)?1:0,
-						      CScene__GetObjectTypeFlag(pThis, pSimple->ah.ih.m_nObjType),
-						      pSimple->ah.ih.m_vPos.x, pSimple->ah.ih.m_vPos.y, pSimple->ah.ih.m_vPos.z); }
-#endif
 
 					if (!(pSimple->m_wFlags & SIMPLE_FLAG_GONE) && CScene__IsActive(pThis, pSimple))
 					{
@@ -3803,11 +3752,6 @@ void CScene__DrawTransparentInstances(CScene *pThis, Gfx **ppDLP)
 	zPos2 = -2*CEngineApp__GetEyePos(pApp).z;
 
 	nInsts = pThis->m_nTransparentInstances;
-#ifdef PLATFORM_PORT
-	{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
-	  static int s_xi=-1, s_max=0; if(s_xi<0) s_xi = getenv("TUROK_XINSTLOG")?1:0;
-	  if(s_xi && nInsts>s_max){ s_max=nInsts; fprintf(stderr,"[xinst] transparent instances this frame = %d (peak)\n", nInsts); } }
-#endif
 	for (cInst=0; cInst<nInsts; cInst++)
 	{
 		pInstance = pThis->m_pTransparentInstances[cInst];

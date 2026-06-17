@@ -624,24 +624,6 @@ void CGeometry__DrawSection(CGeometry *pThis, Gfx **ppDLP, CIndexedSet *pisSecti
 	// in decompressed section, block 0 is the CGameSection struct
 	pGameSect = (CGameSection*) CIndexedSet__GetBlock(pisSection, 0);
 
-#ifdef PLATFORM_PORT
-	{ extern char *getenv(const char*); extern int fprintf(void*,const char*,...); extern void *stderr;
-	  static int s_log = -1, s_xc = 0, s_total = 0;
-	  if (s_log < 0) s_log = getenv("TUROK_MATLOG") ? 1 : 0;
-	  if (s_log) { DWORD mf = pGameSect->m_dwMatFlags; s_total++;
-	    if (mf & (MATERIAL_TRANSPARENCY | MATERIAL_SHADE_ALPHA)) {
-	      if (s_xc < 60) fprintf(stderr,
-	        "[matlog] xparent sect #%d matFlags=0x%x (TRANS=%d SHADE_A=%d INTERSECT=%d MASK=%d REFLECT=%d) primRGBA=%d,%d,%d,%d\n",
-	        s_xc, (unsigned)mf, !!(mf&MATERIAL_TRANSPARENCY), !!(mf&MATERIAL_SHADE_ALPHA),
-	        !!(mf&MATERIAL_INTERSECT), !!(mf&MATERIAL_MASK), !!(mf&MATERIAL_REFLECT_MAP),
-	        pGameSect->m_Color[0], pGameSect->m_Color[1], pGameSect->m_Color[2], pGameSect->m_Color[3]);
-	      s_xc++;
-	    }
-	    if ((s_total % 500) == 0)
-	      fprintf(stderr, "[matlog] === %d sections seen, %d transparent ===\n", s_total, s_xc);
-	  } }
-#endif
-
 	if (pGameSect->m_TextureLoader.m_rpTextureSet)
 	{
 		if (!CTextureLoader__RequestTextureSet(&pGameSect->m_TextureLoader, pCache, "Geometry Texture"))

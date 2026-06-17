@@ -816,10 +816,6 @@ static void gfx_opengl_set_depth_range(float znear, float zfar) {
 }
 
 static void gfx_opengl_set_viewport(int x, int y, int width, int height) {
-#ifdef PLATFORM_PORT
-    { const char *e = getenv("TUROK_VP_LOG"); static int _n=0;
-      if (e && *e=='1' && _n++ < 8) { fprintf(stderr, "[gfx] set_viewport x=%d y=%d w=%d h=%d\n", x,y,width,height); fflush(stderr); } }
-#endif
     glViewport(x, y, width, height);
 }
 
@@ -829,14 +825,9 @@ static void gfx_opengl_set_scissor(int x, int y, int width, int height) {
      * with uly==lry) interleaved with the real full-screen one. A zero-height GL scissor clips
      * EVERYTHING, so applying it to the following 2D/text draws blanks the whole frame (the
      * "all-black FBO"). Ignore degenerate rects and keep the last valid scissor — matches N64
-     * (where these draws are visible). This is the root fix; TUROK_DRAW_NOCLIP is no longer needed. */
+     * (where these draws are visible). This is the root fix. */
     if (width <= 0 || height <= 0)
         return;
-    { const char *e = getenv("TUROK_VP_LOG");
-      static int lx=-99999,ly=-99999,lw=-99999,lh=-99999; static int _n=0;
-      if (e && *e=='1' && (x!=lx||y!=ly||width!=lw||height!=lh) && _n++ < 40) {
-          fprintf(stderr, "[gfx] set_scissor x=%d y=%d w=%d h=%d\n", x,y,width,height);
-          lx=x;ly=y;lw=width;lh=height; fflush(stderr); } }
 #endif
     glScissor(x, y, width, height);
 }
@@ -856,16 +847,6 @@ static void gfx_opengl_set_use_alpha(bool use_alpha, bool modulate) {
 
 static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
     // printf("flushing %d tris\n", buf_vbo_num_tris);
-#ifdef PLATFORM_PORT
-    { static long _d = 0; ++_d;
-      const char *e = getenv("TUROK_GFX_DRAWLOG");
-      if (e && *e == '1') { fprintf(stderr, "[gfx] draw #%ld ntris=%zu len=%zu\n", _d, buf_vbo_num_tris, buf_vbo_len); fflush(stderr); } }
-#endif
-#ifdef PLATFORM_PORT
-    { const char *e = getenv("TUROK_DRAW_NOCLIP");
-      if (e) { if (*e=='1'||*e=='s') glDisable(GL_SCISSOR_TEST);
-               if (*e=='1'||*e=='d') glDisable(GL_DEPTH_TEST); } }
-#endif
     glBufferData(GL_ARRAY_BUFFER, sizeof(float) * buf_vbo_len, buf_vbo, GL_STREAM_DRAW);
     glDrawArrays(GL_TRIANGLES, 0, 3 * buf_vbo_num_tris);
 }
@@ -1124,9 +1105,6 @@ static void gfx_opengl_start_frame(void) {
 }
 
 static void gfx_opengl_end_frame(void) {
-#ifdef PLATFORM_PORT
-    { const char *e = getenv("TUROK_GFX_DRAWLOG"); if (e && *e == '1') { fprintf(stderr, "[gfx] end_frame: glFlush\n"); fflush(stderr); } }
-#endif
     glFlush();
 }
 
@@ -1241,13 +1219,7 @@ void gfx_opengl_clear_framebuffer(bool clear_color, bool clear_depth) {
     
     GLbitfield mask = 0;
     if (clear_color) {
-#if defined(PLATFORM_PORT)
-        { const char *e = getenv("TUROK_CLEAR_MAGENTA");
-          if (e && *e == '1') glClearColor(1.0f, 0.0f, 1.0f, 1.0f);
-          else                glClearColor(0.0f, 0.0f, 0.0f, 1.0f); }
-#else
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-#endif
         mask |= GL_COLOR_BUFFER_BIT;
     }
     if (clear_depth) {
