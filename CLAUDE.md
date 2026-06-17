@@ -702,6 +702,16 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     SFX+SEQ banks from disk via turokBnkfNew + REMOVE the early-return so amCreateAudioMgr/alCSPNew/alSndpNew/
     SortSounds create the players. Verify rc=0 (players exist, banks parse, per-frame al* now safe), still
     SILENT. Then S3 drives the synth on the audio thread (amgrPumpOneFrame → alAudioFrame), S4 the Acmd mixer.
+  - **★ S2 DONE (2026-06-17, commit 724409b, branch `audio-s2`).** Executed the atomic commit exactly as planned:
+    `build_port.sh` skips `audio_lib_stub.c` + compiles all 105 `turoksnd/abi/*.c` (the real `al*`); new TRACKED
+    **`port/src/turok_audiobank.c`** provides `turokBnkfNew` (the bank swap+relocate during the walk, `flags`-guarded
+    once-per-node), `turokAudioLoadBank` (disk loader — N64 ROM segments are zero-span aliases on host), and the
+    no-op `alReverbSetType` (closed the one undefined-ref gap). `audio.c` (PLATFORM_PORT) loads SFX (`sfx.ctl/.tbl`)
+    + SEQ (`src/PR/testbank.ctl/.tbl`) from disk via `turokBnkfNew` and REMOVES the early-return so amCreateAudioMgr/
+    alCSPNew/the SFX player/SortSounds build real state. VERIFIED: warps 0/2000/6000/8000 patrol rc=0, 4 banks
+    load+swap each, render unaffected; `SortSounds` walking `sfxBank->instArray[0]->soundArray` proves the swap is
+    correct (a bad count/ptr would fault). Still SILENT — the audio thread runs S1 silence until S3 drives the synth.
+    **NEXT: S3+S4** — a multi-agent Workflow mapped the classic-ABI synth→Acmd→mixer chain for the S4 mixer plan.
 
 - **★ ANIMATED-OBJECT RENDERING (Item 3, 2026-06-14) — objects were all invisibly at the origin; fixed.**
   Found via a multi-agent workflow + runtime gate-counting: every animated instance (enemies, AI_OBJECT_DEVICE_*
