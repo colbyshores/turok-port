@@ -27,10 +27,11 @@ cd "$(dirname "$0")"
 # interpolation has extra frames to fill between logic ticks -> liquid-smooth camera. FPS=N caps render
 # at N (e.g. FPS=60 to force 60).
 : "${FPS:=0}"
-# Game LOGIC tick rate, decoupled from render. TICK=60 = the speed/feel sweet spot; the render runs faster
-# (uncapped above) and interpolates between ticks. TICK=30 = authentic N64 real-time speed; TICK=0 = logic
-# every render frame (the old ~2x-too-fast behaviour). Raise to speed up, lower to slow down.
-: "${TICK:=60}"
+# Game LOGIC tick rate. TICK=30 = Turok's native step rate = the CORRECT game speed (the per-tick step is
+# sized for 30fps, so TICK=60 runs everything 2x too fast). The render runs faster (uncapped/v-sync above)
+# and INTERPOLATES between the 30Hz logic ticks -> buttery 60fps motion at the correct speed. TICK=0 = logic
+# every render frame (legacy, too fast).
+: "${TICK:=30}"
 if [ -n "${DEBUG:-}" ] && [ "$DEBUG" != "0" ]; then BUILD_MODE=debug; OUT=/tmp/turok_sdl_dbg; else BUILD_MODE=release; OUT=/tmp/turok_sdl; fi
 
 # Default to the retail ROM (Path B) when it's present: it has the FINISHED level geometry — e.g. the

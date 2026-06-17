@@ -8979,9 +8979,27 @@ void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 
 								if ((fx_mode != FXMODE_TOTRANSPARENT) || fx_color[3])
 								{
+#ifdef PLATFORM_PORT
+									/* Render-interpolate the skeletal animation: DoDraw poses from m_cFrame (blending keyframes by the
+									 * fractional frame), so drawing at an interpolated frame = smooth limbs between 30Hz logic ticks. Every
+									 * anim advances by the same global step per tick, so prev = cur - step; snap (no interp) when <1 step in
+									 * (just started/wrapped) so we never blend backward across a loop. Restored right after the draw. */
+									float _ipfC = pThis->m_asCurrent.m_cFrame, _ipfB = pThis->m_asBlend.m_cFrame; int _ipfDid = 0;
+									{ extern float turok_render_alpha(void); extern float g_turok_anim_step;
+									  float _a = turok_render_alpha();
+									  if (_a > 0.0f && g_turok_anim_step > 0.0f) {
+									    float _k = g_turok_anim_step * (1.0f - _a);
+									    if (_ipfC >= g_turok_anim_step) pThis->m_asCurrent.m_cFrame = _ipfC - _k;
+									    if (_ipfB >= g_turok_anim_step) pThis->m_asBlend.m_cFrame   = _ipfB - _k;
+									    _ipfDid = 1;
+									  } }
+#endif
 									CGameObjectInstance__DoDraw(pThis, &AnimDraw, 0,
 																	 	isPlayer ? mf_player_orient : mfOrient,
 																	 	TRUE);
+#ifdef PLATFORM_PORT
+									if (_ipfDid) { pThis->m_asCurrent.m_cFrame = _ipfC; pThis->m_asBlend.m_cFrame = _ipfB; }
+#endif
 
 									fx_mode = FXMODE_NONE ;
 

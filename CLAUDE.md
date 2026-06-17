@@ -468,6 +468,24 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   graphics task. Verified: egl+sdl2 build, all warps rc=0 at TICK=30/60, no `[CAMTRACK]` anomalies, tris
   unchanged. **LESSON: a fixed-timestep tick clock MUST phase-accumulate (advance by interval), never reseed to
   now — reseeding beats against any equal-rate vsync.** Enemy animation interpolation is the next step.
+- **★ TICK=30 IS THE CORRECT SPEED + SKELETAL-ANIMATION INTERPOLATION (2026-06-16).** After the beat fix, the user
+  found TICK=60 "buttery but everything moves 2x as fast" — because the beat had been secretly dropping ~half the
+  ticks (≈30Hz effective); a clean 60Hz reveals the TRUE TICK=60 rate, and Turok's per-tick step is sized for
+  **30fps**, so 60 ticks/sec = 2x. The user nailed it: **TICK=30 = Turok's native step = the correct speed**, and
+  on a 60Hz panel it's ideal (30Hz logic, 60Hz render interpolates between ticks). **`play_level.sh` now defaults
+  TICK=30** (no speed-scaling hack — keeps the simple "TICK = speed" model). Then **animation-frame interpolation**
+  (the user's ask "interpolate between frames for animation lerp"): `CGameObjectInstance__DoDraw` poses the skeleton
+  from `m_asCurrent/m_asBlend.m_cFrame`, already blending keyframes by the FRACTIONAL frame — so drawing at an
+  interpolated `m_cFrame` = smooth limbs. Every anim advances by the same global `frame_increment` per tick
+  (anim.c:179), so **prev = cur − step** with NO per-instance storage (`g_turok_anim_step` captured at the tick
+  gate in tengine.c). `romstruc.c` (before the DoDraw call ~8982) overrides `m_cFrame = cur − step·(1−alpha)` for
+  m_asCurrent + m_asBlend, **snapping (no interp) when `m_cFrame < step`** (just started/wrapped — avoids blending
+  backward across a loop; wrap resets to `m_nExitToFrame`, anim.c:198), restored right after the draw. Applies to
+  enemies, devices, AND the 1st-person weapon (all go through DoDraw). Verified: egl+sdl2 build, warps 0/3000/6000
+  rc=0, animated objects render (boss/enemies), zero `[CAMTRACK]`/`[CANARY]` anomalies. KNOWN MINOR: a loop point
+  `m_nExitToFrame > step` (rare) or a JERK_FRAMES hit-react (m_cFrame decremented) gets a 1-interval glitch — fix
+  with per-instance prev storage if a specific anim shows it. Instance WORLD position/rotation still not interpolated
+  (enemies translate at 30Hz; the skeletal POSE is now smooth — the dominant visual).
 - **★ "MISSING PLATFORM" — was a v49-vs-retail ASSET issue, NOT a framerate regression (2026-06-16).** User reported
   the warp-0 fire-pit "initial platform" missing on the branch + suspected the level resources weren't importing.
   Bisected with byte-identical headless captures: the branch renders the warp-0 spawn **identical to master**

@@ -339,6 +339,11 @@ DWORD			game_frame_number = 0;
 DWORD			microcode_version = MICROCODE_HIGH_PRECISION;
 
 float			frame_increment = 1.0;
+#ifdef PLATFORM_PORT
+/* the frame_increment used on the LAST logic tick (the amount every animation's m_cFrame advanced),
+ * captured at the tick gate. Render interpolation of skeletal anims derives prev = m_cFrame - this. */
+float			g_turok_anim_step = 1.0f;
+#endif
 float			enemy_speed_scaler = 1.0;				// these vars are
 float			particle_speed_scaler = 1.0;			// also setup
 float			sky_speed_scaler = 1.0;					// in MODE_GAME_START
@@ -4728,7 +4733,7 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	 * Render at TUROK_FPS but advance the LOGIC only at TUROK_TICK_FPS (default 30): on render-only
 	 * frames the frame-pump clears g_turok_logic_tick and we freeze the step so the frame just
 	 * re-presents the same state. (port/src/os_shim.c owns the timing.) */
-	{ extern int g_turok_logic_tick; if (!g_turok_logic_tick) frame_increment = 0.0; }
+	{ extern int g_turok_logic_tick; if (!g_turok_logic_tick) frame_increment = 0.0; else g_turok_anim_step = frame_increment; }
 #endif
 
 	// Process player controller values
