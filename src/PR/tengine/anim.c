@@ -355,10 +355,7 @@ void CGameObjectInstance__DecompressAnim(CGameObjectInstance *pThis, CCacheEntry
 	allocSize += FixAlignment(US_TOTAL_SIZE(US_TOTAL_SIZE(sizeof(CRotFrame), nFrames), nRotationSets), IS_ALIGNMENT);
 
 #ifdef PLATFORM_PORT
-	{ extern int fprintf(void*,const char*,...); extern void *stderr; extern char *getenv(const char*);
-	  static int _c=0, _tr=-1; if(_tr<0) _tr=getenv("TUROK_TRACE")?1:0;
-	  if (_tr && _c < 16) { _c++; fprintf(stderr, "[BT] DecompAnim nFrames=%d nTrans=%d nRot=%d alloc=%d\n",
-	                                       nFrames, nTranslationSets, nRotationSets, allocSize); }
+	{ extern int fprintf(void*,const char*,...); extern void *stderr;
 	  if (nFrames < 0 || nFrames > 4096 || nTranslationSets < 0 || nTranslationSets > 4096
 	      || nRotationSets < 0 || nRotationSets > 4096) {
 	    fprintf(stderr, "[BT] DecompAnim ABORT — implausible block counts (would OOB)\n");
@@ -518,11 +515,6 @@ void CGameObjectInstance__DecompressAnim(CGameObjectInstance *pThis, CCacheEntry
 
 #define COMPRESS_ANIM
 #ifdef COMPRESS_ANIM
-#ifdef PLATFORM_PORT
-		{ extern int fprintf(void*,const char*,...); extern void *stderr; extern char *getenv(const char*);
-		  static int _c=0,_tr=-1; if(_tr<0)_tr=getenv("TUROK_TRACE")?1:0;
-		  if(_tr&&_c<16){_c++; fprintf(stderr,"[BT] DecompAnim:rot-loop (%d sets, nFrames=%d)\n", nRotationSets, nFrames);} }
-#endif
 		for (cRotationSet=0; cRotationSet<nRotationSets; cRotationSet++)
 		{
 			// usRotationSet
@@ -634,10 +626,5 @@ void CGameObjectInstance__DecompressAnim(CGameObjectInstance *pThis, CCacheEntry
 	CUnindexedSet__Destruct(&usYRots);
 	CUnindexedSet__Destruct(&usTranslationSets);
 	CUnindexedSet__Destruct(&usRotationSets);
-#ifdef PLATFORM_PORT
-	{ extern int fprintf(void*,const char*,...); extern void *stderr; extern char *getenv(const char*);
-	  static int _c=0,_tr=-1; if(_tr<0)_tr=getenv("TUROK_TRACE")?1:0;
-	  if(_tr&&_c<16){_c++; fprintf(stderr,"[BT] DecompAnim:done\n");} }
-#endif
 }
 #endif

@@ -339,6 +339,11 @@ DWORD			game_frame_number = 0;
 DWORD			microcode_version = MICROCODE_HIGH_PRECISION;
 
 float			frame_increment = 1.0;
+#ifdef PLATFORM_PORT
+/* the frame_increment used on the LAST logic tick (the amount every animation's m_cFrame advanced),
+ * captured at the tick gate. Render interpolation of skeletal anims derives prev = m_cFrame - this. */
+float			g_turok_anim_step = 1.0f;
+#endif
 float			enemy_speed_scaler = 1.0;				// these vars are
 float			particle_speed_scaler = 1.0;			// also setup
 float			sky_speed_scaler = 1.0;					// in MODE_GAME_START
@@ -3190,11 +3195,11 @@ CFrameData* CEngineApp__CreateGraphicsTask(CEngineApp *pThis)
 	pFData->m_DisplayListSize = (((DWORD)pThis->m_pDLP) - ((DWORD)pFData->m_pDisplayList));
 
 #ifdef PLATFORM_PORT
-	{ extern int fprintf(void*,const char*,...); extern void *stderr; extern char *getenv(const char*);
-	  static long _mx=0; static int _tr=-1; if(_tr<0)_tr=getenv("TUROK_TRACE")?1:0;
+	{ extern int fprintf(void*,const char*,...); extern void *stderr;
+	  static long _mx=0;
 	  long _n = pThis->m_pDLP - pFData->m_pDisplayList;
-	  if (_n > _mx) { _mx = _n; if(_tr || _n>=GLIST_LEN) fprintf(stderr,"[dlcount] new max %ld / GLIST_LEN=%d%s\n",
-	    _n, GLIST_LEN, _n>=GLIST_LEN?"  *** OVERFLOW — corrupting adjacent memory ***":""); } }
+	  if (_n > _mx) { _mx = _n; if(_n>=GLIST_LEN) fprintf(stderr,"[dlcount] new max %ld / GLIST_LEN=%d  *** OVERFLOW — corrupting adjacent memory ***\n",
+	    _n, GLIST_LEN); } }
 #endif
 
 #ifndef MAKE_CART
@@ -4632,6 +4637,17 @@ void CEngineApp__NewLife(CEngineApp *pThis)
 void CEngineApp__UpdateGAME(CEngineApp *pThis)
 {
 #ifdef PLATFORM_PORT
+	/* render-interpolation state: the player's true pos+yaw at the last two logic ticks. The render draws
+	 * the player (and thus the camera that follows it + the 1st-person weapon) at lerp(prev,cur,alpha) so
+	 * motion is smooth at 60fps despite 30Hz logic. Snapshot below after CTMove; restore after the task. */
+	static CVector3 _ipPrevPos, _ipCurPos; static float _ipPrevRotY, _ipCurRotY;
+	static float _ipPrevPitch, _ipCurPitch;   /* m_RotXOffset (look up/down) — engine field, set by CTMove */
+	static float _ipPrevRotYO, _ipCurRotYO;   /* m_RotYOffset (head yaw offset) — engine field */
+	static float _ipPrevRotZO, _ipCurRotZO;   /* m_RotZOffset (head roll offset) — engine field */
+	static CQuatern _ipPrevQG, _ipCurQG;      /* player m_qGround (ground-slope quat, fed into the view) */
+	static int _ipHave = 0, _ipActive = 0;
+#endif
+#ifdef PLATFORM_PORT
 	/* PORT (M5 collision streaming): the N64 streams collision through a small cart cache, so the
 	 * collision buffer is periodically re-decompressed at a NEW address (e.g. when a key cinematic's
 	 * model-swap loads the body model). The engine never updates the player's m_pCurrentRegion after a
@@ -4711,6 +4727,15 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	else
 		frame_increment = REFRESHES_TO_FRAME_INC(nNextFields, refresh_rate) ;
 
+#ifdef PLATFORM_PORT
+	/* PORT: Turok's frame_increment is sized for a 30fps step (CALC_FRAMERATE floors nNextFields at 2),
+	 * but the host renders at 60fps — applying a 30fps step every 60fps frame ran the game ~2x too fast.
+	 * Render at TUROK_FPS but advance the LOGIC only at TUROK_TICK_FPS (default 30): on render-only
+	 * frames the frame-pump clears g_turok_logic_tick and we freeze the step so the frame just
+	 * re-presents the same state. (port/src/os_shim.c owns the timing.) */
+	{ extern int g_turok_logic_tick; if (!g_turok_logic_tick) frame_increment = 0.0; else g_turok_anim_step = frame_increment; }
+#endif
+
 	// Process player controller values
 	ProcessPlayerController() ;
 
@@ -4722,8 +4747,96 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	if ((pThis->m_bPause==FALSE) && (pThis->m_Warp == WARP_NOT_WARPING) && (pThis->m_Death == DEATH_NOT_DIEING) &&(pThis->m_bTraining ==FALSE))
 		CTMove__UpdateTurokInstance(pCTMove, pThis, pCTControl);
 
+#ifdef PLATFORM_PORT
+	/* PORT render interpolation: snapshot the player's true pos/yaw on logic-tick frames, then render
+	 * the player at lerp(prev,cur,alpha) every frame so the camera (which follows the player) and the
+	 * 1st-person weapon move smoothly between the 30Hz logic ticks. The graphics task built below uses
+	 * the interpolated pos; it's restored to the exact logic pos right after, so the next tick is exact.
+	 * A large jump between ticks (warp/respawn/teleport) snaps instead of sliding across the level. */
+	{
+		extern int g_turok_logic_tick; extern float turok_render_alpha(void);
+		CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
+		if (_pl)
+		{
+			if (g_turok_logic_tick || !_ipHave)
+			{
+				if (_ipHave) { _ipPrevPos = _ipCurPos; _ipPrevRotY = _ipCurRotY; _ipPrevPitch = _ipCurPitch;
+				               _ipPrevRotYO = _ipCurRotYO; _ipPrevRotZO = _ipCurRotZO; _ipPrevQG = _ipCurQG; }
+				else         { _ipPrevPos = _pl->ah.ih.m_vPos; _ipPrevRotY = _pl->m_RotY; _ipPrevPitch = pThis->m_RotXOffset;
+				               _ipPrevRotYO = pThis->m_RotYOffset; _ipPrevRotZO = pThis->m_RotZOffset; _ipPrevQG = _pl->m_qGround; }
+				_ipCurPos = _pl->ah.ih.m_vPos; _ipCurRotY = _pl->m_RotY; _ipCurPitch = pThis->m_RotXOffset;
+				_ipCurRotYO = pThis->m_RotYOffset; _ipCurRotZO = pThis->m_RotZOffset; _ipCurQG = _pl->m_qGround; _ipHave = 1;
+				{ float dx=_ipCurPos.x-_ipPrevPos.x, dy=_ipCurPos.y-_ipPrevPos.y, dz=_ipCurPos.z-_ipPrevPos.z;
+				  /* SNAP (don't lerp) across a big inter-tick jump — a warp/teleport — since interpolating across
+				   * it would slide the model and drag the camera through the world. Normal per-tick motion is far
+				   * under this threshold. (Death respawns no longer teleport the player: the region re-acquire
+				   * below grounds them in place, so this just guards genuine level warps.) */
+				  if (dx*dx+dy*dy+dz*dz > 1000.0f*1000.0f) {
+				    _ipPrevPos = _ipCurPos; _ipPrevRotY = _ipCurRotY; _ipPrevPitch = _ipCurPitch;
+				    _ipPrevRotYO = _ipCurRotYO; _ipPrevRotZO = _ipCurRotZO; _ipPrevQG = _ipCurQG; } }
+			}
+			{
+				float a = turok_render_alpha();
+				if (a > 0.0f)
+				{
+					_pl->ah.ih.m_vPos.x = _ipPrevPos.x + (_ipCurPos.x - _ipPrevPos.x)*a;
+					_pl->ah.ih.m_vPos.y = _ipPrevPos.y + (_ipCurPos.y - _ipPrevPos.y)*a;
+					_pl->ah.ih.m_vPos.z = _ipPrevPos.z + (_ipCurPos.z - _ipPrevPos.z)*a;
+					{ float d = _ipCurRotY - _ipPrevRotY;
+					  while (d >  3.14159265f) d -= 6.28318531f;
+					  while (d < -3.14159265f) d += 6.28318531f;
+					  _pl->m_RotY = _ipPrevRotY + d*a; }
+					/* look-pitch (m_RotXOffset, engine field set by CTMove): interpolate so looking up/down
+					 * is smooth too. Camera reads it in CCamera__Update right after SetCameraToTurok. */
+					{ float dp = _ipCurPitch - _ipPrevPitch;
+					  while (dp >  3.14159265f) dp -= 6.28318531f;
+					  while (dp < -3.14159265f) dp += 6.28318531f;
+					  pThis->m_RotXOffset = _ipPrevPitch + dp*a; }
+					/* head yaw/roll offsets (m_RotYOffset/m_RotZOffset): also fed into the view (camera.c
+					 * RotY+RotYOffset / RotZOffset). Interpolate so they don't snap each tick during turns. */
+					{ float dyo = _ipCurRotYO - _ipPrevRotYO;
+					  while (dyo >  3.14159265f) dyo -= 6.28318531f;
+					  while (dyo < -3.14159265f) dyo += 6.28318531f;
+					  pThis->m_RotYOffset = _ipPrevRotYO + dyo*a; }
+					{ float dzo = _ipCurRotZO - _ipPrevRotZO;
+					  while (dzo >  3.14159265f) dzo -= 6.28318531f;
+					  while (dzo < -3.14159265f) dzo += 6.28318531f;
+					  pThis->m_RotZOffset = _ipPrevRotZO + dzo*a; }
+					/* ground-slope quat (player m_qGround -> engine via SetCameraToTurok -> view matrix):
+					 * shortest-path nlerp so the camera's ground-relative tilt doesn't snap at tick edges. */
+					{ float qdot = _ipPrevQG.x*_ipCurQG.x + _ipPrevQG.y*_ipCurQG.y + _ipPrevQG.z*_ipCurQG.z + _ipPrevQG.t*_ipCurQG.t;
+					  float s = (qdot < 0.0f) ? -1.0f : 1.0f;
+					  float qx = _ipPrevQG.x + (s*_ipCurQG.x - _ipPrevQG.x)*a;
+					  float qy = _ipPrevQG.y + (s*_ipCurQG.y - _ipPrevQG.y)*a;
+					  float qz = _ipPrevQG.z + (s*_ipCurQG.z - _ipPrevQG.z)*a;
+					  float qt = _ipPrevQG.t + (s*_ipCurQG.t - _ipPrevQG.t)*a;
+					  float qm = (float)sqrt((double)(qx*qx + qy*qy + qz*qz + qt*qt));
+					  if (qm > 1e-6f) { qx/=qm; qy/=qm; qz/=qm; qt/=qm; }
+					  _pl->m_qGround.x = qx; _pl->m_qGround.y = qy; _pl->m_qGround.z = qz; _pl->m_qGround.t = qt; }
+					_ipActive = 1;
+				}
+			}
+		}
+	}
+#endif
+
 	CEngineApp__SetCameraToTurok(pThis);
 	CCamera__Update(&pThis->m_Camera) ;
+#ifdef PLATFORM_PORT
+	/* PORT (death fall-through fix, corrected): the death/resurrect cinematic respawns the player but leaves
+	 * m_pCurrentRegion pointing at a VALID-but-WRONG region — one whose pointer passes PORT_REGION_BAD yet
+	 * does NOT contain the player's new X/Z — so the ground query finds nothing and the player free-falls
+	 * through the floor. (Confirmed empirically: the region pointer is valid (rbad=0) while Y free-falls, and
+	 * forcing a NearestRegion re-acquire holds the player rock-solid on the ground.) PORT_REGION_BAD only
+	 * catches a NULL/stale/wild pointer, never a wrong-but-valid one, so re-acquire the CORRECT region
+	 * (NearestRegion at the live position) for the whole cinematic + a window after it — the respawn lands as
+	 * the cinematic ends. Scoped to cinematics, so normal play keeps the game's own region tracking. */
+	{ static int _rw = 0; extern int CCamera__InCinemaMode(CCamera*);
+	  CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
+	  if (CCamera__InCinemaMode(&pThis->m_Camera)) _rw = 30; else if (_rw > 0) _rw--;
+	  if (_pl && (_rw > 0 || PORT_REGION_BAD(_pl->ah.ih.m_pCurrentRegion)))
+	    _pl->ah.ih.m_pCurrentRegion = CScene__NearestRegion(&pThis->m_Scene, &_pl->ah.ih.m_vPos); }
+#endif
 	CEngineApp__UpdateCameraAttributes(pThis);
 
 
@@ -4731,6 +4844,13 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	pFrameData = CEngineApp__CreateGraphicsTask(pThis);
 	pFrameData->m_nPredictFields = nNextFields;
 	CEngineApp__SendGraphicsTask(pThis, pFrameData);
+
+#ifdef PLATFORM_PORT
+	/* restore the player's exact logic pos/yaw/pitch + head offsets + ground quat after the interpolated render */
+	if (_ipActive) { CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
+	  if (_pl) { _pl->ah.ih.m_vPos = _ipCurPos; _pl->m_RotY = _ipCurRotY; _pl->m_qGround = _ipCurQG; }
+	  pThis->m_RotXOffset = _ipCurPitch; pThis->m_RotYOffset = _ipCurRotYO; pThis->m_RotZOffset = _ipCurRotZO; _ipActive = 0; }
+#endif
 
 	// Update Region Music
 	UpdateSeq();

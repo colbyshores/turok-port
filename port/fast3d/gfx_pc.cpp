@@ -1205,15 +1205,6 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
 #endif
 
 #ifdef PLATFORM_PORT
-    { static int s_ml = -1, s_n = 0; if (s_ml < 0) s_ml = getenv("TUROK_MTXLOG") ? 1 : 0;
-      if (s_ml && s_n < 50) { s_n++;
-        fprintf(stderr, "[mtxload] #%d %s%s 3x3=[%.3f %.3f %.3f][%.3f %.3f %.3f][%.3f %.3f %.3f] t=(%.0f,%.0f,%.0f)\n",
-          s_n, (parameters & G_MTX_PROJECTION) ? "PROJ " : "MV ", (parameters & G_MTX_LOAD) ? "LOAD" : "MUL",
-          matrix[0][0], matrix[0][1], matrix[0][2], matrix[1][0], matrix[1][1], matrix[1][2],
-          matrix[2][0], matrix[2][1], matrix[2][2], matrix[3][0], matrix[3][1], matrix[3][2]); } }
-#endif
-
-#ifdef PLATFORM_PORT
     /* Camera canary: the game emits its view/projection at frame start. If EITHER is NaN/huge the
      * whole 3D view is corrupt ("camera completely fucked up"). Catch it the instant it loads, with
      * a frame number, so an interactive repro pinpoints WHEN the camera goes bad (vs a node matrix). */
@@ -1330,14 +1321,6 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
             v->ob[0], v->ob[1], v->ob[2], x, y, z, w, rsp.MP_matrix[0][0], rsp.MP_matrix[3][3]); }
 #endif
 #ifdef PLATFORM_PORT
-        { static int s_vl = -1, s_n = 0; if (s_vl < 0) s_vl = getenv("TUROK_VTXLOG") ? 1 : 0;
-          if (s_vl && s_n < 30) { s_n++;
-            int nan = (x != x) || (w != w);
-            int behind = (w <= 0.0f);
-            int huge = (x>1e6f||x<-1e6f||y>1e6f||y<-1e6f||z>1e6f||z<-1e6f);
-            fprintf(stderr, "[vtx] ob=(%d,%d,%d) -> clip=(%.1f,%.1f,%.1f,w=%.2f)%s%s%s\n",
-              v->ob[0], v->ob[1], v->ob[2], x, y, z, w,
-              nan?" NAN":"", behind?" BEHIND":"", huge?" HUGE":""); } }
         /* Always-on (uncapped) corruption detector: a NaN or wildly-huge transformed vertex means
          * a bad MP_matrix — i.e. the camera/modelview got corrupted before this draw. Reports the
          * frame so a long run catches a late, animation-frame-dependent corruption. */
@@ -1683,23 +1666,6 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     if (texture_edge) {
         use_alpha = true;
     }
-
-#ifdef PLATFORM_PORT
-    { static int s_bl = -1, s_n = 0, s_xlu = 0, s_invis = 0;
-      if (s_bl < 0) s_bl = getenv("TUROK_BLENDLOG") ? 1 : 0;
-      if (s_bl) {
-        s_n++;
-        if (use_alpha) s_xlu++;
-        if (invisible) s_invis++;
-        if (s_n <= 200 && (use_alpha || invisible || alpha_threshold))
-          fprintf(stderr, "[blendlog] draw#%d oml=0x%08x omh=0x%08x use_alpha=%d 2cyc=%d invis=%d athr=%d texedge=%d comb=0x%llx\n",
-                  s_n, (unsigned)rdp.other_mode_l, (unsigned)rdp.other_mode_h,
-                  (int)use_alpha, (int)use_2cyc, (int)invisible, (int)alpha_threshold, (int)texture_edge,
-                  (unsigned long long)rdp.combine_mode);
-        if ((s_n % 400) == 0)
-          fprintf(stderr, "[blendlog] === %d draws: %d alpha-blended, %d invisible ===\n", s_n, s_xlu, s_invis);
-      } }
-#endif
 
     if (use_alpha) {
         cc_options |= (uint64_t)SHADER_OPT_ALPHA;
@@ -2119,11 +2085,6 @@ static void gfx_calc_and_set_viewport(const Vp_t* viewport) {
     gfx_adjust_viewport_or_scissor(&rdp.viewport);
 
     rdp.viewport_or_scissor_changed = true;
-#ifdef PLATFORM_PORT
-    { static int s_on=-1; if(s_on<0) s_on=getenv("TUROK_RSLOG")?1:0;
-      if(s_on){ extern int g_rs_vp_sets; g_rs_vp_sets++;
-        fprintf(stderr,"[rs] VIEWPORT set#%d  x=%.0f y=%.0f w=%.0f h=%.0f\n", g_rs_vp_sets, x, y, width, height); } }
-#endif
 }
 
 static void gfx_sp_movemem(uint8_t index, uint8_t offset, const void* data) {
@@ -2194,12 +2155,6 @@ static void gfx_dp_set_scissor(uint32_t mode, uint32_t ulx, uint32_t uly, uint32
     gfx_adjust_viewport_or_scissor(&rdp.scissor, rsp.aspect_mode != 0);
 
     rdp.viewport_or_scissor_changed = true;
-#ifdef PLATFORM_PORT
-    { static int s_on=-1; if(s_on<0) s_on=getenv("TUROK_RSLOG")?1:0;
-      if(s_on){ extern int g_rs_sc_sets; g_rs_sc_sets++;
-        fprintf(stderr,"[rs] SCISSOR set#%d  x=%.0f y=%.0f w=%.0f h=%.0f (mode raw ulx=%u uly=%u lrx=%u lry=%u)\n",
-          g_rs_sc_sets, x, y, width, height, ulx, uly, lrx, lry); } }
-#endif
 }
 
 static void gfx_dp_set_texture_image(uint32_t format, uint32_t size, uint32_t width, uint32_t tex_flags, const void* addr) {
@@ -2781,9 +2736,6 @@ static void gfx_run_dl(Gfx* cmd) {
 #endif
         uint32_t opcode = cmd->words.w0 >> 24;
         // gfx_print_cmd(cmd);
-        { static int _td = -1; if (_td == -1) { const char *e = getenv("TUROK_GFX_DUMP"); _td = e ? atoi(e) : 0; }
-          if (_td > 0) { static int _tn = 0; if (_tn++ < 90) fprintf(stderr,
-              "[CMD] @%p op=%02x w0=%08x w1=%08x\n", (void*)cmd, opcode, cmd->words.w0, cmd->words.w1); } }
 #ifdef BK_GFX_TRACE
         { static int _cc = 0; if (_cc++ < 80) fprintf(stderr,
             "[CMD] @%p op=%02x w0=%08x w1=%08x\n", (void*)cmd, opcode,
@@ -3252,17 +3204,9 @@ extern "C" void gfx_start_frame(void) {
 }
 
 uint32_t num_dls = 0;
-#ifdef PLATFORM_PORT
-int g_rs_vp_sets = 0, g_rs_sc_sets = 0;   /* per-frame viewport/scissor SET counters (TUROK_RSLOG) */
-#endif
 
 extern "C" void gfx_run(Gfx* commands) {
     ++num_dls;
-#ifdef PLATFORM_PORT
-    { static int s_on=-1; if(s_on<0) s_on=getenv("TUROK_RSLOG")?1:0;
-      if(s_on) fprintf(stderr,"[rs] ---- frame dl#%u (vp_sets=%d sc_sets=%d last frame) ----\n", num_dls, g_rs_vp_sets, g_rs_sc_sets);
-      g_rs_vp_sets = 0; g_rs_sc_sets = 0; }
-#endif
     BK_TR(BK_TR_GFX, "gfx_run #%u dl=%p dims=%ux%u aspect=%.3f", num_dls, (void*)commands,
           gfx_current_window_dimensions.width, gfx_current_window_dimensions.height,
           gfx_current_window_dimensions.aspect_ratio);
@@ -3304,19 +3248,13 @@ extern "C" void gfx_run(Gfx* commands) {
 #ifdef PLATFORM_PORT
     /* ALWAYS warn (capped) on a real stack imbalance — with MODELVIEW_STACK_DEPTH=64 this should
      * never fire; if it does, a hierarchy exceeded the cap (raise it) or there is another unbalanced
-     * push/pop source. TUROK_MTXSTACK=1 additionally logs benign end-of-run size!=1 details. */
+     * push/pop source. */
     if (g_mtx_push_dropped || g_mtx_pop_underflow) {
         static int s_warned = 0;
         if (s_warned++ < 8)
             fprintf(stderr, "[mtxstack] <<< IMBALANCE size=%u maxdepth=%d push_dropped=%d pop_underflow=%d (camera/HUD corruptor)\n",
               rsp.modelview_matrix_stack_size, g_mtx_max_depth, g_mtx_push_dropped, g_mtx_pop_underflow);
     }
-    { static int s_log = -1, s_peak = 0; if (s_log < 0) s_log = getenv("TUROK_MTXSTACK") ? 1 : 0;
-      if (s_log && g_mtx_max_depth > s_peak) { s_peak = g_mtx_max_depth;
-        fprintf(stderr, "[mtxstack] new peak modelview depth=%d (old cap was 11 -> %s)\n",
-          g_mtx_max_depth, g_mtx_max_depth > 11 ? "WOULD HAVE OVERFLOWED/corrupted camera" : "ok under old cap"); }
-      if (s_log && rsp.modelview_matrix_stack_size != 1)
-        fprintf(stderr, "[mtxstack] end-of-run size=%u\n", rsp.modelview_matrix_stack_size); }
 #endif
     gfx_flush();
     gfxFramebuffer = 0;

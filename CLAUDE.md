@@ -412,6 +412,143 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
 - **`port/src/os_shim.c`** (port infra, not game source) — added **60 Hz frame pacing** in the `osRecvMesg`
   frame-pump (`TUROK_FPS` env, default 60, 0 = unbounded). Without it the intro/attract state machine advances
   by `frame_increment` per pump tick at unbounded speed → constant scene reloads → CPU peg, never presents.
+- **★ LOGIC-TICK / RENDER DECOUPLE (2026-06-16, commit 4aff8df) — fixes the game running ~2x too fast.** Turok's
+  `frame_increment` is sized for a **30fps step** (`CALC_FRAMERATE` floors `nNextFields` at 2 → `frame_increment
+  ≥ 1.0`, tengine.c:4710), but the port renders at 60fps, so it applied a 30fps step 60×/sec = ~2× speed. Fix:
+  render at `TUROK_FPS` (60) but advance the LOGIC only at `TUROK_TICK_FPS` (default 30 = Turok's native rate).
+  **`os_shim.c osViSwapBuffer`** (THE per-frame present — NOT the `osRecvMesg` BLOCK branch, which is only hit
+  per-frame in SDL2, not headless EGL where sched.c→osViSwapBuffer drives frames) runs a real-time clock and sets
+  the global `g_turok_logic_tick=1` only when ~1/TICK_FPS sec has elapsed; **`tengine.c CEngineApp__UpdateGAME`**
+  forces `frame_increment=0` on the other (render-only) frames so they just re-present the same state. Verified
+  by counting ticks over a fixed real time: TICK_FPS=30→~30Hz logic, 60→60Hz, 0→every frame (old too-fast), while
+  the render ran 2700fps headless. `play_level.sh` exposes it as `TICK=<n>` (default 30). NOTE: no interpolation,
+  so visuals update at 30Hz on a 60Hz display (the N64-authentic cadence) — smooth 60fps *content* would need
+  position/anim interpolation between ticks (a later feature). **LESSON: the per-frame hook headless is
+  `osViSwapBuffer` (sched.c drives it), not the `osRecvMesg` BLOCK frame-pump (SDL2 only).**
+- **★ RENDER INTERPOLATION — PLAYER (2026-06-16, commit 756cb54) — smooth 60fps motion from 30Hz logic.** The
+  tick decouple fixed the speed but left motion at 30Hz (choppy on 60Hz). `os_shim.c turok_render_alpha()` returns
+  0..1 (real-time progress from the last logic tick to the next, from the file-scope `g_tick_last`/`g_tick_interval_ns`).
+  `tengine.c CEngineApp__UpdateGAME` snapshots the player's true `m_vPos`+`m_RotY` on logic-tick frames (`_ip*`
+  statics) and, every frame, renders the player at `lerp(prev,cur,alpha)` **before `SetCameraToTurok`/
+  `CreateGraphicsTask`** (so the camera that follows the player + the 1st-person weapon are smooth), then
+  **restores the exact logic pos right after `SendGraphicsTask`** so the next tick is exact + gameplay is
+  unaffected. A >1000-unit inter-tick jump (warp/respawn) SNAPS not slides; yaw lerps the short way around the
+  2π wrap. Verified: `renderZ=lerp(prevZ,curZ,alpha)` sweeps ~40 intermediate positions per ~12.8-unit logic step;
+  patrols rc=0, warp-0 renders 171 colour buckets. **OPEN follow-ups: enemy/object instances are NOT interpolated
+  yet (they judder at 30Hz — the player/camera/weapon, the dominant FPS view, ARE smooth); look-PITCH not yet
+  interpolated (only pos+yaw).** ★ GOTCHA: with the 30Hz gate, headless captures need a LATE `TUROK_CAPTURE_FRAME`
+  (the unpaced render runs ~2700fps so render-frame 20 is <1 logic tick in → blank; use frame ~4000+).
+- **★ BRANCH `framerate-interpolation` (2026-06-16).** Per the user, ALL framerate/feel work (tick decouple,
+  player + camera/pitch interpolation, render uncap) lives on the **`framerate-interpolation`** branch; **`master`
+  = correctness fixes only** (ends at the re-acquire key-cinematic fix `ce40c14`, force-pushed back — master runs
+  gameplay-correct but at the old 2x render speed). Merge once the feel is dialed in. The decouple/interp commits
+  (4aff8df, 756cb54, 18d9c68) are on the branch, NOT master.
+- **★ CAMERA INTERPOLATION + RENDER UNCAP (branch, commit 18d9c68).** A 3-agent Workflow mapped the camera
+  view-matrix (`CCamera__Update`: view = m_XPos/YPos/ZPos + m_RotY yaw + **m_RotXOffset pitch** + m_qGround), the
+  SDL2 present (v-sync ON `SwapInterval(1)` + a `target_fps=120` CPU timer), and the look-pitch field
+  (`m_RotXOffset` on CEngineApp, set by `CTMove` tmove.c:919). Added: (1) **pitch interpolation** —
+  `tengine.c CEngineApp__UpdateGAME` snapshots/lerps/restores `pThis->m_RotXOffset` alongside player pos+yaw so
+  looking up/down is smooth. (2) **render uncap** — `gfx_sdl2.cpp` honours TUROK_FPS for `target_fps` (FPS=0 →
+  timer off → render limited only by v-sync = monitor refresh, e.g. 144Hz). (3) **play_level.sh defaults TICK=60
+  + FPS=0** (60Hz logic, uncapped render, interpolation fills the gap). qGround (ground slope) NOT yet slerp'd —
+  gradual, low judder, follow-up. Enemy/object instances still 30/60Hz (only player/camera/weapon interpolated).
+- **★ CAMERA "FEELS LIKE 30" ON A 60Hz MONITOR — tick-clock BEAT + non-interpolated camera state (2026-06-16).**
+  User: turning (hold A/D) feels like 30, not buttery; TICK=30 looked smoother (they thought "only because it's
+  slower"). Two root causes (3-agent Workflow + the tick-clock read): (1) **THE BEAT.** `os_shim.c`'s logic-tick
+  clock reset its phase to `now` on every fire (`g_tick_last = now`). When the tick interval == the v-sync frame
+  time (TICK_FPS == monitor Hz, e.g. 60 on a 60Hz panel) timing jitter made `elapsed >= interval` pass-or-fail
+  unpredictably → randomly skipped ticks = a 30Hz-feeling beat. TICK=30 was smoother because 33ms ticking is
+  *stable* against 60Hz v-sync (clearly fires every other present), NOT because of the slower speed — the user's
+  speed intuition was a red herring. **Fix: phase-accumulate** — advance `g_tick_last` by exactly one interval
+  per fire (self-correcting cadence), with a snap-forward cap so a slow frame doesn't bank a fast-forward backlog.
+  (2) **Non-interpolated view inputs.** The view matrix also reads `m_qGround` (ground slope), `m_RotYOffset`
+  (head yaw) and `m_RotZOffset` (head roll) — all updated per tick but never interpolated → snapping during
+  turns/on slopes. Now interpolated in `tengine.c CEngineApp__UpdateGAME` alongside pos/yaw/pitch: head offsets
+  angle-wrap-lerp, qGround shortest-path **nlerp** (re-normalized), restored to exact tick values after the
+  graphics task. Verified: egl+sdl2 build, all warps rc=0 at TICK=30/60, no `[CAMTRACK]` anomalies, tris
+  unchanged. **LESSON: a fixed-timestep tick clock MUST phase-accumulate (advance by interval), never reseed to
+  now — reseeding beats against any equal-rate vsync.** Enemy animation interpolation is the next step.
+- **★ TICK=30 IS THE CORRECT SPEED + SKELETAL-ANIMATION INTERPOLATION (2026-06-16).** After the beat fix, the user
+  found TICK=60 "buttery but everything moves 2x as fast" — because the beat had been secretly dropping ~half the
+  ticks (≈30Hz effective); a clean 60Hz reveals the TRUE TICK=60 rate, and Turok's per-tick step is sized for
+  **30fps**, so 60 ticks/sec = 2x. The user nailed it: **TICK=30 = Turok's native step = the correct speed**, and
+  on a 60Hz panel it's ideal (30Hz logic, 60Hz render interpolates between ticks). **`play_level.sh` now defaults
+  TICK=30** (no speed-scaling hack — keeps the simple "TICK = speed" model). Then **animation-frame interpolation**
+  (the user's ask "interpolate between frames for animation lerp"): `CGameObjectInstance__DoDraw` poses the skeleton
+  from `m_asCurrent/m_asBlend.m_cFrame`, already blending keyframes by the FRACTIONAL frame — so drawing at an
+  interpolated `m_cFrame` = smooth limbs. Every anim advances by the same global `frame_increment` per tick
+  (anim.c:179), so **prev = cur − step** with NO per-instance storage (`g_turok_anim_step` captured at the tick
+  gate in tengine.c). `romstruc.c` (before the DoDraw call ~8982) overrides `m_cFrame = cur − step·(1−alpha)` for
+  m_asCurrent + m_asBlend, **snapping (no interp) when `m_cFrame < step`** (just started/wrapped — avoids blending
+  backward across a loop; wrap resets to `m_nExitToFrame`, anim.c:198), restored right after the draw. Applies to
+  enemies, devices, AND the 1st-person weapon (all go through DoDraw). Verified: egl+sdl2 build, warps 0/3000/6000
+  rc=0, animated objects render (boss/enemies), zero `[CAMTRACK]`/`[CANARY]` anomalies. KNOWN MINOR: a loop point
+  `m_nExitToFrame > step` (rare) or a JERK_FRAMES hit-react (m_cFrame decremented) gets a 1-interval glitch — fix
+  with per-instance prev storage if a specific anim shows it. Instance WORLD position/rotation still not interpolated
+  (enemies translate at 30Hz; the skeletal POSE is now smooth — the dominant visual).
+- **★ INSTANCE POSITION/ROTATION INTERPOLATION (2026-06-17).** Completes the enemy smoothness: enemy/object WORLD
+  pos+yaw now interpolate between 30Hz ticks too (the body-glide, complementing the skeletal pose). Per-instance
+  prev is stored ON the struct — `m_ipPrevPos`/`m_ipPrevRotY` added to the tail of `CGameObjectInstance`
+  (romstruc.h); SAFE because instances are allocated by `US_TOTAL_SIZE(sizeof(CGameObjectInstance), n)` (scene.c:1592)
+  and indexed by that stride, so a tail field grows everything consistently. `romstruc.c CGameObjectInstance__Draw`:
+  snapshot pre-tick pos/yaw right after the `isPlayer` def (8638), BEFORE DoAI/Advance (8742/8805) move it — tick
+  frames only; then around the orientation-matrix build (8826) override pos/yaw with `lerp(prev,cur,alpha)` and
+  restore right after (so the AI still sees the true pos; only the rendered matrix is interpolated). The **d2 < 1000²
+  guard** snaps (no lerp) on a warp/teleport OR a garbage/NaN/pre-first-snapshot delta (NaN<x is false → snap).
+  Player EXCLUDED (interpolated in UpdateGAME). Verified: warps 0/3000/6000 rc=0, enemies/boss render, no anomalies.
+- **★ DEATH FALL-THROUGH — re-acquire timing fix (2026-06-17, 3-agent Workflow).** User: dying drops the player
+  through the floor; suspected a band-aid regression. Root cause (workflow): the DEATH cinematic
+  (cinecam.c `CScene__LoadObjectModelType`, AI_ANIM_DEATH_*) does a model-swap INSIDE `CCamera__Update`, streaming
+  assets that RELOCATE the cart-cache collision buffer → re-stales the player's region AFTER the once-per-frame
+  re-acquire (which runs at the TOP of UpdateGAME). So the graphics-task `Collision3` runs with a bad region → bails
+  → no ground. **Fix: a SECOND re-acquire right after `CCamera__Update`** (tengine.c, before the graphics task),
+  mirroring the top-of-frame one. **VERIFIED FIRING** (KILLSELF headless test: the region goes bad on the death
+  frame and is re-acquired) — but NOTE: the player stays grounded in headless death tests *with or without* the fix,
+  because the dead player is frozen (no gravity) and the top-of-frame re-acquire catches it the next frame. So I
+  could NOT reproduce the user's *sustained* interactive fall headlessly; the fix tightens the same-frame window
+  (correct + low-risk) but needs interactive confirmation. If it persists, get: death type (enemy/water/fell) + where.
+- **★★ DEATH GHOST/FALL — this 2nd audit (render-interpolation) was ALSO WRONG; its interp-snap was a FAILED
+  band-aid, REMOVED in cleanup (2026-06-17).** The audit blamed 756cb54 (player render interpolation): claimed the
+  respawn teleports the player a sub-1000-unit jump the interp lerps across, sliding the model ("ghost") + dragging
+  the camera through the floor, and "fixed" it (8a22bf7) by snapping the interp while `CCamera__InCinemaMode` + a
+  12-tick `_ipWasCin` window. **The user's `TUROK_DEATHLOG` trace DISPROVED it: on respawn the position NEVER
+  teleports (prev==cur, interp already snapped) — the player FREE-FALLS because the respawned region is
+  valid-but-WRONG (no ground). The real fix is the region re-acquire — see the ★★★ DEATH FALL-THROUGH note below.**
+  The interp-snap was reverted to the plain 1000-unit big-jump guard once the real fix landed (the death respawn
+  doesn't teleport, so the snap guarded a non-existent slide). **LESSON: when a "camera/render" bug's fix can't be
+  reproduced/verified in the harness, suspect the AUDIT — get a per-frame STATE TRACE (here: player pos + region)
+  before committing. TWO audits guessed interpolation; the trace showed it was collision/region all along.**
+- **★★★ DEATH FALL-THROUGH — ACTUAL ROOT CAUSE = respawn leaves a VALID-but-WRONG region (2026-06-17, fixed via the
+  user's TUROK_DEATHLOG trace).** The two fixes above (re-acquire timing; interp snap) did NOT fix it — both were
+  wrong. The user's death log was the key: on respawn the position NEVER teleports (prev==cur, interp snapped) — the
+  Y just **free-falls under gravity** (`819→803→…`, accelerating) because the respawned player has **no floor**. AND
+  the region pointer is **rbad=0 (valid)** the whole time. So it's NOT a NULL/stale region (what PORT_REGION_BAD
+  catches) — the respawn sets `m_pCurrentRegion` to a **valid region that does NOT contain the player's new X/Z**, so
+  `GetGroundHeight`/Collision3 find no ground and the player drops through. Reproduced exactly with
+  `TUROK_SPAWNAT=-1988,819,-7703` (spawn far from the streamed start → same wrong-region free-fall), and **forcing a
+  `CScene__NearestRegion` re-acquire holds the player rock-solid grounded** (region corrected). **FIX (tengine.c
+  CEngineApp__UpdateGAME, the post-CCamera__Update re-acquire): re-acquire the CORRECT region (NearestRegion at the
+  live pos) whenever `_rw>0 || PORT_REGION_BAD`, where `_rw` is a 30-frame countdown armed by `CCamera__InCinemaMode`
+  — i.e. for the whole death/resurrect cinematic + a window after, when the respawn lands. Scoped to cinematics, so
+  normal play keeps the game's own region tracking (no per-frame NearestRegion cost/override).** Verified headless:
+  SPAWNAT-far + kill → respawn stays grounded (Y stable) instead of free-falling; normal patrols rc=0. **LESSON:
+  PORT_REGION_BAD only validates the region POINTER (NULL/range/distance) — it does NOT verify the region CONTAINS
+  the player. A respawn/warp that sets position without correctly setting the region produces a valid-but-wrong
+  region → no ground → fall-through. Re-acquire by position (NearestRegion) on respawn, not just on a bad pointer.**
+- **★ "MISSING PLATFORM" — was a v49-vs-retail ASSET issue, NOT a framerate regression (2026-06-16).** User reported
+  the warp-0 fire-pit "initial platform" missing on the branch + suspected the level resources weren't importing.
+  Bisected with byte-identical headless captures: the branch renders the warp-0 spawn **identical to master**
+  (firepit, md5 6ce37827, consistent across frames 200–14000 at TICK=0 and TICK=60) — so the framerate CODE is
+  innocent. The "stone pillar in water" screenshot was a one-off flaky capture, not reproducible. **Root cause:**
+  the level-1 **walkway** over the water is a **RETAIL-only asset** — the v49 leak's `cartdata.dat` lacks it; walk
+  FORWARD at the fire-pit on v49 assets and you drop into a **blue void** (verified: retail-forward = canyon path
+  md5 75db37f2; v49-forward = empty blue d41cfdb3). `play_level.sh` defaulted to v49 unless `ROM=` was passed, so a
+  plain `./play_level.sh` loaded the leak assets → no walkway. **Fix: `play_level.sh` now defaults to the retail ROM
+  (Path B) when `baserom.us.v12.z64` is present** (`ROM=none` forces v49). **LESSON: when geometry is "missing,"
+  first confirm WHICH asset set is loaded (v49 placeholder vs retail Path B) before suspecting code — many "missing
+  stuff" reports are the v49 leak being incomplete, fixed by Path B, not a bug.** Headless-capture gotcha found:
+  `TUROK_CAPTURE_FRAME=N` on no-tick-gate builds needs `TUROK_MAX_FRAMES` WELL above N (render-frame s_frame_no lags
+  the frame-pump g_frame), else the capture silently never fires.
 - **`sched.c`** — `scSendCommand` (PLATFORM_PORT) now calls **`osViSwapBuffer(pTask->framebuffer)` right after
   dispatching the gfx task**. On N64 the scheduler thread's `__scHandleRetrace` presents finished gfx tasks;
   that thread never runs cooperatively, so without this every frame rendered but was NEVER presented — the
@@ -839,6 +976,18 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     lifecycle ROOT — re-acquiring a relocated resource beats nulling/skipping around the stale handle.** ALSO
   REPORTED by the user (deferred): a **blue-portal warp bug** — entering a portal → bonus area, then re-entering
   → wrong-warps to the Campaigner boss instead of back. Warp/portal level-transition logic to fix next.
+- **★ DEBUG-KNOB CLEANUP (2026-06-17, 9-agent Workflow).** Stripped ~36 one-off `TUROK_*` debug env knobs that
+  accreted across the porting sessions — the `*LOG` trace prints (OBJLOG/GATELOG/BLENDLOG/RSLOG/MTXLOG/VTXLOG/
+  QLOG/QCLOG/SIMPLOG/INSTLOG/XINSTLOG/PARTLOG/MATLOG/VMLOG/VP_LOG/CAMLOG/MOVELOG/GFX_DUMP/GFX_DRAWLOG/OBJLOG/
+  OBJPOS/MTXSTACK/TRACE/SWAP_BT/RUN_BT) and the headless debug BEHAVIOR toggles (SPAWNAT/DRAWALL/NOWORLD/
+  ANIMOBJ/KILLALL/PITCH/YAW/FACE/DRAW_NOCLIP/CLEAR_MAGENTA/EGL_GREEN/EGL_BLUE_CAP). Toggles were removed by
+  deleting the debug branch and keeping the production default (normal cull/draw/spawn/clip). **KEPT** (so any
+  inline references above are now historical): gameplay/asset/infra knobs (`TUROK_WARP`/`FPS`/`TICK_FPS`/`ROM`/
+  `CARTDATA`/`MAX_FRAMES`/`CAPTURE_FRAME`/`CAPTURE_PATH`/`HUD`/`NOAUDIO`/`AUDIO_WAV`/`FAKEINPUT`/`EGL_SURFACELESS`/
+  `DRI_NODE`/`FORCERUN`) and the always-on anomaly detectors (`[CAMTRACK]`/`[CANARY]`/`[CAMBAD]`/`VTXBAD`/
+  `FXLEAK` + the GLIST-overflow / DMA-OOB / byte-swap-implausible safety prints, which fire only on a real
+  anomaly). Verified: egl+sdl2 clean build+link (cross-file `g_turok_drawall` removal consistent), patrols all
+  warps rc=0, 0 removed-knob `getenv` sites remain.
 
 - **★ "MISSING PLATFORM" = v49-vs-retail ASSET issue, not a code bug (2026-06-16).** User reported the warp-0
   fire-pit "initial platform" missing + suspected the level resources weren't importing. Root cause: the level-1

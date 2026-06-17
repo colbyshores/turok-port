@@ -222,7 +222,13 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
     }
 
     SDL_GL_MakeCurrent(wnd, ctx);
-    SDL_GL_SetSwapInterval(1);
+    SDL_GL_SetSwapInterval(1);   /* v-sync ON: render runs at the monitor refresh (e.g. 144Hz), no tearing */
+
+    /* PORT: the CPU-side frame timer (target_fps, default 120) would cap the render BELOW a high-refresh
+     * monitor. Honour TUROK_FPS so the render rate matches the rest of the port: TUROK_FPS=0 disables the
+     * timer (render limited only by v-sync = the monitor refresh, ideal for the 30/60Hz-logic + interpolation
+     * setup); TUROK_FPS=N caps the render at N. The game LOGIC rate is separate (TUROK_TICK_FPS). */
+    { const char *fe = getenv("TUROK_FPS"); if (fe && *fe) target_fps = atoi(fe); }
 
     SDL_ShowWindow(wnd);
 

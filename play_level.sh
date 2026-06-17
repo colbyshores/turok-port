@@ -23,7 +23,15 @@ cd "$(dirname "$0")"
 
 : "${DISPLAY:=:1}"
 : "${WARP:=0}"
-: "${FPS:=60}"
+# Render cap. FPS=0 = uncapped: render runs at the monitor's refresh (v-sync, e.g. 144Hz) so the
+# interpolation has extra frames to fill between logic ticks -> liquid-smooth camera. FPS=N caps render
+# at N (e.g. FPS=60 to force 60).
+: "${FPS:=0}"
+# Game LOGIC tick rate. TICK=30 = Turok's native step rate = the CORRECT game speed (the per-tick step is
+# sized for 30fps, so TICK=60 runs everything 2x too fast). The render runs faster (uncapped/v-sync above)
+# and INTERPOLATES between the 30Hz logic ticks -> buttery 60fps motion at the correct speed. TICK=0 = logic
+# every render frame (legacy, too fast).
+: "${TICK:=30}"
 if [ -n "${DEBUG:-}" ] && [ "$DEBUG" != "0" ]; then BUILD_MODE=debug; OUT=/tmp/turok_sdl_dbg; else BUILD_MODE=release; OUT=/tmp/turok_sdl; fi
 
 # Default to the retail ROM (Path B) when it's present: it has the FINISHED level geometry — e.g. the
@@ -59,6 +67,7 @@ exec env DISPLAY="$DISPLAY" \
     "${ROM_ARG[@]}" \
     TUROK_WARP="$WARP" \
     TUROK_FPS="$FPS" \
+    TUROK_TICK_FPS="$TICK" \
     TUROK_HUD="${HUD:-1}" \
     TUROK_VTXBAD=1 \
     TUROK_FXLEAK=1 \

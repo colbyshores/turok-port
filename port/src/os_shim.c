@@ -16,7 +16,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include <execinfo.h>
 #include <ultra64.h>
 /* note: no <string.h> — glibc's <strings.h> bcopy/bzero conflict with libultra's
  * os_libc.h declarations. Use __builtin_mem* (no header, no conflict). */
@@ -78,6 +77,25 @@ s32 osJamMesg(OSMesgQueue *mq, OSMesg msg, s32 flag)
  * frame. (OS_SC_RETRACE_MSG = 1; see PR/sched.h.) */
 #define OS_SC_RETRACE_MSG 1
 static short g_retrace_msg = OS_SC_RETRACE_MSG;
+
+/* PORT: 1 on frames where the game LOGIC should advance, 0 on render-only frames. Read by
+ * CEngineApp__UpdateGAME (tengine.c) to force frame_increment=0 when 0, decoupling the logic tick
+ * rate from the render/present rate. See the TUROK_TICK_FPS block in osViSwapBuffer below. */
+int g_turok_logic_tick = 1;
+static struct timespec g_tick_last = {0, 0};   /* real time of the last logic tick */
+static long g_tick_interval_ns = 0;            /* 1/TICK_FPS in ns; 0 = no logic-rate cap */
+
+/* PORT: render-side interpolation factor (0..1) — how far the current real time is from the last
+ * logic tick toward the next. CEngineApp__UpdateGAME renders the player at lerp(prev,cur,alpha) so
+ * motion is smooth at the 60fps render rate despite the 30Hz logic. 0 when TUROK_TICK_FPS=0. */
+float turok_render_alpha(void)
+{
+    if (g_tick_interval_ns <= 0 || g_tick_last.tv_sec == 0) return 0.0f;
+    struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+    long el = (now.tv_sec - g_tick_last.tv_sec) * 1000000000L + (now.tv_nsec - g_tick_last.tv_nsec);
+    float a = (float)el / (float)g_tick_interval_ns;
+    return a < 0.0f ? 0.0f : (a > 1.0f ? 1.0f : a);
+}
 
 s32 osRecvMesg(OSMesgQueue *mq, OSMesg *msg, s32 flag)
 {
@@ -161,17 +179,39 @@ extern void turokGfxStartFrame(void);                /* open the next frame */
 void osViSwapBuffer(void *frameBuf)
 {
 #ifdef PLATFORM_PORT
-    /* DIAGNOSTIC: if the game spins presenting (level-load/fade wait loop that never
-     * advances the main frame counter), dump the call stack once so we can see which
-     * game loop is driving it. Enabled via TUROK_SWAP_BT=1. */
-    { static long _c = 0; ++_c;
-      const char *e = getenv("TUROK_SWAP_BT");
-      if (e && *e == '1' && _c == 400) {
-          void *bt[28]; int n = backtrace(bt, 28);
-          fprintf(stderr, "[osViSwapBuffer] call #%ld — backtrace:\n", _c);
-          backtrace_symbols_fd(bt, n, 2);
-          fflush(stderr);
-      } }
+    /* PORT: decouple the game LOGIC tick rate (TUROK_TICK_FPS, default 30 = Turok's native step — its
+     * frame_increment is sized for 30fps) from the render/present rate. This is THE per-frame present;
+     * advance the logic only when ~1/TICK_FPS sec has really elapsed (g_turok_logic_tick=1), else the
+     * next CEngineApp__UpdateGAME forces frame_increment=0 and the frame just re-presents the same
+     * state. Without this the 30fps-sized step was applied at the 60fps render rate -> game ran ~2x too
+     * fast. TUROK_TICK_FPS=0 = logic every frame (old behaviour); higher = faster, lower = slower. */
+    {
+        static int s_tick = -1;
+        if (s_tick < 0) { const char *e = getenv("TUROK_TICK_FPS"); s_tick = e ? atoi(e) : 30; }
+        if (s_tick > 0) {
+            g_tick_interval_ns = 1000000000L / s_tick;
+            struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+            if (g_tick_last.tv_sec == 0) { g_tick_last = now; g_turok_logic_tick = 1; }
+            else {
+                long el = (now.tv_sec - g_tick_last.tv_sec) * 1000000000L + (now.tv_nsec - g_tick_last.tv_nsec);
+                if (el >= g_tick_interval_ns) {
+                    g_turok_logic_tick = 1;
+                    /* PHASE-ACCUMULATE: advance the tick time by exactly one interval, NOT to 'now'.
+                     * Reseeding to 'now' every fire re-randomises the phase, so when the tick interval
+                     * equals the v-sync frame time (TICK_FPS == monitor Hz, e.g. 60 on a 60Hz panel) tiny
+                     * jitter makes "el >= interval" pass-or-fail unpredictably -> randomly skipped ticks =
+                     * a ~30Hz-feeling beat. Advancing by one interval keeps the cadence locked to real time
+                     * and self-corrects, so 60Hz logic ticks cleanly against 60Hz v-sync. */
+                    g_tick_last.tv_nsec += g_tick_interval_ns;
+                    while (g_tick_last.tv_nsec >= 1000000000L) { g_tick_last.tv_nsec -= 1000000000L; g_tick_last.tv_sec++; }
+                    /* If a slow frame left us a whole interval behind, don't bank a backlog (we run at most
+                     * one logic tick per present) — snap forward so we don't fast-forward to "catch up". */
+                    { long beh = (now.tv_sec - g_tick_last.tv_sec) * 1000000000L + (now.tv_nsec - g_tick_last.tv_nsec);
+                      if (beh >= g_tick_interval_ns) g_tick_last = now; }
+                } else g_turok_logic_tick = 0;
+            }
+        } else { g_turok_logic_tick = 1; g_tick_interval_ns = 0; }
+    }
 #endif
     turokGfxEndFrame();          /* finish + present this frame's Fast3D rendering */
     turokVideoSwap(frameBuf);    /* frame count; capture PNG if requested; longjmp at max */

@@ -764,15 +764,6 @@ void CCamera__Update(CCamera *pThis)
 		RotYOffset = pEngine->m_RotYOffset ;
 		RotXOffset = pEngine->m_RotXOffset ;
 		RotZOffset = -pEngine->m_RotZOffset ;
-#ifdef PLATFORM_PORT
-		{ extern char *getenv(const char*); extern double atof(const char*);
-		  const char*pp=getenv("TUROK_PITCH"); if(pp) RotXOffset=(float)atof(pp);   /* debug: override camera pitch */
-		  const char*py=getenv("TUROK_YAW");   if(py) RotYOffset=(float)atof(py);   /* debug: add to camera yaw (radians) */
-		  if(getenv("TUROK_CAMLOG")){ extern int fprintf(void*,const char*,...); extern void*stderr; static int _c=0;
-		    if(_c++<60) fprintf(stderr,"[camlog] pos=(%.0f,%.0f,%.0f) RotY=%.3f RotX=%.3f qGround=(%.3f,%.3f,%.3f,%.3f)\n",
-		      pEngine->m_XPos,pEngine->m_YPos,pEngine->m_ZPos,pEngine->m_RotY,RotXOffset,
-		      pEngine->m_qGround.x,pEngine->m_qGround.y,pEngine->m_qGround.z,pEngine->m_qGround.t); } }
-#endif
 		XPos = pEngine->m_XPos ;
 		YPos = pEngine->m_YPos ;
 		YPosOffset = pEngine->m_YPosOffset ;

@@ -184,10 +184,6 @@ static bool egl_start_frame(void) {
     egl_make_fbo();                                   /* lazy: GL is loaded by now */
     glBindFramebuffer(GL_FRAMEBUFFER, s_fbo);         /* keep our FBO the render target */
     glViewport(0, 0, s_w, s_h);
-    /* DIAGNOSTIC: paint s_fbo green here. If a capture is still green, gfx_run rendered to a
-     * DIFFERENT framebuffer (GL default 0) and s_fbo is never written. Gated by env. */
-    { const char *e = getenv("TUROK_EGL_GREEN");
-      if (e && *e == '1') { glClearColor(0.f, 1.f, 0.f, 1.f); glClear(GL_COLOR_BUFFER_BIT); } }
     return true;
 }
 static void egl_noop(void) {}
@@ -265,8 +261,6 @@ int gfx_egl_save_png(const char *path) {
 #ifdef GL_COLOR_ATTACHMENT0
     glReadBuffer(GL_COLOR_ATTACHMENT0);
 #endif
-    { const char *e = getenv("TUROK_EGL_BLUE_CAP");   /* prove the capture path reads s_fbo */
-      if (e && *e == '1') { glClearColor(0.f,0.f,1.f,1.f); glClear(GL_COLOR_BUFFER_BIT); glFinish(); } }
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glReadPixels(0, 0, s_w, s_h, GL_RGBA, GL_UNSIGNED_BYTE, s_buf);   /* rows bottom-up */
     { size_t c = ((size_t)(s_h/2)*s_w + s_w/2)*4;
