@@ -33,7 +33,7 @@
 #include "gfx_window_manager_api.h"
 #include "gfx_rendering_api.h"
 #include "gfx_screen_config.h"
-#include "bk_trace.h"     /* gated pipeline trace (BK_TR / BK_TR_EVERY) */
+#include "turok_trace.h"     /* gated pipeline trace (BK_TR / BK_TR_EVERY) */
 
 uintptr_t gfxFramebuffer;
 

@@ -18,7 +18,7 @@
 
 #include "gfx_window_manager_api.h"
 #include "gfx_3ds.h"
-#include "bk_trace.h"
+#include "turok_trace.h"
 
 #define DISPLAY_TRANSFER_FLAGS \
     (GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(0) | GX_TRANSFER_RAW_COPY(0) | \

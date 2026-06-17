@@ -1,5 +1,7 @@
 /*
- * bk_trace.h — gated, categorized pipeline trace for the Banjo-Kazooie 3DS port.
+ * turok_trace.h — gated, categorized pipeline trace (renamed from bk_trace.h; Banjo-Kazooie heritage).
+ * The internal BK_TR* / -DBK_TRACE macro names are retained as-is (inert in turok's build, which never
+ * defines BK_TRACE) to avoid churn across the borrowed fast3d TUs.
  *
  * Mirrors the Forsaken 3DS port's RT_* harness (test-harness branch). Enabled by
  * -DBK_TRACE (Makefile.3ds `TRACE=1`, the default while bringing the renderer up
