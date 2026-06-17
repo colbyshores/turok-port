@@ -19,13 +19,15 @@ port/
 
 | Category | Rule | Examples |
 |---|---|---|
-| **`turok_` prefix** | engine/boot **glue rewritten for Turok** (the analog of banjo's `bk_` / PD's `pd*`) | `turok_main.c`, `turok_gfx.c`, `turok_runtime.c`, `turok_input.c`, `turok_audio.c`, `turok_port.h`, `turok_trace.h` |
-| **plain names** | the **portable / shared platform layer** kept under the same name as banjo/PD so the framework stays diffable | `os_shim.c`, `romdata.c`, `audio_lib_stub.c`, `platform.h`, `system.h`, and all `fast3d/gfx_*` files |
+| **`turok_` prefix** | engine/boot **glue rewritten for Turok** (the analog of banjo's `bk_` / PD's `pd*`) | `turok_main.c`, `turok_gfx.c`, `turok_runtime.c`, `turok_input.c`, `turok_port.h`, `turok_trace.h` |
+| **plain names** | the **portable / shared platform layer** kept under the same name as banjo/PD so the framework stays diffable (and a reusable library can lift it verbatim) | `os_shim.c`, `romdata.c`, `audio.c`, `audio.h`, `audio_lib_stub.c`, `platform.h`, `system.h`, and all `fast3d/gfx_*` files |
 | **`_3ds` suffix** | **3DS-only** implementation of a shared role (compiled only when `PLATFORM_3DS`) | `gfx_3ds.c`, `gfx_citro3d.cpp` (more arrive at M3 — see roadmap) |
 
 > Banjo kept one shim un-prefixed (`os_shim.c`) by precedent; turok follows that exactly. PD calls the same
-> file `libultra.c`. Where a plain name would **collide** with a game-side file (the game has
-> `src/PR/tengine/audio.c`), turok keeps the prefix (`turok_audio.c`) — the same judgment banjo/PD make.
+> file `libultra.c`. The audio layer uses the plain shared name `audio.c` (matching the siblings) even though
+> the game also has `src/PR/tengine/audio.c`: they compile to **distinct objects** (`audio.o` vs `port_audio.o`)
+> and the port build's `-I` path never reaches `src/PR/tengine`, so there is no real collision — and keeping the
+> shared name is what lets a future reusable library lift the file verbatim.
 
 ## File roles (current) and their sibling analog
 
@@ -38,7 +40,7 @@ port/
 | `turok_runtime.c` | the linker symbols the N64 `spec`/`makerom` would provide — `_staticSegmentRomStart`, boot segments, **zero-span audio-bank aliases** | `bk_runtime.c` / (`system.c`) |
 | `turok_gfx.c` | Fast3D bridge (`gfx_init/run/start_frame/end_frame`) + frame capture (`TUROK_CAPTURE_*`→PNG) | `bk_gfx.c` / `video.c` |
 | `turok_input.c` | platform-agnostic controller seam (`turokInputSetState`/`GetPad`); `TUROK_FAKEINPUT` for headless | `input.c` / `input.c` |
-| `turok_audio.c` | host audio **output sink** (`turokAudioPush/QueuedBytes/SetRate` → SDL2 queue or WAV dump) | `audio.c` / `audio.c` |
+| `audio.c` | host audio **sink** — the same stash (`audioSetNextBuffer`) + push-with-back-pressure (`audioEndFrame`) contract as PD/banjo `audio.c` (SDL2 queue / headless WAV), **plus the dedicated audio thread** (`audioThreadStart`/`SynthLock`, pthread, gated by `TUROK_AUDIO_THREAD`) folded in — PD spins that thread only on 3DS, turok also on desktop | `audio.c` (sink) + `audio_3ds.c` (thread) |
 | `turok_adpcm.c` | host C port of `adpcmDecode` (was `adpcm.s`) — decodes anim keyframe quaternion/position streams | *(none — turok-specific)* |
 | `audio_lib_stub.c` | benign libaudio (`al*`) synth stubs until the M4 mixer lands | `audio_lib_stub.c` / — |
 | `turok_sys.c` | host `sys*` helpers (logging, fatal-error) the borrowed Fast3D layer calls | (`sys_3ds.c` body) / `system.c` |
@@ -49,6 +51,7 @@ port/
 | `turok_port.h` | **force-included into every game TU** (`-include`): `#define qsort turok_qsort` (libc collision), `extern float fmodf(float,float)` prototype (the implicit-decl ABI trap), NULL-as-int notes | `bk_heap.h` (force-include role) |
 | `platform.h` | OS/arch detection macros | `platform.h` / `platform.h` |
 | `system.h` | `sys*` API declarations | `system.h` / `system.h` |
+| `audio.h` | the **audio backend contract** — `audioInit`/`audioSetNextBuffer`/`audioEndFrame`/`audioGetBytesBuffered` (sink) + `audioThreadStart`/`Stop`/`SynthLock`/`Unlock` (the dedicated thread) — same 5-function sink contract as PD/banjo | `audio.h` / `audio.h` |
 | `turok_trace.h` | gated categorized pipeline trace (inert without `-DBK_TRACE`, which turok never sets); renamed from `bk_trace.h` | `bk_trace.h` |
 
 ### `port/fast3d/`  — copied from banjo, adapted; **already matches the sibling naming exactly**
@@ -70,7 +73,7 @@ Cross-layer symbols resolve **at final link by name** (not via headers — see t
 |---|---|---|
 | `romPiRead`, `romdataInit` | `romdata.c` | `os_shim.c`, `turok_main.c` |
 | `turokGfxRun/StartFrame/EndFrame/Init/SavePng` | `turok_gfx.c` | `os_shim.c`, `turok_main.c` |
-| `turokAudioPush/QueuedBytes/SetRate` | `turok_audio.c` | `os_shim.c` |
+| `audioInit`, `audioSetNextBuffer`/`audioEndFrame`/`audioGetBytesBuffered`, `audioThreadStart`/`Stop`/`SynthLock` | `audio.c` (via `audio.h`) | `os_shim.c`, `turok_main.c` |
 | `turokInputGetPad` / `turokInputSetState` | `turok_input.c` | `os_shim.c` / `gfx_sdl2.cpp` |
 | `g_turok_logic_tick`, `turok_render_alpha`, `g_turok_anim_step` | `os_shim.c` / `tengine.c` | `tengine.c`, `romstruc.c` (the framerate-interpolation seam) |
 
@@ -88,11 +91,13 @@ Documented so the divergence is a known choice, not drift:
    (dispatch the gfx task **and present immediately** — the M2 "renders-forever" blocker fix) plus the dispatch
    in `os_shim.c`, **not** a standalone `turok_rcp.c` (banjo `bk_rcp.c` / PD `pdsched.c`). The present-after-task
    call is load-bearing; extracting it from game source is high-risk for zero gain.
-4. **Cross-seam declarations are inline `extern` at the use site, not interface headers**
-   (`video.h`/`audio.h`/`input.h`/`romdata.h` in banjo/PD). Two frictions make a header consolidation
-   not worth it right now: `turokInputGetPad(OSContPad*)` needs a libultra type the **C++** `gfx_sdl2.cpp`
-   consumer doesn't have, and a plain `audio.h` would shadow-collide with the game's `tengine/audio.h`. The
-   symbols link fine by name. *(Future conformance: add the headers if the friction ever pays off.)*
+4. **The audio seam uses the `audio.h` contract (matching banjo/PD); the gfx/input seams stay inline `extern`.**
+   The audio layer now exposes `port/include/audio.h` exactly like the siblings — the earlier worry that a plain
+   `audio.h` would collide with the game's `tengine/audio.h` was wrong: they are distinct objects (`audio.o` vs
+   `port_audio.o`) and the port `-I` path never reaches `src/PR/tengine`. The remaining cross-seam decls (gfx,
+   input) stay inline `extern` at the use site for one real reason: `turokInputGetPad(OSContPad*)` needs a
+   libultra type the **C++** `gfx_sdl2.cpp` consumer doesn't have, so an `input.h` exposing it wouldn't compile
+   there. *(Future conformance: give gfx/input the same header treatment — e.g. an opaque pad handle for input.)*
 
 ## Conformance roadmap — files that arrive at their milestone
 

@@ -219,16 +219,14 @@ void osViSwapBuffer(void *frameBuf)
 }
 s32  osDpSetNextBuffer(void *p, u64 sz)              { (void)p;(void)sz; return 0; }
 
-/* ---- AI (audio out) — host DAC replacement (turok_audio.c sink) --------- */
-extern void         turokAudioPush(const void *pcm, int nbytes);
-extern unsigned int turokAudioQueuedBytes(void);
-extern void         turokAudioSetRate(int rate);
+/* ---- AI (audio out) — host DAC replacement (audio.c sink, PD/banjo contract) ---- */
+extern void audioSetNextBuffer(const s16 *buf, u32 len);   /* stash; audioEndFrame() pushes */
+extern s32  audioGetBytesBuffered(void);
 
-s32 osAiSetNextBuffer(void *buf, u32 sz) { turokAudioPush(buf, (int)sz); return 0; }
-u32 osAiGetLength(void)                  { return turokAudioQueuedBytes(); }
+s32 osAiSetNextBuffer(void *buf, u32 sz) { audioSetNextBuffer((const s16 *)buf, sz); return 0; }
+u32 osAiGetLength(void)                  { return (u32)audioGetBytesBuffered(); }
 u32 osAiGetStatus(void)                  { return 0; }
-s32 osAiSetFrequency(u32 f)              { if (f < 8000) f = 22050; if (f > 48000) f = 48000;
-                                           turokAudioSetRate((int)f); return (s32)f; }
+s32 osAiSetFrequency(u32 f)              { return (s32)f; }   /* device rate is fixed at audioInit (PD model) */
 
 /* ---- controllers — no input at M1 -------------------------------------- */
 s32 osContInit(OSMesgQueue *mq, u8 *bitpattern, OSContStatus *st)

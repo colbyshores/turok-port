@@ -643,6 +643,23 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   swaps to the real synth+mixer — the threading never changes again. **NEXT: S2** (un-gate `initAudio`, load +
   endian-swap the disk banks, replacing the `turok_runtime.c` zero-span aliases; drop `audio_lib_stub.c` to avoid
   shadowing the real `turoksnd/abi` once it's added to the build).
+  **★ AUDIO LAYER REALIGNED to the PD/banjo contract (2026-06-17, per the user — for an eventual reusable
+  N64→PC/3DS library).** Folded `turok_audio.c` + `turok_audio_thread.c` into a single **`port/src/audio.c`** (the
+  sink + the dedicated thread) implementing the EXACT `port/include/audio.h` contract (`audioInit` /
+  `audioGetBytesBuffered` / `audioGetSamplesBuffered` / `audioSetNextBuffer` / `audioEndFrame` + the thread
+  `audioThreadStart`/`Stop`/`SynthLock`/`Unlock`/`audioThreadActive`), matching perfect_dark (`port/src/audio.c` +
+  the `audio_3ds.c` thread). The sink is the same **stash (`audioSetNextBuffer`) + push-with-back-pressure
+  (`audioEndFrame` if `audioGetSamplesBuffered() < 8192`)** model. Audio is a **SHARED-layer** file → **plain name
+  `audio.c`** (NOT the `turok_` glue prefix — it compiles to `port_audio.o`, distinct from the game's
+  `tengine/audio.c`→`audio.o`, and the port `-I` never reaches `src/PR/tengine`, so the reorg's "collision" worry
+  was wrong). `os_shim.c` AI seam → `audioSetNextBuffer`/`audioGetBytesBuffered` (`osAiSetFrequency` now just
+  returns the rate — the device rate is fixed at `audioInit`, the PD model); `turok_main.c` → `audioInit()` (open
+  the device on the main thread) + `audioThreadStart()` post-boot, `audioThreadStop()`+`audioClose()` pre-exit.
+  The thread loop's `audio_synth_frame()` is the SINGLE S3 seam (S1: tone/silence; S3: `amgrFrame()` — unchanged
+  threading). VERIFIED: egl+sdl2 build, clean 440Hz tone through the new contract, patrols all warps rc=0.
+  port/README.md updated (audio is a plain shared file; deviation #4 corrected — the audio seam uses `audio.h`,
+  only gfx/input stay inline-extern for the OSContPad C++ friction). **LESSON for the reusable lib: classify each
+  port file by ROLE — SHARED → plain name + a contract header (so it lifts verbatim); GLUE → game-prefix.**
   **★ S2 GATEWAY CONFIRMED (2026-06-17):** all **105** `turoksnd/abi/*.c` compile clean in the host build with
   `-Ituroksnd/abi -Ilib/ultralib/include/PR -Ilib/ultralib/include -Ituroksnd/abi/buildss` + the game defines
   (`-DPLATFORM_PORT -D_LANGUAGE_C=1 -D_MIPS_SZLONG=32 -DF3DEX_GBI`). **Use the GAME's `libaudio.h`
