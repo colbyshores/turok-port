@@ -195,7 +195,21 @@ void osViSwapBuffer(void *frameBuf)
             if (g_tick_last.tv_sec == 0) { g_tick_last = now; g_turok_logic_tick = 1; }
             else {
                 long el = (now.tv_sec - g_tick_last.tv_sec) * 1000000000L + (now.tv_nsec - g_tick_last.tv_nsec);
-                if (el >= g_tick_interval_ns) { g_tick_last = now; g_turok_logic_tick = 1; } else g_turok_logic_tick = 0;
+                if (el >= g_tick_interval_ns) {
+                    g_turok_logic_tick = 1;
+                    /* PHASE-ACCUMULATE: advance the tick time by exactly one interval, NOT to 'now'.
+                     * Reseeding to 'now' every fire re-randomises the phase, so when the tick interval
+                     * equals the v-sync frame time (TICK_FPS == monitor Hz, e.g. 60 on a 60Hz panel) tiny
+                     * jitter makes "el >= interval" pass-or-fail unpredictably -> randomly skipped ticks =
+                     * a ~30Hz-feeling beat. Advancing by one interval keeps the cadence locked to real time
+                     * and self-corrects, so 60Hz logic ticks cleanly against 60Hz v-sync. */
+                    g_tick_last.tv_nsec += g_tick_interval_ns;
+                    while (g_tick_last.tv_nsec >= 1000000000L) { g_tick_last.tv_nsec -= 1000000000L; g_tick_last.tv_sec++; }
+                    /* If a slow frame left us a whole interval behind, don't bank a backlog (we run at most
+                     * one logic tick per present) — snap forward so we don't fast-forward to "catch up". */
+                    { long beh = (now.tv_sec - g_tick_last.tv_sec) * 1000000000L + (now.tv_nsec - g_tick_last.tv_nsec);
+                      if (beh >= g_tick_interval_ns) g_tick_last = now; }
+                } else g_turok_logic_tick = 0;
             }
         } else { g_turok_logic_tick = 1; g_tick_interval_ns = 0; }
     }

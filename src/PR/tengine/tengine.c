@@ -4637,6 +4637,9 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	 * motion is smooth at 60fps despite 30Hz logic. Snapshot below after CTMove; restore after the task. */
 	static CVector3 _ipPrevPos, _ipCurPos; static float _ipPrevRotY, _ipCurRotY;
 	static float _ipPrevPitch, _ipCurPitch;   /* m_RotXOffset (look up/down) — engine field, set by CTMove */
+	static float _ipPrevRotYO, _ipCurRotYO;   /* m_RotYOffset (head yaw offset) — engine field */
+	static float _ipPrevRotZO, _ipCurRotZO;   /* m_RotZOffset (head roll offset) — engine field */
+	static CQuatern _ipPrevQG, _ipCurQG;      /* player m_qGround (ground-slope quat, fed into the view) */
 	static int _ipHave = 0, _ipActive = 0;
 #endif
 #ifdef PLATFORM_PORT
@@ -4752,11 +4755,15 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 		{
 			if (g_turok_logic_tick || !_ipHave)
 			{
-				if (_ipHave) { _ipPrevPos = _ipCurPos; _ipPrevRotY = _ipCurRotY; _ipPrevPitch = _ipCurPitch; }
-				else         { _ipPrevPos = _pl->ah.ih.m_vPos; _ipPrevRotY = _pl->m_RotY; _ipPrevPitch = pThis->m_RotXOffset; }
-				_ipCurPos = _pl->ah.ih.m_vPos; _ipCurRotY = _pl->m_RotY; _ipCurPitch = pThis->m_RotXOffset; _ipHave = 1;
+				if (_ipHave) { _ipPrevPos = _ipCurPos; _ipPrevRotY = _ipCurRotY; _ipPrevPitch = _ipCurPitch;
+				               _ipPrevRotYO = _ipCurRotYO; _ipPrevRotZO = _ipCurRotZO; _ipPrevQG = _ipCurQG; }
+				else         { _ipPrevPos = _pl->ah.ih.m_vPos; _ipPrevRotY = _pl->m_RotY; _ipPrevPitch = pThis->m_RotXOffset;
+				               _ipPrevRotYO = pThis->m_RotYOffset; _ipPrevRotZO = pThis->m_RotZOffset; _ipPrevQG = _pl->m_qGround; }
+				_ipCurPos = _pl->ah.ih.m_vPos; _ipCurRotY = _pl->m_RotY; _ipCurPitch = pThis->m_RotXOffset;
+				_ipCurRotYO = pThis->m_RotYOffset; _ipCurRotZO = pThis->m_RotZOffset; _ipCurQG = _pl->m_qGround; _ipHave = 1;
 				{ float dx=_ipCurPos.x-_ipPrevPos.x, dy=_ipCurPos.y-_ipPrevPos.y, dz=_ipCurPos.z-_ipPrevPos.z;
-				  if (dx*dx+dy*dy+dz*dz > 1000.0f*1000.0f) { _ipPrevPos = _ipCurPos; _ipPrevRotY = _ipCurRotY; _ipPrevPitch = _ipCurPitch; } }
+				  if (dx*dx+dy*dy+dz*dz > 1000.0f*1000.0f) { _ipPrevPos = _ipCurPos; _ipPrevRotY = _ipCurRotY; _ipPrevPitch = _ipCurPitch;
+				    _ipPrevRotYO = _ipCurRotYO; _ipPrevRotZO = _ipCurRotZO; _ipPrevQG = _ipCurQG; } }
 			}
 			{
 				float a = turok_render_alpha();
@@ -4775,6 +4782,27 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 					  while (dp >  3.14159265f) dp -= 6.28318531f;
 					  while (dp < -3.14159265f) dp += 6.28318531f;
 					  pThis->m_RotXOffset = _ipPrevPitch + dp*a; }
+					/* head yaw/roll offsets (m_RotYOffset/m_RotZOffset): also fed into the view (camera.c
+					 * RotY+RotYOffset / RotZOffset). Interpolate so they don't snap each tick during turns. */
+					{ float dyo = _ipCurRotYO - _ipPrevRotYO;
+					  while (dyo >  3.14159265f) dyo -= 6.28318531f;
+					  while (dyo < -3.14159265f) dyo += 6.28318531f;
+					  pThis->m_RotYOffset = _ipPrevRotYO + dyo*a; }
+					{ float dzo = _ipCurRotZO - _ipPrevRotZO;
+					  while (dzo >  3.14159265f) dzo -= 6.28318531f;
+					  while (dzo < -3.14159265f) dzo += 6.28318531f;
+					  pThis->m_RotZOffset = _ipPrevRotZO + dzo*a; }
+					/* ground-slope quat (player m_qGround -> engine via SetCameraToTurok -> view matrix):
+					 * shortest-path nlerp so the camera's ground-relative tilt doesn't snap at tick edges. */
+					{ float qdot = _ipPrevQG.x*_ipCurQG.x + _ipPrevQG.y*_ipCurQG.y + _ipPrevQG.z*_ipCurQG.z + _ipPrevQG.t*_ipCurQG.t;
+					  float s = (qdot < 0.0f) ? -1.0f : 1.0f;
+					  float qx = _ipPrevQG.x + (s*_ipCurQG.x - _ipPrevQG.x)*a;
+					  float qy = _ipPrevQG.y + (s*_ipCurQG.y - _ipPrevQG.y)*a;
+					  float qz = _ipPrevQG.z + (s*_ipCurQG.z - _ipPrevQG.z)*a;
+					  float qt = _ipPrevQG.t + (s*_ipCurQG.t - _ipPrevQG.t)*a;
+					  float qm = (float)sqrt((double)(qx*qx + qy*qy + qz*qz + qt*qt));
+					  if (qm > 1e-6f) { qx/=qm; qy/=qm; qz/=qm; qt/=qm; }
+					  _pl->m_qGround.x = qx; _pl->m_qGround.y = qy; _pl->m_qGround.z = qz; _pl->m_qGround.t = qt; }
 					_ipActive = 1;
 				}
 			}
@@ -4793,9 +4821,10 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	CEngineApp__SendGraphicsTask(pThis, pFrameData);
 
 #ifdef PLATFORM_PORT
-	/* restore the player's exact logic pos/yaw/pitch after the interpolated render (see above) */
+	/* restore the player's exact logic pos/yaw/pitch + head offsets + ground quat after the interpolated render */
 	if (_ipActive) { CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
-	  if (_pl) { _pl->ah.ih.m_vPos = _ipCurPos; _pl->m_RotY = _ipCurRotY; } pThis->m_RotXOffset = _ipCurPitch; _ipActive = 0; }
+	  if (_pl) { _pl->ah.ih.m_vPos = _ipCurPos; _pl->m_RotY = _ipCurRotY; _pl->m_qGround = _ipCurQG; }
+	  pThis->m_RotXOffset = _ipCurPitch; pThis->m_RotYOffset = _ipCurRotYO; pThis->m_RotZOffset = _ipCurRotZO; _ipActive = 0; }
 #endif
 
 	// Update Region Music

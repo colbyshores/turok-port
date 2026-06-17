@@ -452,6 +452,22 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   timer off → render limited only by v-sync = monitor refresh, e.g. 144Hz). (3) **play_level.sh defaults TICK=60
   + FPS=0** (60Hz logic, uncapped render, interpolation fills the gap). qGround (ground slope) NOT yet slerp'd —
   gradual, low judder, follow-up. Enemy/object instances still 30/60Hz (only player/camera/weapon interpolated).
+- **★ CAMERA "FEELS LIKE 30" ON A 60Hz MONITOR — tick-clock BEAT + non-interpolated camera state (2026-06-16).**
+  User: turning (hold A/D) feels like 30, not buttery; TICK=30 looked smoother (they thought "only because it's
+  slower"). Two root causes (3-agent Workflow + the tick-clock read): (1) **THE BEAT.** `os_shim.c`'s logic-tick
+  clock reset its phase to `now` on every fire (`g_tick_last = now`). When the tick interval == the v-sync frame
+  time (TICK_FPS == monitor Hz, e.g. 60 on a 60Hz panel) timing jitter made `elapsed >= interval` pass-or-fail
+  unpredictably → randomly skipped ticks = a 30Hz-feeling beat. TICK=30 was smoother because 33ms ticking is
+  *stable* against 60Hz v-sync (clearly fires every other present), NOT because of the slower speed — the user's
+  speed intuition was a red herring. **Fix: phase-accumulate** — advance `g_tick_last` by exactly one interval
+  per fire (self-correcting cadence), with a snap-forward cap so a slow frame doesn't bank a fast-forward backlog.
+  (2) **Non-interpolated view inputs.** The view matrix also reads `m_qGround` (ground slope), `m_RotYOffset`
+  (head yaw) and `m_RotZOffset` (head roll) — all updated per tick but never interpolated → snapping during
+  turns/on slopes. Now interpolated in `tengine.c CEngineApp__UpdateGAME` alongside pos/yaw/pitch: head offsets
+  angle-wrap-lerp, qGround shortest-path **nlerp** (re-normalized), restored to exact tick values after the
+  graphics task. Verified: egl+sdl2 build, all warps rc=0 at TICK=30/60, no `[CAMTRACK]` anomalies, tris
+  unchanged. **LESSON: a fixed-timestep tick clock MUST phase-accumulate (advance by interval), never reseed to
+  now — reseeding beats against any equal-rate vsync.** Enemy animation interpolation is the next step.
 - **★ "MISSING PLATFORM" — was a v49-vs-retail ASSET issue, NOT a framerate regression (2026-06-16).** User reported
   the warp-0 fire-pit "initial platform" missing on the branch + suspected the level resources weren't importing.
   Bisected with byte-identical headless captures: the branch renders the warp-0 spawn **identical to master**
