@@ -6,6 +6,7 @@
 
 #include "platform.h"
 #include "system.h"
+#include "input.h"   /* the opaque-pad-handle contract is libultra-free, so it includes cleanly in C++ */
 
 #include "gfx_window_manager_api.h"
 #include "gfx_screen_config.h"
@@ -314,7 +315,7 @@ static void gfx_sdl_get_dimensions(uint32_t* width, uint32_t* height, int32_t* p
 }
 
 /* ---- PORT: controller input (keyboard + gamepad -> N64 pad bits) ---------- */
-extern "C" void turokInputSetState(unsigned short button, signed char stick_x, signed char stick_y);
+/* inputSetState() is declared in "input.h" (included above). */
 
 /* N64 controller bits (PR/os_cont.h) */
 #define N64_A 0x8000u
@@ -400,7 +401,7 @@ static void turok_sdl_update_input(void) {
 
     if (sx > 80) sx = 80; if (sx < -80) sx = -80;
     if (sy > 80) sy = 80; if (sy < -80) sy = -80;
-    turokInputSetState(btn, (signed char)sx, (signed char)sy);
+    inputSetState(btn, (signed char)sx, (signed char)sy);
 }
 
 static void gfx_sdl_handle_events(void) {

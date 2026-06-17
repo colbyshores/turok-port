@@ -237,8 +237,8 @@ s32  osContStartReadData(OSMesgQueue *mq)
     if (g_si_msg) osSendMesg(g_si_mq ? g_si_mq : mq, g_si_msg, OS_MESG_NOBLOCK);
     return 0;
 }
-extern void turokInputGetPad(OSContPad *pad);        /* turok_input.c: current mapped pad */
-void osContGetReadData(OSContPad *pad)               { if (pad) turokInputGetPad(pad); }
+extern s32 inputReadController(s32 idx, void *npad); /* input.c: fill controller 0's pad (PD/banjo contract) */
+void osContGetReadData(OSContPad *pad)               { if (pad) inputReadController(0, pad); }
 
 /* ---- controller pak / pfs (saves) — empty at M1 ------------------------- */
 s32 osPfsInitPak(OSMesgQueue *mq, OSPfs *pfs, int ch){ (void)mq;(void)pfs;(void)ch; return 1; }
