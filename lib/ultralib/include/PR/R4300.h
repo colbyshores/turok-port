@@ -58,6 +58,22 @@
 #define	PHYS_TO_K0(x)	((x)|0x80000000)	/* physical to kseg0 */
 #define	PHYS_TO_K1(x)	((x)|0xA0000000)	/* physical to kseg1 */
 
+#elif defined(PLATFORM_PORT)	/* _LANGUAGE_C, host port */
+
+/* PORT: the host has no KSEG/virtual/physical split — a pointer IS its own
+ * physical address (the host heap). Identity, so audio's K0_TO_PHYS() on the
+ * malloc'd bank/codebook pointers (load.c) yields a real, dereferenceable
+ * pointer instead of masked-garbage. Mirrors os_shim.c osVirtualToPhysical
+ * (now identity) + the gfx_pc seg_addr "physical space IS the host heap" note.
+ * (-m32 build: pointers are 32-bit, so (u32) is exact, no truncation.) */
+#define	K0_TO_K1(x)	((u32)(x))
+#define	K1_TO_K0(x)	((u32)(x))
+#define	K0_TO_PHYS(x)	((u32)(x))	/* kseg0 to physical = identity on host */
+#define	K1_TO_PHYS(x)	((u32)(x))
+#define	KDM_TO_PHYS(x)	((u32)(x))
+#define	PHYS_TO_K0(x)	((u32)(x))
+#define	PHYS_TO_K1(x)	((u32)(x))
+
 #else /* _LANGUAGE_C */
 
 #define	K0_TO_K1(x)	((u32)(x)|0xA0000000)	/* kseg0 to kseg1 */

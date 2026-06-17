@@ -109,6 +109,13 @@ t_WaitQue *RemoveQueueEntry(t_WaitQue *Entry);
 //****************///////////////****************///////////////****************/////////////
 //****************///////////////****************///////////////****************/////////////
 //****************///////////////****************///////////////****************/////////////
+#ifdef PLATFORM_PORT
+/* S3 ready-gate: the audio thread (port/src/audio.c) is started right after boot(), but
+ * initAudio (which builds the synth + players + banks) runs later, in the first game frame.
+ * The thread pushes silence until this flag flips at the end of initAudio, so it never drives
+ * turokAudioManagerFrame against a half-initialised audio manager. */
+int turok_audio_ready = 0;
+#endif
 void initAudio(void)
 {
     u32					bankLen;
@@ -266,6 +273,9 @@ void initAudio(void)
 
 	InitCFXVars();
 
+#ifdef PLATFORM_PORT
+	turok_audio_ready = 1;   /* synth + players + banks built — audio thread may now drive the synth */
+#endif
 
 #if 0		// test code
 	 		// allocate sound in player

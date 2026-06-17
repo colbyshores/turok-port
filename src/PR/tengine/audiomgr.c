@@ -402,6 +402,41 @@ static u32 __amHandleFrameMsg(AudioInfo *info, AudioInfo *lastInfo)
 	 return 1;
 }
 
+#ifdef PLATFORM_PORT
+/* S3/S4 (M4 audio): synthesize ONE audio frame on the port's dedicated audio thread,
+ * bypassing the libultra message loop (__amMain is inert in the cooperative shim) and the
+ * scheduler. alAudioFrame builds the classic Acmd list, writing the real host output pointer
+ * (info->data, NOT osVirtualToPhysical) into the final A_SAVEBUFF; turokAudioMixer
+ * (port/src/turok_amixer.c) interprets that list to PCM straight into info->data; the sink
+ * (audioSetNextBuffer) hands it to the device. Called from audio.c's audio thread, which holds
+ * the synth lock so the voice-list walk is race-free vs the game thread's SFX triggers. */
+extern void audioSetNextBuffer(const s16 *buf, u32 len);
+extern void turokAudioMixer(Acmd *list, s32 len, s16 *out, s32 nSamples);
+void turokAudioManagerFrame(void)
+{
+	AudioInfo *info = __am.audioInfo[audFrameCt % NUM_OUTPUT_BUFFERS];
+	s16       *out  = info->data;       /* REAL host pointer — the mixer writes here directly */
+	Acmd      *list = __am.ACMDList[curAcmdList];
+	Acmd      *cmdp;
+	s32        cmdLen = 0, n;
+
+	info->frameSamples = frameSize;
+	if (info->frameSamples < minFrameSize)
+		info->frameSamples = minFrameSize;
+
+	cmdp = alAudioFrame(list, &cmdLen, out, info->frameSamples);
+	n = (s32)(cmdp - list);
+	if (n > 0)
+		turokAudioMixer(list, n, out, info->frameSamples);
+
+	audioSetNextBuffer(out, info->frameSamples << 2);   /* stereo s16: bytes = samples * 4 */
+
+	curAcmdList ^= 1;
+	audFrameCt++;
+	UpdateWorldSound();
+}
+#endif
+
 /******************************************************************************
  *
  * __amHandleDoneMsg. Really just debugging info in this frame. Checks
@@ -441,6 +476,17 @@ s32 __amDMA(s32 addr, s32 len, void *state)
     void            *foundBuffer;
     s32             delta, addrEnd, buffEnd;
     AMDMABuffer     *dmaPtr, *lastDmaPtr;
+
+#ifdef PLATFORM_PORT
+    /* PORT: the sample data is already in host memory — the wavetable `base`
+     * (turokBnkfNew-relocated into the malloc'd .tbl) makes `addr` a real host
+     * pointer. Skip the ROM-DMA buffering (osPiStartDma assumes a ROM offset)
+     * and hand the synth the pointer directly; the mixer's A_LOADBUFF reads
+     * straight from it. osVirtualToPhysical is identity on host, so no mask. */
+    (void)len; (void)state; (void)foundBuffer; (void)delta; (void)addrEnd;
+    (void)buffEnd; (void)dmaPtr; (void)lastDmaPtr;
+    return addr;
+#endif
 
     lastDmaPtr = 0;
     dmaPtr = dmaState.firstUsed;

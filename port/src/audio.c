@@ -52,6 +52,13 @@ static SDL_AudioDeviceID s_dev = 0;
 /* headless WAV dump (TUROK_AUDIO_WAV) */
 static FILE *s_wav = NULL;
 static long  s_wav_bytes = 0;
+static long long s_wav_start_ns = 0;   /* set on first WAV write; paces the WAV sink to real-time */
+
+static long long audio_now_ns(void)
+{
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+}
 
 static void wav_header(FILE *f, int rate)
 {
@@ -107,7 +114,16 @@ s32 audioGetBytesBuffered(void)
 #if defined(GFX_USE_SDL2)
     if (s_dev) return (s32)SDL_GetQueuedAudioSize(s_dev);
 #endif
-    return 0;   /* WAV / null sink never backs up */
+    if (s_wav && s_wav_start_ns) {
+        /* Synthetic back-pressure: model the WAV sink as a device draining at the sample rate,
+         * so the audio thread produces at ~real-time instead of flat-out (which hogs the synth
+         * lock and starves the game thread headless). bytes_backed = written - drained_by_now. */
+        long long elapsed = audio_now_ns() - s_wav_start_ns;
+        long long drained = (long long)((double)elapsed * 1e-9 * (double)s_rate) * 4;
+        long long backed  = (long long)s_wav_bytes - drained;
+        return backed > 0 ? (s32)backed : 0;
+    }
+    return 0;   /* null sink never backs up */
 }
 
 s32 audioGetSamplesBuffered(void) { return audioGetBytesBuffered() / 4; }
@@ -121,7 +137,10 @@ void audioEndFrame(void)
         if (s_dev) SDL_QueueAudio(s_dev, s_nextBuf, s_nextSize);
         else
 #endif
-        if (s_wav) { fwrite(s_nextBuf, 1, s_nextSize, s_wav); s_wav_bytes += s_nextSize; }
+        if (s_wav) {
+            if (!s_wav_start_ns) s_wav_start_ns = audio_now_ns();
+            fwrite(s_nextBuf, 1, s_nextSize, s_wav); s_wav_bytes += s_nextSize;
+        }
     }
     s_nextBuf = NULL; s_nextSize = 0;
 }
@@ -170,9 +189,21 @@ static void audio_synth_frame(void)
             s_phase += step;
             if (s_phase > 6.283185307179586) s_phase -= 6.283185307179586;
         }
-    } else {
-        memset(frame, 0, sizeof(frame));      /* silence — still drives the push path */
+        audioSetNextBuffer(frame, (u32)sizeof(frame));
+        return;
     }
+    /* S3/S4 (default, non-tone): drive the real synth + the classic-ABI Acmd mixer.
+     * turokAudioManagerFrame() (audiomgr.c) synthesizes one frame straight into the
+     * audio-heap output buffer and calls audioSetNextBuffer itself, so the thread loop's
+     * audioEndFrame() pushes it to the device. This is the SINGLE S3 seam. The ready-gate
+     * (set at the end of the game's initAudio) keeps us pushing silence until the synth +
+     * players + banks exist — the audio thread is started before initAudio runs. */
+    {
+        extern int turok_audio_ready;
+        extern void turokAudioManagerFrame(void);
+        if (turok_audio_ready) { turokAudioManagerFrame(); return; }
+    }
+    memset(frame, 0, sizeof(frame));
     audioSetNextBuffer(frame, (u32)sizeof(frame));
 }
 

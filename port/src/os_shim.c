@@ -154,7 +154,10 @@ s32 osPiStartDma(OSIoMesg *mb, s32 pri, s32 dir, u32 devAddr, void *vAddr,
     if (mq) osSendMesg(mq, (OSMesg)mb, OS_MESG_NOBLOCK);   /* signal completion */
     return 0;
 }
-u32 osVirtualToPhysical(void *p) { return (u32)(uintptr_t)p & 0x1FFFFFFF; }
+/* PORT: the host heap IS physical address space — return the pointer unmasked so audio's
+ * malloc'd bank buffers (high addresses) survive (the 0x1FFFFFFF mask would corrupt them).
+ * The gfx path never calls this; it masks KSEG0 inline in seg_addr. (-m32: 32-bit ptr.) */
+u32 osVirtualToPhysical(void *p) { return (u32)(uintptr_t)p; }
 
 /* ---- SP (graphics/audio task) — virtual RCP: gfx task -> Fast3D ---------- */
 extern void turokGfxRun(void *dl);          /* turok_gfx.c -> gfx_run (F3DEX interp) */
