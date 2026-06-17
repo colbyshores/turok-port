@@ -507,21 +507,17 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   because the dead player is frozen (no gravity) and the top-of-frame re-acquire catches it the next frame. So I
   could NOT reproduce the user's *sustained* interactive fall headlessly; the fix tightens the same-frame window
   (correct + low-risk) but needs interactive confirmation. If it persists, get: death type (enemy/water/fell) + where.
-- **★★ DEATH GHOST/FALL — REAL root cause = PLAYER RENDER-INTERPOLATION sliding across the respawn (2026-06-17,
-  2nd 3-agent audit).** The re-acquire above did NOT fix it. User then reported the KEY clue: on death a CORPSE
-  body stays grounded while a separate alpha/BLINKING model (the respawned player) "moves into standing position",
-  and the camera follows the corpse DOWN through the floor. Commit audit (all 3 agents agreed): **756cb54 (player
-  render interpolation)**. On RESPAWN the player's m_vPos teleports (death-anim spot → respawn/checkpoint spot); that
-  jump is UNDER the 1000-unit snap guard, so the interp LERPS across it — sliding the player model ("ghost") and,
-  because `SetCameraToTurok` reads the (interpolated) player pos, dragging the camera to ground level → clipping
-  through the floor. My KILLSELF firepit death didn't reproduce it because there the death+respawn spots ~coincide
-  (no jump); a far/checkpoint/fall death has the big gap. **Fix (tengine.c CEngineApp__UpdateGAME interp block):
-  SNAP (don't lerp) the player while `CCamera__InCinemaMode` AND for a ~12-tick window after (the respawn teleport
-  can land a frame or two after the cinematic ends) — cinematics move the player abruptly, so never interpolate
-  across them. `_ipWasCin` countdown.** Verified: egl+sdl2 build, normal-play patrols rc=0 (gameplay interp
-  unaffected — only cinematic frames snap), no slide in the trace. The earlier re-acquire (990a06a) is kept as a
-  harmless low-risk collision safety-net. **LESSON: render-interpolation MUST snap across teleports/respawns/cutscene
-  cuts; a fixed distance threshold (1000) misses short teleports — gate on the cinematic/teleport STATE, not distance.**
+- **★★ DEATH GHOST/FALL — this 2nd audit (render-interpolation) was ALSO WRONG; its interp-snap was a FAILED
+  band-aid, REMOVED in cleanup (2026-06-17).** The audit blamed 756cb54 (player render interpolation): claimed the
+  respawn teleports the player a sub-1000-unit jump the interp lerps across, sliding the model ("ghost") + dragging
+  the camera through the floor, and "fixed" it (8a22bf7) by snapping the interp while `CCamera__InCinemaMode` + a
+  12-tick `_ipWasCin` window. **The user's `TUROK_DEATHLOG` trace DISPROVED it: on respawn the position NEVER
+  teleports (prev==cur, interp already snapped) — the player FREE-FALLS because the respawned region is
+  valid-but-WRONG (no ground). The real fix is the region re-acquire — see the ★★★ DEATH FALL-THROUGH note below.**
+  The interp-snap was reverted to the plain 1000-unit big-jump guard once the real fix landed (the death respawn
+  doesn't teleport, so the snap guarded a non-existent slide). **LESSON: when a "camera/render" bug's fix can't be
+  reproduced/verified in the harness, suspect the AUDIT — get a per-frame STATE TRACE (here: player pos + region)
+  before committing. TWO audits guessed interpolation; the trace showed it was collision/region all along.**
 - **★★★ DEATH FALL-THROUGH — ACTUAL ROOT CAUSE = respawn leaves a VALID-but-WRONG region (2026-06-17, fixed via the
   user's TUROK_DEATHLOG trace).** The two fixes above (re-acquire timing; interp snap) did NOT fix it — both were
   wrong. The user's death log was the key: on respawn the position NEVER teleports (prev==cur, interp snapped) — the
