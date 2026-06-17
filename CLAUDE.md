@@ -840,6 +840,18 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   REPORTED by the user (deferred): a **blue-portal warp bug** — entering a portal → bonus area, then re-entering
   → wrong-warps to the Campaigner boss instead of back. Warp/portal level-transition logic to fix next.
 
+- **★ "MISSING PLATFORM" = v49-vs-retail ASSET issue, not a code bug (2026-06-16).** User reported the warp-0
+  fire-pit "initial platform" missing + suspected the level resources weren't importing. Root cause: the level-1
+  **walkway** over the water is a **RETAIL-only asset** — the v49 leak's `cartdata.dat` lacks it; walk FORWARD at
+  the fire-pit on v49 assets and you drop into a **blue void** (verified headless: retail-forward = canyon path;
+  v49-forward = empty blue). `play_level.sh` defaulted to v49 unless `ROM=` was passed, so a plain
+  `./play_level.sh` loaded the leak assets → no walkway. **Fix: `play_level.sh` now defaults to the retail ROM
+  (Path B) when `baserom.us.v12.z64` is present** (`ROM=none` forces v49). **LESSON: when geometry is "missing,"
+  first confirm WHICH asset set is loaded (v49 placeholder vs retail Path B) before suspecting code — many
+  "missing stuff" reports are the v49 leak being incomplete, fixed by Path B, not a bug.** (Headless-capture
+  gotcha: `TUROK_CAPTURE_FRAME=N` on no-tick-gate builds needs `TUROK_MAX_FRAMES` WELL above N — the render-frame
+  counter `s_frame_no` lags the frame-pump `g_frame`, else the capture silently never fires.)
+
 The port build infra (not game source): `Makefile.port`, `port/include/turok_port.h` (host compat shim),
 `lib/ultralib/` (vendored libultra headers), `tools/turok_rom.py`.
 
