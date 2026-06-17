@@ -4817,6 +4817,17 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 
 	CEngineApp__SetCameraToTurok(pThis);
 	CCamera__Update(&pThis->m_Camera) ;
+#ifdef PLATFORM_PORT
+	/* PORT (death fall-through fix): a DEATH/cinematic model-swap inside CCamera__Update (cinecam.c
+	 * CScene__LoadObjectModelType) streams assets that RELOCATE the cart-cache collision buffer, re-staling
+	 * the player's region AFTER the once-per-frame re-acquire at the top of UpdateGAME. Re-acquire again here
+	 * — post-cinematic, before the graphics task runs the player's Collision3 — so it finds valid ground
+	 * instead of bailing on a bad region and dropping the player through the floor. (Mirrors the top-of-frame
+	 * re-acquire; same root fix as the key-pickup cinematic.) */
+	{ CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
+	  if (_pl && PORT_REGION_BAD(_pl->ah.ih.m_pCurrentRegion))
+	    _pl->ah.ih.m_pCurrentRegion = CScene__NearestRegion(&pThis->m_Scene, &_pl->ah.ih.m_vPos); }
+#endif
 	CEngineApp__UpdateCameraAttributes(pThis);
 
 

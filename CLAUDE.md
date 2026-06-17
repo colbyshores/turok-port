@@ -486,6 +486,27 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   `m_nExitToFrame > step` (rare) or a JERK_FRAMES hit-react (m_cFrame decremented) gets a 1-interval glitch — fix
   with per-instance prev storage if a specific anim shows it. Instance WORLD position/rotation still not interpolated
   (enemies translate at 30Hz; the skeletal POSE is now smooth — the dominant visual).
+- **★ INSTANCE POSITION/ROTATION INTERPOLATION (2026-06-17).** Completes the enemy smoothness: enemy/object WORLD
+  pos+yaw now interpolate between 30Hz ticks too (the body-glide, complementing the skeletal pose). Per-instance
+  prev is stored ON the struct — `m_ipPrevPos`/`m_ipPrevRotY` added to the tail of `CGameObjectInstance`
+  (romstruc.h); SAFE because instances are allocated by `US_TOTAL_SIZE(sizeof(CGameObjectInstance), n)` (scene.c:1592)
+  and indexed by that stride, so a tail field grows everything consistently. `romstruc.c CGameObjectInstance__Draw`:
+  snapshot pre-tick pos/yaw right after the `isPlayer` def (8638), BEFORE DoAI/Advance (8742/8805) move it — tick
+  frames only; then around the orientation-matrix build (8826) override pos/yaw with `lerp(prev,cur,alpha)` and
+  restore right after (so the AI still sees the true pos; only the rendered matrix is interpolated). The **d2 < 1000²
+  guard** snaps (no lerp) on a warp/teleport OR a garbage/NaN/pre-first-snapshot delta (NaN<x is false → snap).
+  Player EXCLUDED (interpolated in UpdateGAME). Verified: warps 0/3000/6000 rc=0, enemies/boss render, no anomalies.
+- **★ DEATH FALL-THROUGH — re-acquire timing fix (2026-06-17, 3-agent Workflow).** User: dying drops the player
+  through the floor; suspected a band-aid regression. Root cause (workflow): the DEATH cinematic
+  (cinecam.c `CScene__LoadObjectModelType`, AI_ANIM_DEATH_*) does a model-swap INSIDE `CCamera__Update`, streaming
+  assets that RELOCATE the cart-cache collision buffer → re-stales the player's region AFTER the once-per-frame
+  re-acquire (which runs at the TOP of UpdateGAME). So the graphics-task `Collision3` runs with a bad region → bails
+  → no ground. **Fix: a SECOND re-acquire right after `CCamera__Update`** (tengine.c, before the graphics task),
+  mirroring the top-of-frame one. **VERIFIED FIRING** (KILLSELF headless test: the region goes bad on the death
+  frame and is re-acquired) — but NOTE: the player stays grounded in headless death tests *with or without* the fix,
+  because the dead player is frozen (no gravity) and the top-of-frame re-acquire catches it the next frame. So I
+  could NOT reproduce the user's *sustained* interactive fall headlessly; the fix tightens the same-frame window
+  (correct + low-risk) but needs interactive confirmation. If it persists, get: death type (enemy/water/fell) + where.
 - **★ "MISSING PLATFORM" — was a v49-vs-retail ASSET issue, NOT a framerate regression (2026-06-16).** User reported
   the warp-0 fire-pit "initial platform" missing on the branch + suspected the level resources weren't importing.
   Bisected with byte-identical headless captures: the branch renders the warp-0 spawn **identical to master**

@@ -8636,6 +8636,12 @@ void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 #endif
 
 	isPlayer = (pThis == CEngineApp__GetPlayer(GetApp())) ;
+#ifdef PLATFORM_PORT
+	/* render-interpolation: snapshot this instance's pre-tick world pos/yaw (DoAI/Advance below advance it to
+	 * the current tick) so the orientation matrix draws at lerp(prev,cur,alpha). Tick frames only. */
+	{ extern int g_turok_logic_tick;
+	  if (g_turok_logic_tick && !isPlayer) { pThis->m_ipPrevPos = pThis->ah.ih.m_vPos; pThis->m_ipPrevRotY = pThis->m_RotY; } }
+#endif
 
 #ifdef PLATFORM_PORT
 	{ extern int fprintf(void*,const char*,...); extern void *stderr; extern char *getenv(const char*);
@@ -8823,7 +8829,25 @@ void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 				if (!isPlayer)
 				{
 					//CGameObjectInstance__CalculateOrientationMatrix(pThis, isPlayer, vTCorners);
+#ifdef PLATFORM_PORT
+					/* draw at the interpolated world pos/yaw (prev->cur by alpha). The d2 guard rejects a warp/teleport or
+					 * a pre-first-snapshot/garbage/NaN delta -> snap to cur. Restored right after the matrix build. */
+					CVector3 _ipSP; float _ipSR; int _ipDP = 0;
+					if (!isPlayer) { extern float turok_render_alpha(void); float _a = turok_render_alpha();
+					  float _dx = pThis->ah.ih.m_vPos.x - pThis->m_ipPrevPos.x, _dy = pThis->ah.ih.m_vPos.y - pThis->m_ipPrevPos.y,
+					        _dz = pThis->ah.ih.m_vPos.z - pThis->m_ipPrevPos.z;
+					  if (_a > 0.0f && _dx*_dx+_dy*_dy+_dz*_dz < 1000.0f*1000.0f) {
+					    _ipSP = pThis->ah.ih.m_vPos; _ipSR = pThis->m_RotY; _ipDP = 1;
+					    pThis->ah.ih.m_vPos.x = pThis->m_ipPrevPos.x + _dx*_a; pThis->ah.ih.m_vPos.y = pThis->m_ipPrevPos.y + _dy*_a;
+					    pThis->ah.ih.m_vPos.z = pThis->m_ipPrevPos.z + _dz*_a;
+					    { float _dr = pThis->m_RotY - pThis->m_ipPrevRotY;
+					      while (_dr >  3.14159265f) _dr -= 6.28318531f; while (_dr < -3.14159265f) _dr += 6.28318531f;
+					      pThis->m_RotY = pThis->m_ipPrevRotY + _dr*_a; } } }
+#endif
 					CGameObjectInstance__CalculateOrientationMatrix(pThis, FALSE, vTCorners, mfOrient);
+#ifdef PLATFORM_PORT
+					if (_ipDP) { pThis->ah.ih.m_vPos = _ipSP; pThis->m_RotY = _ipSR; }
+#endif
 
 					if (sendEvents)
 						CGameObjectInstance__SendAnimEvents(pThis, &isCurrentAnim, mfOrient);

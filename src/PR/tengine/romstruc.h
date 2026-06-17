@@ -760,6 +760,10 @@ typedef struct CGameObjectInstance_t
 	struct CGameObjectInstance_t	*m_pEventCGameObjectInstance;							// move to CAIDynamic
 	struct CGameObjectInstance_t	*m_pAttackerCGameObjectInstance;						// move to CAIDynamic
 
+#ifdef PLATFORM_PORT
+	CVector3	m_ipPrevPos;	/* render-interpolation: world pos at the previous logic tick */
+	float		m_ipPrevRotY;	/* render-interpolation: world yaw at the previous logic tick */
+#endif
 } CGameObjectInstance;
 
 
