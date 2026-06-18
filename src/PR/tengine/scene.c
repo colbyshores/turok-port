@@ -2719,6 +2719,18 @@ void CScene__Draw(CScene *pThis, Gfx **ppDLP)
 }
 
 
+#ifdef PLATFORM_PORT
+/* M4-S5: CROMSoundElement is a big-endian asset — 15 consecutive WORDs (5 element fields, then
+ * 2 CROMEnvelopes x 5 WORDs each; SF==WORD), then 2 endian-safe trailing BYTEs. Swap a per-trigger
+ * COPY (the SFX path is read-only on pElement). */
+static void turokSwapSoundElement(CROMSoundElement *e)
+{
+	unsigned short *w = (unsigned short *)e;
+	int i;
+	for (i = 0; i < 15; i++) w[i] = (unsigned short)__builtin_bswap16(w[i]);
+}
+#endif
+
 int CScene__DoSoundEffect(CScene *pThis,
 								  int nSoundType, float Volume,
 								  void *pSource, CVector3 *pvSourcePos, int SndFlags)
@@ -2741,13 +2753,13 @@ int CScene__DoSoundEffect(CScene *pThis,
 	ASSERT(pvSourcePos);
 
 #ifdef PLATFORM_PORT
-	/* PORT: audio is deferred to M4 — initAudio early-returns before amCreateAudioMgr, so the audio
-	 * manager is NULL and PlayEnvironmentSound/DoSoundElement would NULL-deref. Previously the sound-
-	 * type BinarySearch returned -1 (the big-endian usTypes key table never matched), which masked
-	 * this; now that BinarySearch swaps keys (defs.c), the lookup succeeds and reaches the un-ready
-	 * audio path. Gate the whole SFX dispatch off until M4 (which must also ORDERBYTES CROMSoundElement
-	 * + add the NULL-bank guard — see the endianness audit). */
-	return -1;
+	/* PORT (M4-S5): the audio manager + players + banks now exist (initAudio runs fully), so the SFX
+	 * dispatch is UN-GATED. Guard only on the ready flag so a call before initAudio doesn't reach the
+	 * synth. The big-endian CROMSoundElement is byte-swapped into a local COPY per element below — the
+	 * SFX path only READS pElement (SetCFXPitch/Volume copy the envelope to a channel buffer before
+	 * mutating; initCFX/PlayEnvironmentSound copy field values), and never stores the pointer, so a
+	 * stack copy is safe + avoids corrupting the shared (and possibly re-streamed) cart block. */
+	{ extern int turok_audio_ready; if (!turok_audio_ready) return -1; }
 #endif
 
 	if (!cache_is_valid)
@@ -2811,10 +2823,18 @@ int CScene__DoSoundEffect(CScene *pThis,
 		for (cElement=0; cElement<nElements; cElement++)
 		{
 			pElement = &elements[cElement];
+#ifdef PLATFORM_PORT
+			{
+				CROMSoundElement elSwap = *pElement;   /* big-endian -> host copy (path is read-only) */
+				turokSwapSoundElement(&elSwap);
+				DoSoundElement(&elSwap, pSource, pvSourcePos, Volume, nSoundType, cFX, SndFlags);
+			}
+#else
 			DoSoundElement(pElement, pSource,
 								pvSourcePos,
 								Volume,
 								nSoundType, cFX, SndFlags);
+#endif
 		}
 
 		CIndexedSet__Destruct(&isSounds);
