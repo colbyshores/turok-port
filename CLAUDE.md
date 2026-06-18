@@ -1232,6 +1232,26 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   **NEXT: user plays with `TUROK_WARPLOG=1`, walks the portal→bonus→re-enter sequence, and the trace pins which of
   the suspects fires.** Build+rc=0 verified; trace default-off, no behavior change. NOTE for 3DS/v1.2: CAMPAIGNER_
   BOSS_WARP_ID=8999, RETURN_WARP_ID=-1, bonus levels are warp IDs 9000-9999 (`tengine.c:2347`).
+- **★ BLUE-PORTAL "OUT OF BOUNDS" — 6-agent Workflow + headless FORCEWARP repro (2026-06-18).** User's interactive
+  `TUROK_WARPLOG=1` trace: the portal dispatches `m_Id=9600 STORE=1 RETURN=0` → `CEngineApp__Warp(9600,
+  WARP_WITHINLEVEL)`. The Workflow (adversarial verify) RULED OUT (a) the region double-swap (masked by the
+  per-frame `CScene__NearestRegion` re-acquire — an analyst empirically built the scene.c:1635 region "fix" and it
+  BROKE warp 0) and (b) "geometry not reloaded" (`MODE_RESETLEVEL` → `CScene__Construct(m_WarpID)` DOES reload,
+  selected by `m_WarpPoint.m_nLevel` at scene.c:471→1083 `nLevel %= GetBlockCount`). Added headless repro hooks
+  (`TUROK_FORCEWARP=<id>` fires a within-level warp once after the level settles, since `TUROK_WARP` clamps to
+  warp-point 0; `TUROK_FORCECHOICE=<n>` picks the n-th point when a warp ID matches multiple) + expanded the
+  resolve trace (per-point dump of `[first..last]`). **KEY FINDING: warp ID 9600 has TWO warp points** (ids[184]==
+  ids[185]==0x2580): `wp[184]`→level 26 `(-2296,-154,-459)` region 22, `wp[185]`→level 27 `(115,34,0)` region 59 —
+  **DIFFERENT levels**, RANDOM-picked at `scene.c:458 choice=first+RANDOM(last+1-first)`. That's the "this time"
+  variability. **BUT both land in VALID geometry in the headless FORCEWARP repro** (26 = a cave, 27 = a temple
+  courtyard, captured) — so the random pick alone isn't the user's black void. FORCEWARP uses store=FALSE from the
+  spawn; the real portal is store=TRUE from the walked-up position. **STILL UNREPRODUCED headlessly — NEXT: user
+  recaptures `TUROK_WARPLOG=1` on the OOB run; the new `[WARP] resolve nWarpID=9600 FOUND choice=N vPos=... nLevel=N`
+  + `RequestLevel` lines show the EXACT failing warp point + level + position.** Also note the secondary
+  store/return inconsistency the Workflow flagged (m_ReturnWarp.m_nRegion host-order at tengine.c:2451 vs the
+  spawn decode's ORDERBYTES) — likely the ORIGINAL "re-enter → Campaigner" report; fix once the forward OOB lands.
+  ★ NFS GOTCHA hit again: an Edit to scene.c was silently lost (stale read-after-write) — re-add + `grep`-verify
+  edits to the warp traces persisted before building.
 - **★ DEBUG-KNOB CLEANUP (2026-06-17, 9-agent Workflow).** Stripped ~36 one-off `TUROK_*` debug env knobs that
   accreted across the porting sessions — the `*LOG` trace prints (OBJLOG/GATELOG/BLENDLOG/RSLOG/MTXLOG/VTXLOG/
   QLOG/QCLOG/SIMPLOG/INSTLOG/XINSTLOG/PARTLOG/MATLOG/VMLOG/VP_LOG/CAMLOG/MOVELOG/GFX_DUMP/GFX_DRAWLOG/OBJLOG/

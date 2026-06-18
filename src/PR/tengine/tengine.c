@@ -4671,6 +4671,24 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	    _pl->ah.ih.m_pCurrentRegion = CScene__NearestRegion(&pThis->m_Scene, &_pl->ah.ih.m_vPos); }
 #endif
 
+#ifdef PLATFORM_PORT
+	/* TUROK_FORCEWARP=<id>: headlessly reproduce a within-level (blue-portal) warp to <id>. Fires ONCE,
+	 * ~60 frames after a player exists and we're not already warping, so the level is settled. Lets us
+	 * capture the warp resolution + level-block selection for a bonus warp (9600) that TUROK_WARP can't
+	 * reach (TUROK_WARP clamps to the level's warp-point 0). Debug aid for the blue-portal OOB bug. */
+	{ extern char *getenv(const char*); static int fw=-2; static int fwc=0;
+	  if (fw==-2){ const char*e=getenv("TUROK_FORCEWARP"); fw=(e?atoi(e):-1); }
+	  if (fw>=0 && fwc>=0){
+	    CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
+	    if (_pl && pThis->m_Warp == WARP_NOT_WARPING && ++fwc>=60){
+	      extern int fprintf(void*,const char*,...); extern void *stderr;
+	      fprintf(stderr,"[WARP] FORCEWARP -> CEngineApp__Warp(%d, WARP_WITHINLEVEL)\n", fw);
+	      CEngineApp__Warp(pThis, fw, WARP_WITHINLEVEL, FALSE);
+	      fwc = -1;   /* fired; never again */
+	    } }
+	}
+#endif
+
 	// Request latest controller information
 	if (validcontrollers && !cntrlReadInProg)
 	{
