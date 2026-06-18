@@ -412,6 +412,18 @@ void CScene__WarpPointsReceived(CScene *pThis, CCacheEntry **ppceTarget)
 	warpPoints = (CROMWarpPoint*) CUnindexedSet__GetBasePtr(&usWarpDests);
 	ASSERT(nWarpPoints == CUnindexedSet__GetBlockCount(&usWarpDests));
 
+#ifdef PLATFORM_PORT
+	/* TUROK_WARPTABLE=1: one-shot dump of the entire warp-destination table (id -> level/pos), to see
+	 * whether warp ID 9600 genuinely has two destinations in the data or our parse fabricated one. */
+	{ extern char *getenv(const char*); static int wt=-1, dumped=0; if(wt<0){const char*e=getenv("TUROK_WARPTABLE"); wt=(e&&atoi(e))?1:0;}
+	  if(wt && !dumped){ dumped=1; extern int fprintf(void*,const char*,...); extern void *stderr; int _k;
+	    fprintf(stderr,"[WARPTBL] === %d warp points ===\n", nWarpPoints);
+	    for(_k=0;_k<nWarpPoints;_k++)
+	      fprintf(stderr,"[WARPTBL] tbl[%d] id=%d lvl=%d pos=(%.0f,%.0f,%.0f)\n", _k,
+	        (int)ORDERBYTES(ids[_k]), (int)(WORD)ORDERBYTES((WORD)warpPoints[_k].m_nLevel),
+	        ORDERBYTES(warpPoints[_k].m_vPos.x), ORDERBYTES(warpPoints[_k].m_vPos.y), ORDERBYTES(warpPoints[_k].m_vPos.z)); } }
+#endif
+
 
 	// handle ID -1 as return warp
 	if (pThis->m_nWarpID == RETURN_WARP_ID)
