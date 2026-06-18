@@ -8768,7 +8768,7 @@ void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 					    pThis->ah.ih.m_vPos.x = pThis->m_ipPrevPos.x + _dx*_a; pThis->ah.ih.m_vPos.y = pThis->m_ipPrevPos.y + _dy*_a;
 					    pThis->ah.ih.m_vPos.z = pThis->m_ipPrevPos.z + _dz*_a;
 					    { float _dr = pThis->m_RotY - pThis->m_ipPrevRotY;
-					      while (_dr >  3.14159265f) _dr -= 6.28318531f; while (_dr < -3.14159265f) _dr += 6.28318531f;
+					      _dr = turok_wrap_pi(_dr);   /* O(1) — a garbage instance yaw was spinning this loop = freeze */
 					      pThis->m_RotY = pThis->m_ipPrevRotY + _dr*_a; } } }
 #endif
 					CGameObjectInstance__CalculateOrientationMatrix(pThis, FALSE, vTCorners, mfOrient);

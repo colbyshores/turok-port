@@ -40,5 +40,17 @@
  * TU that also includes <math.h> sees a compatible redeclaration.) */
 extern float fmodf(float, float);
 
+/* O(1) angle wrap to [-PI, PI) — replaces the spin-prone `while (a > PI) a -= 2PI;` loops in the port's
+ * render-interpolation paths (tengine.c/romstruc.c). A garbage/uninitialised prev- or cur-angle makes the
+ * delta huge and a raw while-loop spins ~1e17 times = a freeze with no crash dump. fmodf is O(1) for any
+ * magnitude; NaN -> 0. */
+static __inline__ float turok_wrap_pi(float a) {
+    a = fmodf(a, 6.28318531f);
+    if (a >  3.14159265f) a -= 6.28318531f;
+    else if (a < -3.14159265f) a += 6.28318531f;
+    if (a != a) a = 0.0f;
+    return a;
+}
+
 #endif /* PLATFORM_PORT */
 #endif /* _TUROK_PORT_H */

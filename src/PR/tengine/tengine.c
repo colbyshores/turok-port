@@ -4838,24 +4838,20 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 					_pl->ah.ih.m_vPos.y = _ipPrevPos.y + (_ipCurPos.y - _ipPrevPos.y)*a;
 					_pl->ah.ih.m_vPos.z = _ipPrevPos.z + (_ipCurPos.z - _ipPrevPos.z)*a;
 					{ float d = _ipCurRotY - _ipPrevRotY;
-					  while (d >  3.14159265f) d -= 6.28318531f;
-					  while (d < -3.14159265f) d += 6.28318531f;
+					  d = turok_wrap_pi(d);
 					  _pl->m_RotY = _ipPrevRotY + d*a; }
 					/* look-pitch (m_RotXOffset, engine field set by CTMove): interpolate so looking up/down
 					 * is smooth too. Camera reads it in CCamera__Update right after SetCameraToTurok. */
 					{ float dp = _ipCurPitch - _ipPrevPitch;
-					  while (dp >  3.14159265f) dp -= 6.28318531f;
-					  while (dp < -3.14159265f) dp += 6.28318531f;
+					  dp = turok_wrap_pi(dp);
 					  pThis->m_RotXOffset = _ipPrevPitch + dp*a; }
 					/* head yaw/roll offsets (m_RotYOffset/m_RotZOffset): also fed into the view (camera.c
 					 * RotY+RotYOffset / RotZOffset). Interpolate so they don't snap each tick during turns. */
 					{ float dyo = _ipCurRotYO - _ipPrevRotYO;
-					  while (dyo >  3.14159265f) dyo -= 6.28318531f;
-					  while (dyo < -3.14159265f) dyo += 6.28318531f;
+					  dyo = turok_wrap_pi(dyo);
 					  pThis->m_RotYOffset = _ipPrevRotYO + dyo*a; }
 					{ float dzo = _ipCurRotZO - _ipPrevRotZO;
-					  while (dzo >  3.14159265f) dzo -= 6.28318531f;
-					  while (dzo < -3.14159265f) dzo += 6.28318531f;
+					  dzo = turok_wrap_pi(dzo);
 					  pThis->m_RotZOffset = _ipPrevRotZO + dzo*a; }
 					/* ground-slope quat (player m_qGround -> engine via SetCameraToTurok -> view matrix):
 					 * shortest-path nlerp so the camera's ground-relative tilt doesn't snap at tick edges. */

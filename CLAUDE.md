@@ -502,6 +502,26 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   restore right after (so the AI still sees the true pos; only the rendered matrix is interpolated). The **d2 < 1000²
   guard** snaps (no lerp) on a warp/teleport OR a garbage/NaN/pre-first-snapshot delta (NaN<x is false → snap).
   Player EXCLUDED (interpolated in UpdateGAME). Verified: warps 0/3000/6000 rc=0, enemies/boss render, no anomalies.
+- **★★ INTERPOLATION ANGLE-WRAP HANG — the render-interp angle wraps weren't fmodf-guarded (2026-06-18).** User:
+  "the game has been locking up quite a bit, just locking up no crash dump." A HANG, not a crash. Reproduced
+  headless (warp 0 → TESTPORTAL warp to the lvl-26 bonus + patrol): froze at frame ~180 in the bonus. Confirmed a
+  SPIN (not a deadlock) via /proc (gdb-attach is blocked by yama `ptrace_scope`): the real game pid's MAIN thread
+  was `state=R` (running) with the frame counter frozen → an infinite `while` loop (the other 10 threads were idle
+  GPU/driver workers in `futex_do_wait`). ROOT: the port's render-interpolation angle wraps used RAW `while (a > PI)
+  a -= 2PI; while (a < -PI) a += 2PI;` loops — `tengine.c` CEngineApp__UpdateGAME (player RotY/pitch/RotYOffset/
+  RotZOffset = 4 loops) + `romstruc.c CGameObjectInstance__Draw` (instance yaw `_dr`). Unlike the GAME's own angle
+  funcs (`graphu64.c NormalizeRotation`, `boss.c`, `tmove.c`) which all got PLATFORM_PORT **fmodf** O(1) fixes (the
+  while-loops live in the dead `#else`), MY interpolation loops were never converted. A bonus instance (or the
+  player) with a garbage/uninitialised yaw makes the delta HUGE → the loop spins ~1e17× = a freeze with no crash
+  dump (a NaN delta EXITS the loop — only a huge FINITE delta spins). **Fix:** new `turok_wrap_pi()` (`port/include/
+  turok_port.h`, O(1) `fmodf` wrap to [-π,π), NaN→0) replaces all 5 loops; build clean. **DIAGNOSIS RECIPE for a
+  hang-with-no-crash-dump = it's a SPIN: find the real game pid (the MULTI-THREADED child, not the bash wrapper),
+  read `/proc/<pid>/task/<main-tid>/stat` field 3 — `state=R` + a frozen frame counter = an infinite loop (the
+  angle-wrap while-loop is the #1 suspect). gdb-attach is blocked by `ptrace_scope` here.** LESSON: EVERY angle-wrap
+  while-loop in PORT-added code must be fmodf — the render-interp ones were missed (the game's own ones were already
+  done). ★ GOTCHA: repeated `kill -9` of the rendering EGL turoks WEDGED the GPU (a stuck D-state `kworker`; new EGL
+  inits then hang with no output) — so the FIXED binary couldn't be re-verified headless this session; it's
+  build-clean + diagnosis-confirmed, user confirms on the SDL/display build (unaffected by the headless GPU wedge).
 - **★ DEATH FALL-THROUGH — re-acquire timing fix (2026-06-17, 3-agent Workflow).** User: dying drops the player
   through the floor; suspected a band-aid regression. Root cause (workflow): the DEATH cinematic
   (cinecam.c `CScene__LoadObjectModelType`, AI_ANIM_DEATH_*) does a model-swap INSIDE `CCamera__Update`, streaming
