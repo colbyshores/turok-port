@@ -712,6 +712,26 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     load+swap each, render unaffected; `SortSounds` walking `sfxBank->instArray[0]->soundArray` proves the swap is
     correct (a bad count/ptr would fault). Still SILENT — the audio thread runs S1 silence until S3 drives the synth.
     **NEXT: S3+S4** — a multi-agent Workflow mapped the classic-ABI synth→Acmd→mixer chain for the S4 mixer plan.
+  - **★ S3+S4 DONE — synth-drive + classic-ABI Acmd software mixer (2026-06-17, commit c3713e1, branch `audio-s2`).**
+    The audio thread now drives turok's real synth (`alAudioFrame`) + a from-scratch interpreter for the CLASSIC libultra
+    Acmd list, running clean every frame (zero crashes). **`port/src/turok_amixer.c` (NEW):** emulated DMEM + the classic
+    **SETBUFFER latch** (A_MAIN + A_AUX triples — A_AUX overloads its 3 fields as the envmixer's MAIN_R/AUX_L/AUX_R) + a
+    16-case dispatch decoding the packed Acmd by hand. DSP (VADPCM/resample/envmix/mix/interleave) lifted from PD `mixer.c`
+    SCALAR paths, but each op pulls its DMEM in/out/count from the preceding `aSetBuffer` (verified vs load.c/resample.c/
+    env.c/save.c/mainbus.c), not inline args; classic `aSetVolume` written fresh (PD's n_audio flag packing differs);
+    A_POLEF stubbed (AL_FX_NONE). **`audiomgr.c turokAudioManagerFrame`:** one frame on the audio thread, bypassing the dead
+    `__amMain` msg-loop + scheduler — `alAudioFrame` writes the REAL host out ptr (`info->data`) into A_SAVEBUFF, mixer
+    renders straight there, `audioSetNextBuffer` pushes; `__amDMA` returns the sample ptr directly (no ROM-DMA buffering).
+    **★ ADDRESS PLUMBING (#1 hazard):** `osVirtualToPhysical` (os_shim.c) + `K0_TO_PHYS`-family (R4300.h) are now IDENTITY
+    under PLATFORM_PORT — the `0x1FFFFFFF` mask corrupts malloc'd bank pointers on host, so every DRAM addr word in the Acmd
+    list stays a real host pointer. **★ READY-GATE:** `turok_audio_ready` (set at end of initAudio) — the audio thread starts
+    before initAudio runs, so it pushes silence until the players/banks exist (fixed an early SIGSEGV on the uninit'd mgr).
+    **★ WAV PACER:** the headless WAV sink now models a device draining at the sample rate (synthetic back-pressure) so the
+    audio thread produces ~real-time instead of flat-out — fixed a **100x game slowdown** (synth-lock starvation from
+    over-production; 400 frames 4min→0.5s). VERIFIED: warps rc=0, synth+mixer every frame no crash. Output SILENT because the
+    SFX dispatch (`scene.c CScene__DoSoundEffect`) is still gated off → no active voices. Debug: `TUROK_AUDIO_DUMP` (opcode
+    histogram). **NEXT: S5** — un-gate `CScene__DoSoundEffect` (CROMSoundElement/CROMEnvelope endianness) → first audible
+    sound + validates the mixer (a 4-agent Workflow is mapping the SFX-path endianness + safe un-gate).
 
 - **★ ANIMATED-OBJECT RENDERING (Item 3, 2026-06-14) — objects were all invisibly at the origin; fixed.**
   Found via a multi-agent workflow + runtime gate-counting: every animated instance (enemies, AI_OBJECT_DEVICE_*
