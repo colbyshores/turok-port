@@ -751,6 +751,34 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     new opcodes — needs the sequence start + the seq-bank already loaded in S2). Pitch reads slightly high in the
     zero-cross estimate (unreliable for broadband SFX; the full-scale smooth waveform argues the decode/resample are fine —
     confirm by ear once music lands or via a known single-tone SFX).
+  - **★ AUDIO PACER FIXES + reliable HEADLESS audio testing (2026-06-17, commits 8bb8da0 + de7c690).** Two fixes so
+    headless audio capture works (and they improve the SDL device path): (1) **sink-agnostic real-time pacer** — the
+    audio thread had no back-pressure on the NOAUDIO/null sink (the WAV pacer only covered the WAV path), so it
+    over-produced flat-out, spun a core, hogged the synth lock, and starved the game (a NOAUDIO patrol crawled to
+    ~6fps). `audioSetNextBuffer` now accumulates `s_produced_bytes` + a start stamp; `audioGetBytesBuffered` (no SDL
+    device) returns produced-minus-drained-at-the-sample-rate as synthetic back-pressure → the thread paces to ~real
+    time for ANY non-device sink. (2) **`audioEndFrame` frame-drop fix** — it re-checked the back-pressure before
+    flushing, but the producer loop already gates on that; with the pacer holding the buffer at ~LIMIT, nearly every
+    frame was DROPPED at the boundary (a paced 10s capture yielded ~0.4s). Back-pressure belongs in the producer, not
+    the flush — once produced, always write/push (also stops the SDL device dropping boundary frames). (3) **headless
+    present pacing** — `os_shim.c osViSwapBuffer` (the EGL present, which the SDL2 `osRecvMesg` pacer never reaches)
+    gains TUROK_FPS pacing (default 0 = unbounded; existing render tests unaffected). The audio thread renders in real
+    time, so to capture SFX/music headlessly the game must too: **TUROK_FPS=30 paces it**. VERIFIED: paced fire test
+    (TUROK_FPS=30, 300 frames = 10s) captures the weapon SFX — peak 10960 (33% full-scale, loud), 92% active. The
+    classic-ABI mixer is fully validated headless. **★ HEADLESS AUDIO TEST RECIPE: `TUROK_FPS=30 TUROK_FAKEINPUT=5
+    TUROK_AUDIO_WAV=x.wav` + a frame count = seconds×30.** (User gameplay unaffected throughout — the SDL device
+    queue is the real back-pressure; these are headless-test fixes.)
+  - **★ S6 (MUSIC) SCOPED — root cause found, gated re-enable (2026-06-17, commit 50f8aec, branch `audio-s2`).** Music
+    never plays because the leaked source STUBS music loading off: `audio.c LoadSeq()` has an unconditional
+    `return FALSE;` (the `if(!cache_is_valid)` guard is commented out → the real `CScene__RequestBinaryBlock` is dead
+    code). Confirmed via `TUROK_SEQLOG` (traces UpdateSeq's seq state machine; values: SEQSTATE_IDLE=16/FADE=32/LOAD=64/
+    LOADING=128/PLAY=256): music levels DO request music (warp 6000 MusicID=5, 3000=14, 8000=8) but it never loads
+    (cur=-1). Re-enabling LoadSeq makes the sequence LOAD but then **SIGSEGVs in `alCSeqNew` (via SetupSeq)** deref'ing a
+    garbage ptr — the big-endian ALSeq is parsed RAW (same class as the banks needing turokBnkfNew). **S6 NEXT STEP: a
+    turok-style sequence endian-swap (a `turokCSeqNew` analogous to `turokBnkfNew`) before alCSeqNew** — find the
+    ALSeqFile/ALCSeq struct layout, swap the header/track offsets, then verify CSP playback. The re-enable is gated
+    behind **TUROK_MUSIC=1** (default off = the original stub → SFX work, music levels don't crash). Then merge
+    audio-s2 → master.
 
 - **★ ANIMATED-OBJECT RENDERING (Item 3, 2026-06-14) — objects were all invisibly at the origin; fixed.**
   Found via a multi-agent workflow + runtime gate-counting: every animated instance (enemies, AI_OBJECT_DEVICE_*
