@@ -140,7 +140,11 @@ void audioSetNextBuffer(const s16 *buf, u32 len)
 
 void audioEndFrame(void)
 {
-    if (s_nextBuf && s_nextSize && s_enabled && audioGetSamplesBuffered() < AUDIO_QUEUE_LIMIT) {
+    /* Always flush the produced frame. Back-pressure lives in the PRODUCER (the thread loop's
+     * audioGetSamplesBuffered() < LIMIT gate decides WHETHER to produce a frame); re-checking it
+     * here would DROP every frame produced right at the LIMIT boundary — and with the real-time
+     * pacer holding the buffer at ~LIMIT, that's nearly all of them, starving the WAV/device. */
+    if (s_nextBuf && s_nextSize && s_enabled) {
 #if defined(GFX_USE_SDL2)
         if (s_dev) SDL_QueueAudio(s_dev, s_nextBuf, s_nextSize);
         else

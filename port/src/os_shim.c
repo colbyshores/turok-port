@@ -182,6 +182,26 @@ extern void turokGfxStartFrame(void);                /* open the next frame */
 void osViSwapBuffer(void *frameBuf)
 {
 #ifdef PLATFORM_PORT
+    /* PORT (headless audio testing): optional present-rate PACING. Headless (EGL) frames are driven
+     * HERE (not the osRecvMesg pump), and run UNBOUNDED by default (fast bounded captures). The audio
+     * thread renders in REAL TIME, so to capture SFX/music headlessly the game must also run at real
+     * time — set TUROK_FPS=<n> to cap the present rate. Default 0 = unbounded (existing render tests
+     * unaffected). (The SDL2 path paces in osRecvMesg instead; headless never hits that branch.) */
+    {
+        static int s_pfps = -2;
+        if (s_pfps == -2) { const char *e = getenv("TUROK_FPS"); s_pfps = (e && *e) ? atoi(e) : 0; }
+        if (s_pfps > 0) {
+            static struct timespec plast = {0, 0};
+            struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+            if (plast.tv_sec) {
+                long tgt = 1000000000L / s_pfps;
+                long el = (now.tv_sec - plast.tv_sec) * 1000000000L + (now.tv_nsec - plast.tv_nsec);
+                if (el < tgt) { struct timespec d = {0, tgt - el}; nanosleep(&d, NULL);
+                                clock_gettime(CLOCK_MONOTONIC, &now); }
+            }
+            plast = now;
+        }
+    }
     /* PORT: decouple the game LOGIC tick rate (TUROK_TICK_FPS, default 30 = Turok's native step — its
      * frame_increment is sized for 30fps) from the render/present rate. This is THE per-frame present;
      * advance the logic only when ~1/TICK_FPS sec has really elapsed (g_turok_logic_tick=1), else the
