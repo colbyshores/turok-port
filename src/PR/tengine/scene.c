@@ -427,6 +427,14 @@ void CScene__WarpPointsReceived(CScene *pThis, CCacheEntry **ppceTarget)
 			pThis->m_WarpFound = FALSE;
 			pThis->m_nLevel = 0;
 		}
+#ifdef PLATFORM_PORT
+		/* TUROK_WARPLOG (blue-portal return bug): was the return point actually saved at portal-entry,
+		 * and what level does the return resolve to? If returnSaved=0 the forward store never fired. */
+		{ extern char *getenv(const char *); static int wl=-1; if(wl<0){const char*e=getenv("TUROK_WARPLOG"); wl=(e&&atoi(e))?1:0;}
+		  if(wl){ extern int fprintf(void*,const char*,...); extern void *stderr;
+		    fprintf(stderr,"[WARP] RequestWarpPoints RETURN: returnSaved=%d -> found=%d level=%d\n",
+		      GetApp()->m_ReturnWarpSaved, pThis->m_WarpFound, pThis->m_nLevel); } }
+#endif
 	}
 	else
 	if (pThis->m_nWarpID == CRASH_WARP_ID)

@@ -2387,6 +2387,15 @@ void CEngineApp__Warp(CEngineApp *pThis, int WarpID, int nType, BOOL StoreWarpRe
 
 	ASSERT((nType >= WARP_WITHINLEVEL) && (nType <= WARP_BETWEENLEVELS));
 
+#ifdef PLATFORM_PORT
+	/* TUROK_WARPLOG (blue-portal return bug): the WarpID the warp was invoked with. RETURN_WARP_ID(-1)
+	 * => restore m_ReturnWarp; CAMPAIGNER_BOSS_WARP_ID(8999) => the boss the user lands on by mistake. */
+	{ extern char *getenv(const char *); static int wl=-1; if(wl<0){const char*e=getenv("TUROK_WARPLOG"); wl=(e&&atoi(e))?1:0;}
+	  if(wl){ extern int fprintf(void*,const char*,...); extern void *stderr;
+	    fprintf(stderr,"[WARP] CEngineApp__Warp: WarpID=%d nType=%d store=%d (RETURN=%d CAMPAIGNER=%d)\n",
+	      WarpID, nType, StoreWarpReturn, RETURN_WARP_ID, CAMPAIGNER_BOSS_WARP_ID); } }
+#endif
+
 	// Skip boss levels if the boss is already dead
 	switch(WarpID)
 	{

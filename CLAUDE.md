@@ -1212,6 +1212,26 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     lifecycle ROOT — re-acquiring a relocated resource beats nulling/skipping around the stale handle.** ALSO
   REPORTED by the user (deferred): a **blue-portal warp bug** — entering a portal → bonus area, then re-entering
   → wrong-warps to the Campaigner boss instead of back. Warp/portal level-transition logic to fix next.
+- **★ BLUE-PORTAL WARP BUG — investigated, endianness RULED OUT, instrumented for interactive capture (2026-06-18,
+  on master).** Traced the dynamic-warp / store-and-return mechanic end to end (Explore agent + direct
+  read). The warp triggers on the player COLLIDING with an `AI_OBJECT_WARP_DYNAMIC` (=600) simple-instance
+  (`tmove.c:1356` → `warp.c CWarp__Warp`). For each: if `m_pEA->m_wTypeFlags3 & AI_TYPE3_RETURNWARP`(1<<0) →
+  `CEngineApp__WarpReturn` (restore the saved point); else forward-warp to `m_pEA->m_Id`, optionally storing the
+  return point if `m_dwTypeFlags2 & AI_TYPE2_STOREWARPRETURN`(1<<29). The return restore is `scene.c
+  CScene__RequestWarpPoints:417` — `m_nWarpID==RETURN_WARP_ID(-1)` → if `GetApp()->m_ReturnWarpSaved` use
+  `m_ReturnWarp` (host-order pos/RotY/level/region saved at `tengine.c DoWarp:2437`), else fall back to
+  `m_WarpFound=FALSE,m_nLevel=0`. **RULED OUT:** (1) **endianness** — the three read fields (`m_Id` short,
+  `m_dwTypeFlags2` DWORD, `m_wTypeFlags3` WORD) are ALL correctly byte-swapped in `scene.c
+  CScene__ObjectAttributesReceived:912-921` (verified field-by-field); (2) **BOOL truncation** — `BOOL=int`
+  (defs.h:127), so `returnWarp = flags2 & (1<<29)` doesn't truncate. So it's a **logic/data** issue, NOT the usual
+  endianness class. Suspects needing RUNTIME data: the bonus return-portal's `RETURNWARP` bit not set in DATA (→
+  treated as a forward warp to a boss `m_Id`), or `m_ReturnWarpSaved` cleared between entry and return. Can't repro
+  headlessly (can't script walking into a trigger volume), so added a **`TUROK_WARPLOG=1`** trace at the 3 decision
+  points (`warp.c` portal flags+`m_Id`+branch; `tengine.c CEngineApp__Warp` the invoked WarpID vs RETURN/CAMPAIGNER;
+  `scene.c` RETURN restore `returnSaved`/level) — exactly the methodology that cracked the death-fall-through bug.
+  **NEXT: user plays with `TUROK_WARPLOG=1`, walks the portal→bonus→re-enter sequence, and the trace pins which of
+  the suspects fires.** Build+rc=0 verified; trace default-off, no behavior change. NOTE for 3DS/v1.2: CAMPAIGNER_
+  BOSS_WARP_ID=8999, RETURN_WARP_ID=-1, bonus levels are warp IDs 9000-9999 (`tengine.c:2347`).
 - **★ DEBUG-KNOB CLEANUP (2026-06-17, 9-agent Workflow).** Stripped ~36 one-off `TUROK_*` debug env knobs that
   accreted across the porting sessions — the `*LOG` trace prints (OBJLOG/GATELOG/BLENDLOG/RSLOG/MTXLOG/VTXLOG/
   QLOG/QCLOG/SIMPLOG/INSTLOG/XINSTLOG/PARTLOG/MATLOG/VMLOG/VP_LOG/CAMLOG/MOVELOG/GFX_DUMP/GFX_DRAWLOG/OBJLOG/
