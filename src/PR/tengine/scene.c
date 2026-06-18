@@ -3535,6 +3535,33 @@ void CScene__BuildInstanceCollisionList(CScene *pThis, CUnindexedSet *pusAnimIns
 
 	// add pickups
 	CSimplePool__AddToCollisionList(&pThis->m_SimplePool, pThis);
+
+#ifdef PLATFORM_PORT
+	/* TUROK_FORCEPORTAL: scan the freshly-built collision list (m_pInstances) for a warp/portal simple
+	 * and fire the REAL CWarp__Warp path (back-off + store=TRUE) — reproduces the blue-portal warp
+	 * headlessly, without the player physically colliding. Logs every warp simple it sees (m_Id/flags)
+	 * so we can tell whether a portal is in collision range. Pair with TUROK_FAKEINPUT=7 (patrol) so the
+	 * player wanders until a portal enters range. Fires ONCE. */
+	{ extern char *getenv(const char*); extern int AI_IsWarp(int); extern void CWarp__Warp(CGameSimpleInstance*);
+	  static int fp=-2; static int done=0;
+	  if(fp==-2){ const char*e=getenv("TUROK_FORCEPORTAL"); fp=(e&&atoi(e))?1:0; }
+	  if(fp && !done){
+	    int _i; extern int fprintf(void*,const char*,...); extern void *stderr;
+	    for(_i=0;_i<pThis->m_nInstances;_i++){
+	      CInstanceHdr *_ih = pThis->m_pInstances[_i];
+	      if(_ih && _ih->m_Type==I_SIMPLE && AI_IsWarp(CInstanceHdr__TypeFlag(_ih))){
+	        CGameSimpleInstance *_w = (CGameSimpleInstance*)_ih;
+	        int _id = _ih->m_pEA ? _ih->m_pEA->m_Id : -999;
+	        fprintf(stderr,"[WARP] FORCEPORTAL warp simple #%d m_Id=%d wFlags=0x%x\n", _i, _id, _w->m_wFlags);
+	        if(!(_w->m_wFlags & SIMPLE_FLAG_GONE) && (_w->m_wFlags & SIMPLE_FLAG_VISIBLE) && _id>0){
+	          fprintf(stderr,"[WARP] FORCEPORTAL -> CWarp__Warp on m_Id=%d\n", _id);
+	          CWarp__Warp(_w); done=1; break;
+	        }
+	      }
+	    }
+	  }
+	}
+#endif
 }
 
 
