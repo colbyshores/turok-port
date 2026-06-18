@@ -732,6 +732,25 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     SFX dispatch (`scene.c CScene__DoSoundEffect`) is still gated off → no active voices. Debug: `TUROK_AUDIO_DUMP` (opcode
     histogram). **NEXT: S5** — un-gate `CScene__DoSoundEffect` (CROMSoundElement/CROMEnvelope endianness) → first audible
     sound + validates the mixer (a 4-agent Workflow is mapping the SFX-path endianness + safe un-gate).
+  - **★★ S5 DONE — FIRST AUDIBLE SOUND + mixer validated end-to-end (2026-06-17, commits 44c9ad7 + 1125b0f, branch
+    `audio-s2`).** Un-gated the game's SFX dispatch: `scene.c CScene__DoSoundEffect`'s `#ifdef PLATFORM_PORT return -1`
+    became a `turok_audio_ready` guard. **`CROMSoundElement` endianness:** it's 15 consecutive big-endian WORDs (5 element
+    fields: m_nSampleNum/m_nDelayTime/m_Priority/m_wFlags/m_Probability, then 2 `CROMEnvelope` × 5 WORDs each — SF==WORD;
+    romstruc.h:46/1233/1247) + 2 endian-safe trailing BYTEs → `turokSwapSoundElement` swaps a per-trigger STACK COPY. A
+    copy is SAFE because the whole SFX path is **read-only** on pElement: `SetCFXPitch`/`SetCFXVolume` copy the envelope to a
+    channel buffer (`*pEnv = pElement->m_Pitch`) BEFORE mutating, and `initCFX`/`PlayEnvironmentSound` copy field values
+    (`sfxnum = pElement->m_nSampleNum`); none store the pointer. (4-agent Workflow hit the session limit → did it solo.)
+    **VERIFIED (warp 0 + fire, headless `TUROK_AUDIO_WAV`):** rc=0, the SFX renders as REAL audio — smooth waveform
+    (mean-delta/peak 0.06-0.09 = tonal, not noise), mono/centered (L==R), clean bursts. **Mixer proven CORRECT** via the
+    `TUROK_AUDIO_DUMP` envmixer diagnostic: **inpk=31603** (96% full-scale — VADPCM decode + resample emit full-amplitude
+    samples), **voldry=32767** (full), gain ramps to the synth-requested target. The quiet per-SFX peak (~1.6-20%) is the
+    AUTHORED level, NOT a bug: `SetCFXVolume` sets `pSound->Vol = CFXVolumeTable[dbVolume]` (the SFX's authored dB) and the
+    SFX master defaults to 255/255=1.0 (options.c:224) — the port plays each SFX exactly as the N64 would. **The classic-ABI
+    software audio mixer works end-to-end (ADPCM→resample→envmix→interleave→save).** play_level.sh (GFX=sdl2) plays SFX
+    through the speakers (same sink). **NEXT: S6** — music (the CSP sequence player `csplayer.c`; same synth/mixer chain, no
+    new opcodes — needs the sequence start + the seq-bank already loaded in S2). Pitch reads slightly high in the
+    zero-cross estimate (unreliable for broadband SFX; the full-scale smooth waveform argues the decode/resample are fine —
+    confirm by ear once music lands or via a known single-tone SFX).
 
 - **★ ANIMATED-OBJECT RENDERING (Item 3, 2026-06-14) — objects were all invisibly at the origin; fixed.**
   Found via a multi-agent workflow + runtime gate-counting: every animated instance (enemies, AI_OBJECT_DEVICE_*
