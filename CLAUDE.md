@@ -813,6 +813,14 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     confirm).** LESSON: a leaked DEV tree's bundled audio (`sfx.ctl/.tbl`) can be SCRATCH/PLACEHOLDER from another title —
     the shipped assets live in the retail ROM as plain `B1` ALBankFile segments; find them by signature-scan + ALBank-tree
     walk, not by trusting the dev files. (Python ROM-scan: find `b'\x42\x31'` with sane bankCount/instCount/sampleRate.)
+  - **★ RATE FIX REVERTED to 22050 once the retail banks landed (2026-06-18, commit 5dce26b).** The 44100 rate fix
+    (dc6c810) was correct for the dev PLACEHOLDER bank (44100-stored), but the RETAIL ROM banks store samples at **22050**
+    — so at 44100 the real SFX played 2x too FAST (user-confirmed). Reverted `OUTPUT_RATE` (audio.h) + `AUDIO_RATE`
+    (port/audio.c) to the shipped 22050. **KEY CORRECTION to the rate-fix lesson above: `ALBank.sampleRate` (44100 in BOTH
+    banks) is the RECORDING rate, NOT the playback/stored rate — do NOT match the output rate to it. The synth plays
+    ratio=1.0 native, so device+synth rate must equal the bank's STORED sample rate, which here is 22050 (the shipped
+    OUTPUT_RATE).** The dev placeholder happened to be 44100-stored, which sent us on the 44100 detour; the retail bank is
+    22050. Verified: device opens 22050, retail banks load, rc=0.
 
 - **★ ANIMATED-OBJECT RENDERING (Item 3, 2026-06-14) — objects were all invisibly at the origin; fixed.**
   Found via a multi-agent workflow + runtime gate-counting: every animated instance (enemies, AI_OBJECT_DEVICE_*
