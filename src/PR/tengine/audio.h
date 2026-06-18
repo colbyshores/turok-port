@@ -53,18 +53,14 @@
 #define AUDIO_HEAP_SIZE       299008
 #define EXTRA_SAMPLES         80
 #define NUM_OUTPUT_BUFFERS    3			/* Need three of these */
-#ifdef PLATFORM_PORT
-/* PORT (audio pitch fix): turok's banks (sfx.ctl / testbank.ctl) are authored at sampleRate=44100
- * (verified in every ALBank header). The classic libaudio synth bakes the sample-rate/output-rate
- * factor into the keymap at bank-build time and applies NO runtime correction — and turok's SFX
- * player ignores keyBase/detune entirely — so the output rate MUST equal the bank's sampleRate or
- * every SFX plays at the wrong speed (44100 samples at 22050 output = 2x too slow, an octave down).
- * The source's 22050 mismatches the 44100 banks; match the bank rate. (Device rate in port/audio.c
- * is set to match.) */
-#define OUTPUT_RATE           44100
-#else
+/* PORT audio-rate note (kept at the shipped 22050): the classic libaudio synth plays samples at
+ * ratio=1.0 (native, no runtime sampleRate/outputRate correction — see the cross-engine analysis), so
+ * the output rate must equal the bank's STORED sample rate. The RETAIL SFX/music banks (loaded from the
+ * ROM, Path B) store their samples at 22050 — the ALBank.sampleRate=44100 field is the RECORDING rate,
+ * not the playback rate. (We briefly used 44100 because the dev tree's PLACEHOLDER banks — scratch
+ * samples from another Iguana title — were 44100-stored; with the real retail banks, 44100 plays them
+ * 2x too fast, so 22050 is correct.) */
 #define OUTPUT_RATE           22050
-#endif
 #define QUIT_MSG              10
 
 #define DMA_BUFFER_LENGTH     0x800		/* Larger buffers result in fewer DMA' but more  */

@@ -35,10 +35,10 @@
                       * libultra include dir shadows some glibc headers, so size_t etc. must be
                       * seen first (the documented port include-order rule). */
 
-#define AUDIO_RATE          44100               /* MUST equal the game's OUTPUT_RATE (audio.h) AND the
-                                                * bank sampleRate (44100): the classic synth applies no
-                                                * runtime sample-rate correction, so output rate != bank
-                                                * rate = every sound at the wrong speed. */
+#define AUDIO_RATE          22050               /* MUST equal the game's OUTPUT_RATE (audio.h). The retail
+                                                * ROM banks store samples at 22050 (the ALBank.sampleRate
+                                                * 44100 is the recording rate); the synth plays ratio=1.0
+                                                * native, so device+synth rate must = the stored rate. */
 #define AUDIO_FRAME_SAMPLES 512                /* stereo frames produced per synth pump */
 #define AUDIO_QUEUE_LIMIT   8192               /* samples; refill below this (PD uses 8192) */
 #define AUDIO_REFILL_GUARD  64                 /* cap frames/iter so a non-backing sink (WAV) can't spin */
