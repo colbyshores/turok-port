@@ -1808,9 +1808,16 @@ BOOL LoadSeq(int nTune)
 {
 	static CCacheEntry *pceSequence;
 
+#ifdef PLATFORM_PORT
+	/* S6 (music) WIP: the leaked source stubs music loading OFF (the unconditional return FALSE makes
+	 * the real RequestBinaryBlock below dead code). Re-enable only with TUROK_MUSIC=1 — the sequence
+	 * then LOADS but alCSeqNew SIGSEGVs parsing the big-endian ALSeq (needs a turok-style endian-swap,
+	 * like turokBnkfNew for the banks). Default off = stable: SFX work, music levels don't crash. */
+	{ static int m=-1; if(m<0){const char*e=getenv("TUROK_MUSIC"); m=(e&&atoi(e))?1:0;} if(!m) return FALSE; }
+#else
 //	if (!cache_is_valid)
 		return FALSE;
-
+#endif
 
 	return CScene__RequestBinaryBlock(&GetApp()->m_Scene,
 												 nTune,
@@ -1855,6 +1862,13 @@ void UpdateSeq()
 	int nRequestedSeq = CTurokMovement.MusicID;
 	static	int		load_timeout = 0;
 //	static	int		timeout_counter = 0;
+
+#ifdef PLATFORM_PORT
+	{ extern void *stderr; extern int fprintf(void*, const char*, ...);
+	  static int s=-1, c=0; if(s<0){const char*e=getenv("TUROK_SEQLOG"); s=(e&&atoi(e))?1:0;}
+	  if(s && (c++%60)==0) fprintf(stderr,"[seq] req=%d cur=%d state=%d action=%d\n",
+	      nRequestedSeq, global_seqnum, SeqStateFlags, SeqStateAction); }
+#endif
 
 	//return;
 
