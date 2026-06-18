@@ -821,6 +821,16 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     ratio=1.0 native, so device+synth rate must equal the bank's STORED sample rate, which here is 22050 (the shipped
     OUTPUT_RATE).** The dev placeholder happened to be 44100-stored, which sent us on the 44100 detour; the retail bank is
     22050. Verified: device opens 22050, retail banks load, rc=0.
+  - **★ AUDIO MERGED TO MASTER + SFX latency cut (2026-06-18).** The whole audio stack (S2 libaudio+banks → S3+S4
+    classic-ABI mixer → S5 SFX un-gate → pitch/rate fix → retail-ROM banks) is merged to **master** and pushed
+    (origin f1e6f8b), `audio-s2` deleted — single branch again. **User-confirmed: real Turok SFX play correct
+    (content + pitch + speed).** Then cut the SFX trigger LATENCY: the audio thread buffered `AUDIO_QUEUE_LIMIT`
+    samples ahead of the device, so a freshly-triggered sound sat behind it — 8192 (PD's value) = ~371ms @22050,
+    audible as a ~1/4s delay. Reduced to **2048 (~93ms)** (commit 5643e95, on master+origin); the thread refills
+    every ~2ms so it stays clear of underrun. Drop to 1024 (~46ms) if even lower latency is wanted (only risk is
+    crackle on a busy host). **REMAINING audio work: S6 music** — the retail music bank now loads from the ROM
+    (@0x626dd0), but playback still needs the `alCSeqNew` sequence-decode endianness fix (`turokCSeqNew`, gated
+    behind TUROK_MUSIC); see the S6 entry above.
 
 - **★ ANIMATED-OBJECT RENDERING (Item 3, 2026-06-14) — objects were all invisibly at the origin; fixed.**
   Found via a multi-agent workflow + runtime gate-counting: every animated instance (enemies, AI_OBJECT_DEVICE_*
