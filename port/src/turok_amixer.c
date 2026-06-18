@@ -51,6 +51,10 @@ static int16_t  s_vol_dry, s_vol_wet;
 static int16_t *s_adpcm_loop_state;
 static int16_t  s_adpcm_table[8][2][8];
 
+/* S5 debug: volume-chain diagnostics (TUROK_AUDIO_DUMP) */
+static int g_amix_dump = 0;
+static int g_dbg_voldry = 0, g_dbg_inpk = 0, g_dbg_gain = 0;
+
 static const int16_t resample_table[64][4] = {
     {0x0c39, 0x66ad, 0x0d46, 0xffdf}, {0x0b39, 0x6696, 0x0e5f, 0xffd8},
     {0x0a44, 0x6669, 0x0f83, 0xffd0}, {0x095a, 0x6626, 0x10b4, 0xffc8},
@@ -250,6 +254,11 @@ static void k_envmixer(uint8_t flags, int16_t *state) {
         gain[3] = clamp16((vol[1] * volwet + 0x4000) >> 15);
         {
             const int16_t insamp = in[i ^ XOR];
+            if (g_amix_dump) {
+                int a = insamp < 0 ? -insamp : insamp;
+                if (a > g_dbg_inpk) g_dbg_inpk = a;
+                if (gain[0] > g_dbg_gain) g_dbg_gain = gain[0];
+            }
             for (j = 0; j < 4; ++j)
                 *outptr[j] = clamp16(*outptr[j] + ((insamp * gain[j]) >> 15));
         }
@@ -308,6 +317,7 @@ static void k_setvol(uint16_t flags, int16_t v, int16_t t, int16_t r) {
     if (flags & A_AUX) {                 /* dry/wet amounts */
         s_vol_dry = v;
         s_vol_wet = r;
+        if (g_amix_dump && v > g_dbg_voldry) g_dbg_voldry = v;
     } else if (flags & A_VOL) {          /* current volume */
         if (flags & A_LEFT) s_vol[0] = v; else s_vol[1] = v;
     } else {                             /* A_RATE: target + 32-bit rate */
@@ -326,7 +336,7 @@ void turokAudioMixer(Acmd *list, s32 len, s16 *out, s32 nSamples) {
     static long s_calls = 0, s_op[16];
     s32 i;
     (void)out; (void)nSamples;
-    if (s_dump < 0) { const char *e = getenv("TUROK_AUDIO_DUMP"); s_dump = (e && atoi(e)) ? 1 : 0; }
+    if (s_dump < 0) { const char *e = getenv("TUROK_AUDIO_DUMP"); s_dump = (e && atoi(e)) ? 1 : 0; g_amix_dump = s_dump; }
     for (i = 0; i < len; i++) {
         uint32_t w0 = list[i].words.w0;
         uint32_t w1 = list[i].words.w1;
@@ -359,8 +369,8 @@ void turokAudioMixer(Acmd *list, s32 len, s16 *out, s32 nSamples) {
         default:          break;
         }
     }
-    if (s_dump && (++s_calls % 600) == 0)
-        fprintf(stderr, "[amix] %ld frames: ADPCM=%ld RESAMP=%ld ENVMIX=%ld MIX=%ld SAVE=%ld LOADADPCM=%ld SETVOL=%ld\n",
+    if (s_dump && (++s_calls % 50) == 0)
+        fprintf(stderr, "[amix] %ld fr: ADPCM=%ld RESAMP=%ld ENVMIX=%ld MIX=%ld | inpk=%d gain=%d voldry=%d\n",
                 s_calls, s_op[A_ADPCM], s_op[A_RESAMPLE], s_op[A_ENVMIXER], s_op[A_MIXER],
-                s_op[A_SAVEBUFF], s_op[A_LOADADPCM], s_op[A_SETVOL]);
+                g_dbg_inpk, g_dbg_gain, g_dbg_voldry);
 }
