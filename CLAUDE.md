@@ -779,6 +779,24 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     ALSeqFile/ALCSeq struct layout, swap the header/track offsets, then verify CSP playback. The re-enable is gated
     behind **TUROK_MUSIC=1** (default off = the original stub → SFX work, music levels don't crash). Then merge
     audio-s2 → master.
+  - **★ SFX WRONG-SPEED FIX — output rate must equal the 44100 bank rate (2026-06-18, commit dc6c810, branch
+    `audio-s2`).** User: SFX play "all wrong and at the wrong speed" (suspected the N64 "chopped & screwed" reduced-rate
+    sample trick). A 4-agent cross-engine Workflow (turok synth + PD + banjo + SM64/Ship-of-Harkinian) nailed it: the
+    classic N64 libaudio synth computes a voice's resample ratio as a PURE musical ratio (`2^(cents/1200)`) and applies
+    **NO runtime sampleRate/outputRate correction** — the sample-rate factor is baked into the keymap (`keyBase`/`detune`)
+    at bank-BUILD time, on the contract that **the synth output rate == the bank's recorded sampleRate** (so ratio=1.0 =
+    native). Nothing in `turoksnd/abi` reads `ALBank.sampleRate`; turok's SFX player even ignores keyBase/detune (uses
+    `state->pitch` directly). PD honors this (output 22020 = its bank 22020); SM64/SoH add a runtime `32000/gAiFrequency`
+    term turok's classic ABI LACKS. **The bug:** turok's banks (sfx.ctl/testbank.ctl) are authored at **sampleRate=44100**
+    (verified in every ALBank header via xxd) while OUTPUT_RATE/device were **22050** — a 2:1 mismatch with no correction,
+    so every 44100 sample played 1:1 at 22050 = half speed, an octave low. **Fix:** `OUTPUT_RATE` (audio.h, PLATFORM_PORT)
+    + the SDL device `AUDIO_RATE` (port/audio.c) → **44100** (match the bank). ratio=1.0 now plays native + the envelope
+    timebase (`_timeToSamples` uses outputRate) stays consistent. Verified headless: captured SFX pitch DOUBLES (dominant
+    ~10.4kHz→~20.7kHz, exactly 2x), rc=0, no heap issue at the higher rate. Also fixes music pitch (the seq bank is 44100).
+    **LESSON: N64 audio banks bake sampleRate/outputRate into keyBase/detune at build time — the runtime synth is
+    rate-agnostic, so the HOST device + synth output rate MUST equal the bank's `ALBank.sampleRate`, or all sound plays
+    at a uniform wrong speed (a global octave shift = the giveaway vs a per-sample tuning error).** User to confirm by ear;
+    if a sound is still wrong beyond SPEED, that's a separate sample-selection/decode issue.
 
 - **★ ANIMATED-OBJECT RENDERING (Item 3, 2026-06-14) — objects were all invisibly at the origin; fixed.**
   Found via a multi-agent workflow + runtime gate-counting: every animated instance (enemies, AI_OBJECT_DEVICE_*
