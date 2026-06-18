@@ -273,5 +273,69 @@ run a UBSan alignment pass on the PC build before every 3DS push and use `memcpy
 
 ---
 
-*Distilled 2026-06-17 from the Turok: Dinosaur Hunter port. See `CLAUDE.md` for the project-specific log and
+## 13. Audio: the classic libultra ABI, the bank, the rate, and the placeholder trap
+
+Audio is its own world. The DSP is portable; the friction is the ABI, the addressing, the rates, and the assets.
+
+- **The N64 already runs audio on its own thread — make that thread REAL.** `audiomgr` does
+  `osCreateThread(THREAD_AUDIO, __amMain)`; the cooperative host no-ops every thread so audio never runs. Make the
+  AUDIO thread a real `pthread` (PC) / `threadCreate` (3DS) while game + gfx stay cooperative — exactly the N64's
+  own split (and the PD/banjo/Forsaken pattern). A **recursive** synth-lock mutex guards the voice list (game
+  thread mutates on SFX triggers; audio thread reads it in `alAudioFrame`). Keep the lock NARROW (around the synth
+  walk, not the mixer) or lock contention starves the game thread.
+- **Two N64 audio ABIs — classic vs n_audio — need DIFFERENT mixers.** banjo/PD/SM64 use **n_audio** (the
+  `aXxxImpl` kernels carry their in/out/count inline). Older titles (Turok) use the **CLASSIC** ABI: a STATEFUL
+  `aSetBuffer` (`A_SETBUFF`) sets the DMEM in/out/count for the *following* op, out-of-band. The DSP math is
+  **identical** — lift PD's `mixer.c` scalar kernels verbatim (VADPCM decode, polyphase resample, envelope mixer,
+  gain-mix, interleave). The only new code is a ~150-LOC **packed-Acmd dispatch loop + a SETBUFFER latch** that
+  n_audio never needed (the A_MAIN + A_AUX register triples — A_AUX *overloads* its 3 fields as the envmixer's
+  MAIN_R/AUX_L/AUX_R targets). Decode each packed `Acmd` by hand (shifts, not the MSB-first bitfield struct) to be
+  endian-safe. The synth (`alAudioFrame`) is portable C and builds the Acmd list; you only replace the RSP.
+- **★ Address masking is the #1 audio hazard.** `osVirtualToPhysical(p) = p & 0x1FFFFFFF` and the `K0_TO_PHYS`
+  family mask the top bits — harmless for low static/BSS addresses, but they **corrupt malloc'd bank pointers**
+  (high on a host). EVERY DRAM address in the Acmd list (`LOADBUFF`/`SAVEBUFF`/`LOADADPCM`/decoder state) flows
+  through them. **Make them IDENTITY under `PLATFORM_PORT`** (the host heap *is* physical). And pass the synth its
+  REAL output pointer, not the masked one, so the final `A_SAVEBUFF` writes straight into the device buffer.
+- **The bank `.ctl` is big-endian — swap it with a host `BnkfNew`.** The
+  `ALBankFile → ALBank → ALInstrument → ALSound → ALWaveTable / Envelope / ADPCMBook / loop` tree is big-endian;
+  swap every offset/count/scalar **during the relocation walk**, after each struct's `flags` guard so shared nodes
+  swap exactly once. The `.tbl` VADPCM payload stays raw big-endian; the keymap (all `u8`/`s8`) needs no swap. The
+  SGI `alBnkfNew` only RELOCATES (N64 is natively big-endian) — the host version *adds* the swap, so write your own
+  and call it instead. Watch for two missing symbols: `adpcmDecode` (the per-node ANIMATION ADPCM decoder, shipped
+  as MIPS asm — port the in-tree C reference; a no-op stub collapses every animated model to a point) and any
+  effect symbol referenced-but-undefined in the leak (`alReverbSetType`) — host-stub it in a TRACKED file.
+- **★★ `ALBank.sampleRate` is the RECORDING rate, NOT the playback rate.** The classic synth plays each voice at
+  ratio = `2^(cents/1200)` (a pure musical ratio) with **no runtime sampleRate/outputRate correction** — that
+  factor was baked into the keymap (`keyBase`/`detune`) at bank-BUILD time. So **the host device + synth output
+  rate must equal the bank's STORED sample rate**, which is NOT necessarily its `sampleRate` field. PD honors this
+  (device 22020 = bank stored 22020); SM64/SoH additionally carry a runtime `32000/gAiFrequency` reconciliation the
+  classic ABI **lacks**. The diagnostic: a rate mismatch makes **ALL** sounds wrong-speed by a uniform factor (a
+  global octave shift) — vs a per-sample tuning error, which is wrong on only *some* instruments. Match output to
+  the STORED rate (find it by ear / the known shipped `OUTPUT_RATE`), not to the metadata field. *(Turok's dev and
+  retail banks both said 44100, but the dev samples were 44100-stored and the retail 22050-stored — chasing the
+  field sent us 2× the wrong way twice.)*
+- **★★ A leaked DEV tree's bundled audio can be PLACEHOLDER from another title.** Turok's
+  `src/PR/tengine/sfx.ctl/.tbl` were **sports-announcer scratch samples** (Iguana reused another game's bank during
+  development) — nonsensical in-game ("right on the concrete floor"). The SHIPPED audio lives in the RETAIL ROM as
+  plain `B1` `ALBankFile` segments. Find them by **signature-scanning the ROM for `b'\x42\x31'` ("B1" revision)**
+  with a sane bankCount / instCount / sampleRate, then **walk the ALBank tree** to get each `.ctl`/`.tbl` extent
+  (cross-check the `.tbl` offset against the ROM's segment alignment — Turok's was 16 bytes). Load THOSE, not the
+  dev files. **General rule: a leaked tree's bundled assets are dev-state — verify every one against the retail ROM**
+  (this is the audio sibling of the level-geometry "v49 placeholder vs retail" finding).
+- **SFX trigger latency = the audio buffer depth.** The audio thread buffers up to a back-pressure threshold ahead
+  of the device; a freshly-triggered SFX waits behind it. PD's 8192 samples ≈ **371 ms @22050** = an audible ~¼ s
+  delay. Lower the threshold (2048 ≈ 93 ms) for responsive SFX — the thread refills every ~2 ms, so it stays clear
+  of underrun. This is purely a latency-vs-underrun trade; start conservative and tighten by ear.
+- **Headless audio testing: pace the GAME, not just the audio.** Audio is inherently real-time; a headless game
+  runs *faster* than real-time, so the audio thread can't catch transient SFX. (a) Pace the per-frame PRESENT to
+  real-time (a gated `nanosleep`) so game and audio stay in sync. (b) Give a non-device sink (WAV dump / null)
+  **synthetic back-pressure** — `produced_bytes − drained_at_the_sample_rate` — or the thread spins a core and
+  starves the game. (c) The flush must **NOT** re-check the back-pressure (the producer loop already gates it) or
+  it drops every frame produced right at the LIMIT boundary (a paced 10 s capture yields 0.4 s). Then capture to a
+  WAV and measure peak / dominant-frequency / duration. A 2× pitch ratio between two captures confirms a rate change.
+
+---
+
+*Distilled 2026-06-18 from the Turok: Dinosaur Hunter port (incl. the full classic-ABI audio pipeline: threaded
+synth, software Acmd mixer, bank/rate/placeholder fixes). See `CLAUDE.md` for the project-specific log and
 `docs/REFERENCES.md` for the per-sibling reference notes.*
