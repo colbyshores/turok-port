@@ -40,7 +40,11 @@
                                                 * 44100 is the recording rate); the synth plays ratio=1.0
                                                 * native, so device+synth rate must = the stored rate. */
 #define AUDIO_FRAME_SAMPLES 512                /* stereo frames produced per synth pump */
-#define AUDIO_QUEUE_LIMIT   8192               /* samples; refill below this (PD uses 8192) */
+#define AUDIO_QUEUE_LIMIT   2048               /* samples buffered ahead = the SFX trigger latency.
+                                                * 8192 (PD's value) = ~371ms @22050 — clearly audible as a
+                                                * ~1/4s delay; 2048 = ~93ms. The audio thread refills every
+                                                * ~2ms so this stays well above underrun. Drop further
+                                                * (1024 = ~46ms) if lower latency is wanted + no crackle. */
 #define AUDIO_REFILL_GUARD  64                 /* cap frames/iter so a non-backing sink (WAV) can't spin */
 
 static int        s_rate    = AUDIO_RATE;
