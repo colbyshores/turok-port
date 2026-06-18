@@ -4689,6 +4689,34 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	}
 #endif
 
+#ifdef PLATFORM_PORT
+	/* TUROK_TESTPORTAL=1: a re-triggerable blue-portal test trigger AT the fire-pit (warp-0) spawn, so the
+	 * 9600 key-gate can be exercised repeatedly without hiking to the real portal. EDGE-triggered: it fires
+	 * CEngineApp__Warp(9600) the moment the player ENTERS a ~200u zone around the spawn (-1837,-3290) from
+	 * outside — so it does NOT fire on the initial spawn (step out of the zone and back in to trigger).
+	 * store=TRUE so the bonus area's own return portal brings you back to the fire-pit to retest. With the
+	 * key gate, 9600 resolves to the bonus (lvl 26) until all keys are collected. */
+	{ extern char *getenv(const char*); static int tp=-2; static int wasOut=0;
+	  if (tp==-2){ const char*e=getenv("TUROK_TESTPORTAL"); tp=(e&&atoi(e))?1:0; }
+	  if (tp) {
+	    CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
+	    if (_pl && pThis->m_Warp == WARP_NOT_WARPING) {
+	      float _dx = _pl->ah.ih.m_vPos.x - (-1837.0f);
+	      float _dz = _pl->ah.ih.m_vPos.z - (-3290.0f);
+	      int _inside = (_dx*_dx + _dz*_dz) < (200.0f*200.0f);
+	      if (_inside && wasOut) {
+	        extern int fprintf(void*,const char*,...); extern void *stderr;
+	        fprintf(stderr,"[WARP] TESTPORTAL (fire-pit) -> CEngineApp__Warp(9600)\n");
+	        CEngineApp__Warp(pThis, 9600, WARP_WITHINLEVEL, TRUE);
+	        wasOut = 0;
+	      } else {
+	        wasOut = !_inside;
+	      }
+	    }
+	  }
+	}
+#endif
+
 	// Request latest controller information
 	if (validcontrollers && !cntrlReadInProg)
 	{
