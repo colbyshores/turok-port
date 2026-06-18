@@ -828,9 +828,25 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     samples ahead of the device, so a freshly-triggered sound sat behind it — 8192 (PD's value) = ~371ms @22050,
     audible as a ~1/4s delay. Reduced to **2048 (~93ms)** (commit 5643e95, on master+origin); the thread refills
     every ~2ms so it stays clear of underrun. Drop to 1024 (~46ms) if even lower latency is wanted (only risk is
-    crackle on a busy host). **REMAINING audio work: S6 music** — the retail music bank now loads from the ROM
-    (@0x626dd0), but playback still needs the `alCSeqNew` sequence-decode endianness fix (`turokCSeqNew`, gated
-    behind TUROK_MUSIC); see the S6 entry above.
+    crackle on a busy host). **S6 music is now DONE — see the next bullet.**
+  - **★ MUSIC (S6) WORKS — `ALCMidiHdr` endian-swap (2026-06-18, branch `audio-music`).** The compressed-sequence
+    player (CSP) SIGSEGV'd in `alCSeqNew` (cseq.c:47,60) because the on-disk **`ALCMidiHdr`** (16× u32 `trackOffset`
+    + 1× u32 `division` = 68 bytes) is **big-endian**: `alCSeqNew` reads each track offset raw and walks `base+offset`
+    into a track pointer → wild pointer → fault. **Fix:** `port/src/turok_audiobank.c turokCSeqHeaderSwap()` swaps the
+    17 header DWORDs in place, called in **`audio.c SeqReceived`** right after the `memcpy(SeqBuffer,...)` (one event,
+    before `alCSeqNew`; `SetupSeq`/`alCSeqNew` stay STOCK — putting the swap at the load decouples it from the parser
+    and can't double-swap). The compact-MIDI **event stream** after the 68-byte header is byte-oriented (status /
+    var-len delta / data + byte-assembled tempo & loop offsets) — **endian-neutral, stays raw** big-endian (same rule
+    as the VADPCM `.tbl` payload). Music loading was **stubbed OFF in the leak** (`LoadSeq` `return FALSE` — the dev
+    tree shipped with music-load disabled); re-enabled under PLATFORM_PORT, **default-ON** (`TUROK_MUSIC=0` disables).
+    The sequence is a cart binary block (RNC-decompressed, keyed by **MusicID** type-key — Path B); the music
+    instrument bank is `seqbankPtr->bankArray[0]` (retail seqctl @0x626dd0, 24 inst, swapped by `turokBnkfNew`, passed
+    to `alCSPSetBank` in `SetupSeq`). Verified: **rc=0 + continuous music on warps 0/3000/6000/8000** (distinct MusicID
+    0/14/5/8 = distinct tracks) **+ SFX coexist** (gunshot transients over the music bed), no `[CAMTRACK]`/`[CANARY]`.
+    **LESSON: a compressed-sequence / MIDI header is just another fixed-size big-endian DWORD table (offsets +
+    division) — swap it at load; the event stream past it is byte-oriented and endian-neutral. And a leaked DEV tree
+    may ship a subsystem stubbed OFF (here music `LoadSeq return FALSE`) — re-enable + endian-fix it, don't assume the
+    leak's default state is the shipped one.**
 
 - **★ ANIMATED-OBJECT RENDERING (Item 3, 2026-06-14) — objects were all invisibly at the origin; fixed.**
   Found via a multi-agent workflow + runtime gate-counting: every animated instance (enemies, AI_OBJECT_DEVICE_*

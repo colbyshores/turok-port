@@ -183,6 +183,20 @@ u8 *turokAudioLoadBankFromROM(const char *rompath, long offset, u32 size, int ex
     return buf;
 }
 
+/* M4-S6 music: swap the on-disk ALCMidiHdr (16 u32 trackOffset + 1 u32 division = 17 DWORDs, 68 bytes)
+ * to host order, in place, ONCE at sequence load (SeqReceived). alCSeqNew (cseq.c:47,60) reads those
+ * track offsets + division RAW and walks ptr+offset into a track pointer — big-endian raw => garbage
+ * offset => wild pointer => the music SIGSEGV. The compact-MIDI EVENT STREAM after the 68-byte header
+ * is byte-oriented (status / var-len delta / data + byte-assembled tempo & loop offsets) — endian-
+ * neutral, stays raw big-endian (same rule as the VADPCM .tbl payload). Mirrors turokBnkfNew. */
+void turokCSeqHeaderSwap(u8 *ptr)
+{
+    u32 *w = (u32 *)ptr;
+    int i;
+    for (i = 0; i < 17; i++)            /* trackOffset[0..15] + division */
+        w[i] = (u32)__builtin_bswap32(w[i]);
+}
+
 /* Referenced by turoksnd/abi/synsetfxtype.c (alSynSetFXtype), defined nowhere in the leak.
  * No-op resolves the link; reverb plays dry until a real implementation is ported. */
 void alReverbSetType(void *fx, int fxid, int rate) { (void)fx; (void)fxid; (void)rate; }

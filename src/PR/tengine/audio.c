@@ -1837,11 +1837,13 @@ BOOL LoadSeq(int nTune)
 	static CCacheEntry *pceSequence;
 
 #ifdef PLATFORM_PORT
-	/* S6 (music) WIP: the leaked source stubs music loading OFF (the unconditional return FALSE makes
-	 * the real RequestBinaryBlock below dead code). Re-enable only with TUROK_MUSIC=1 — the sequence
-	 * then LOADS but alCSeqNew SIGSEGVs parsing the big-endian ALSeq (needs a turok-style endian-swap,
-	 * like turokBnkfNew for the banks). Default off = stable: SFX work, music levels don't crash. */
-	{ static int m=-1; if(m<0){const char*e=getenv("TUROK_MUSIC"); m=(e&&atoi(e))?1:0;} if(!m) return FALSE; }
+	/* S6 (music) — WORKING, default ON. The leaked source stubs music loading OFF (the unconditional
+	 * return FALSE below makes RequestBinaryBlock dead code). We re-enable it: the sequence loads as a
+	 * cart binary block (RNC-decompressed, keyed by MusicID), and SeqReceived swaps its big-endian
+	 * ALCMidiHdr (turokCSeqHeaderSwap) before alCSeqNew parses it — without that swap the track offsets
+	 * are wild pointers and alCSeqNew SIGSEGVs. Validated rc=0 + continuous music on warps
+	 * 0/3000/6000/8000 (MusicID 0/14/5/8). TUROK_MUSIC=0 disables. */
+	{ static int m=-1; if(m<0){const char*e=getenv("TUROK_MUSIC"); m=(e&&!atoi(e))?0:1;} if(!m) return FALSE; }
 #else
 //	if (!cache_is_valid)
 		return FALSE;
@@ -1873,6 +1875,14 @@ void SeqReceived(void *pThis, CCacheEntry **ppceTarget)
 	ASSERT(size <= SEQUENCE_BUFFER_SIZE);
 
 	memcpy(SeqBuffer, pbTune, size);
+
+#ifdef PLATFORM_PORT
+	/* M4-S6: the sequence (ALCMidiHdr) is big-endian — swap its 68-byte header (17 DWORDs) here, once
+	 * per load, BEFORE alCSeqNew parses it (else the track offsets become wild pointers -> SIGSEGV). The
+	 * MIDI event stream after the header is byte-oriented, stays raw. Done in SeqReceived (not SetupSeq)
+	 * so it's tied to exactly one event — the memcpy — and alCSeqNew/alCSeqNewMarker stay stock. */
+	{ extern void turokCSeqHeaderSwap(u8 *ptr); turokCSeqHeaderSwap((u8 *)SeqBuffer); }
+#endif
 
 	SeqStateAction |= SEQ_LOAD_DONE;
 }

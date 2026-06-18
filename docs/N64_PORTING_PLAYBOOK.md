@@ -333,6 +333,16 @@ Audio is its own world. The DSP is portable; the friction is the ABI, the addres
   starves the game. (c) The flush must **NOT** re-check the back-pressure (the producer loop already gates it) or
   it drops every frame produced right at the LIMIT boundary (a paced 10 s capture yields 0.4 s). Then capture to a
   WAV and measure peak / dominant-frequency / duration. A 2× pitch ratio between two captures confirms a rate change.
+- **Compressed-sequence / MIDI music: swap the sequence HEADER, leave the event stream raw.** Music in the classic
+  ABI is a Compressed-Sequence Player (CSP) fed an `ALCMidiHdr` = a fixed-size **big-endian DWORD table** (N track
+  offsets + a division word). The sequence parser (`alCSeqNew`) reads each track offset raw and walks `base+offset`
+  into a track pointer — so on a LE host the un-swapped offsets are **wild pointers → SIGSEGV**. Swap the header
+  DWORDs once at load (right after the memcpy into the play buffer, *before* the parser runs); the **compact-MIDI
+  event stream after the header is byte-oriented** (status / var-len delta / data + byte-assembled tempo & loop
+  offsets) and is **endian-neutral — leave it raw** (same rule as the VADPCM sample payload). Two gotchas: (1) the
+  music INSTRUMENT bank is a separate `ALBankFile` — swap it like the SFX bank; (2) a leaked DEV tree may ship music
+  **stubbed OFF** (e.g. a `LoadSeq` that just `return FALSE`s) — re-enable the load path; don't assume the leak's
+  default state is what shipped.
 
 ---
 
