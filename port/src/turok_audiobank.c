@@ -158,6 +158,31 @@ u8 *turokAudioLoadBank(const char *path, u32 *outLen)
     return buf;
 }
 
+/* Load a bank/sample chunk straight from the retail ROM at a fixed offset (Path B / TUROK_ROM). The dev
+ * tree's sfx.ctl/.tbl are PLACEHOLDER (sports-announcer scratch samples reused during development); the
+ * REAL Turok SFX + music banks are plain segments inside the retail ROM. The .ctl is big-endian
+ * (turokBnkfNew swaps it); the .tbl is raw big-endian VADPCM. `expectBank` validates the ALBankFile "B1"
+ * revision so a wrong offset / non-US-v1.2 ROM falls back to the dev bank instead of feeding garbage. */
+u8 *turokAudioLoadBankFromROM(const char *rompath, long offset, u32 size, int expectBank)
+{
+    FILE *f = fopen(rompath, "rb");
+    u8 *buf;
+    if (!f) { fprintf(stderr, "[audio] ROM not found: %s\n", rompath); return NULL; }
+    buf = (u8 *)malloc(size);
+    if (!buf) { fclose(f); return NULL; }
+    if (fseek(f, offset, SEEK_SET) != 0 || fread(buf, 1, size, f) != size) {
+        free(buf); fclose(f); fprintf(stderr, "[audio] ROM read failed @0x%lx\n", offset); return NULL;
+    }
+    fclose(f);
+    if (expectBank && !(buf[0] == 0x42 && buf[1] == 0x31)) {   /* not "B1" -> wrong offset/ROM version */
+        fprintf(stderr, "[audio] ROM @0x%lx is not an ALBankFile (got %02x%02x) — using dev bank\n",
+                offset, buf[0], buf[1]);
+        free(buf); return NULL;
+    }
+    fprintf(stderr, "[audio] loaded RETAIL bank from ROM @0x%lx (%u bytes)\n", offset, size);
+    return buf;
+}
+
 /* Referenced by turoksnd/abi/synsetfxtype.c (alSynSetFXtype), defined nowhere in the leak.
  * No-op resolves the link; reverb plays dry until a real implementation is ported. */
 void alReverbSetType(void *fx, int fxid, int rate) { (void)fx; (void)fxid; (void)rate; }

@@ -138,15 +138,27 @@ void initAudio(void)
 
 	// Load the SEQ sound ctl file from ROM
 #ifdef PLATFORM_PORT
-   /* PORT (M4-S2): load the real SEQ (music) bank from disk — the N64 ROM segment is a zero-span
-    * alias on the host — and endian-swap+relocate via the tracked turokBnkfNew (NOT the SGI alBnkfNew,
-    * which assumes a host-order in-place blob). The .ctl is the spec's "seqctl" = testbank.ctl. */
+   /* PORT (M4-S2 + retail audio): load + endian-swap+relocate the SEQ (music) bank via turokBnkfNew.
+    * dev tree = the placeholder testbank.ctl/.tbl; with a retail ROM (TUROK_ROM / Path B) load the REAL
+    * music bank from the ROM: seqctl @ 0x626dd0 (24 instruments, 44100Hz), seqtbl @ 0x628350 (~256KB),
+    * US v1.2. Falls back to the dev testbank if the ROM/offset doesn't validate (header != "B1"). */
    {
       extern u8 *turokAudioLoadBank(const char *path, u32 *outLen);
+      extern u8 *turokAudioLoadBankFromROM(const char *rompath, long offset, u32 size, int expectBank);
       extern void turokBnkfNew(ALBankFile *file, u8 *table);
-      u32 seqtblLen; u8 *seqtbl;
-      seqbankPtr = (ALBankFile *)turokAudioLoadBank("src/PR/testbank.ctl", &bankLen);
-      seqtbl     = turokAudioLoadBank("src/PR/testbank.tbl", &seqtblLen);
+      u32 seqtblLen; u8 *seqtbl = 0; const char *rom = getenv("TUROK_ROM");
+      seqbankPtr = 0;
+      if (rom && *rom) {
+         seqbankPtr = (ALBankFile *)turokAudioLoadBankFromROM(rom, 0x626dd0, 0x1580, 1);
+         if (seqbankPtr) {
+            seqtbl = turokAudioLoadBankFromROM(rom, 0x628350, 0x3ef00, 0);
+            if (!seqtbl) seqbankPtr = 0;
+         }
+      }
+      if (!seqbankPtr) {
+         seqbankPtr = (ALBankFile *)turokAudioLoadBank("src/PR/testbank.ctl", &bankLen);
+         seqtbl     = turokAudioLoadBank("src/PR/testbank.tbl", &seqtblLen);
+      }
       if (seqbankPtr && seqtbl) turokBnkfNew(seqbankPtr, seqtbl);
    }
 #else
@@ -235,13 +247,29 @@ void initAudio(void)
 
  	//load SFX sound info
 #ifdef PLATFORM_PORT
-	/* PORT (M4-S2): load the real SFX bank from disk + endian-swap+relocate via turokBnkfNew. */
+	/* PORT (M4-S2 + retail audio): load + endian-swap+relocate the SFX bank via turokBnkfNew. The dev
+	 * tree's sfx.ctl/.tbl are PLACEHOLDER (sports-announcer scratch samples — none of those phrases are
+	 * in the shipped game). When a retail ROM is supplied (TUROK_ROM / Path B) load the REAL Turok SFX
+	 * bank straight from the ROM: sfxctl @ 0x667230 (228 sounds, 44100Hz), sfxtbl @ 0x672500 (~1.1MB),
+	 * US v1.2. The cart sound-elements come from the same ROM (Path B), so their m_nSampleNum indices
+	 * match this bank. Falls back to the dev bank if the ROM/offset doesn't validate (header != "B1"). */
 	{
 		extern u8 *turokAudioLoadBank(const char *path, u32 *outLen);
+		extern u8 *turokAudioLoadBankFromROM(const char *rompath, long offset, u32 size, int expectBank);
 		extern void turokBnkfNew(ALBankFile *file, u8 *table);
-		u32 sfxtblLen; u8 *sfxtbl;
-		AW.SndPlayerList.sfxBankPtr = turokAudioLoadBank("src/PR/tengine/sfx.ctl", &bankLen);
-		sfxtbl = turokAudioLoadBank("src/PR/tengine/sfx.tbl", &sfxtblLen);
+		u32 sfxtblLen; u8 *sfxtbl = 0; const char *rom = getenv("TUROK_ROM");
+		AW.SndPlayerList.sfxBankPtr = 0;
+		if (rom && *rom) {
+			AW.SndPlayerList.sfxBankPtr = turokAudioLoadBankFromROM(rom, 0x667230, 0xb2d0, 1);
+			if (AW.SndPlayerList.sfxBankPtr) {
+				sfxtbl = turokAudioLoadBankFromROM(rom, 0x672500, 0x111200, 0);
+				if (!sfxtbl) AW.SndPlayerList.sfxBankPtr = 0;   /* tbl failed -> fall back fully */
+			}
+		}
+		if (!AW.SndPlayerList.sfxBankPtr) {   /* Path A / no ROM: the dev placeholder bank */
+			AW.SndPlayerList.sfxBankPtr = turokAudioLoadBank("src/PR/tengine/sfx.ctl", &bankLen);
+			sfxtbl = turokAudioLoadBank("src/PR/tengine/sfx.tbl", &sfxtblLen);
+		}
 		if (AW.SndPlayerList.sfxBankPtr && sfxtbl)
 			turokBnkfNew((ALBankFile *) AW.SndPlayerList.sfxBankPtr, sfxtbl);
 	}
