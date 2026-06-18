@@ -797,6 +797,22 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     rate-agnostic, so the HOST device + synth output rate MUST equal the bank's `ALBank.sampleRate`, or all sound plays
     at a uniform wrong speed (a global octave shift = the giveaway vs a per-sample tuning error).** User to confirm by ear;
     if a sound is still wrong beyond SPEED, that's a separate sample-selection/decode issue.
+  - **★★ DEV AUDIO BANKS ARE PLACEHOLDERS — load the REAL banks from the retail ROM (2026-06-18, commit 02b3b4f, branch
+    `audio-s2`).** After the rate fix the user heard the right SPEED but nonsensical SPORTS-ANNOUNCER phrases ("he took a
+    big chance there", "right on the concrete floor") — Iguana placeholder/scratch samples (Iguana also made sports
+    games), NOT Turok sounds. Confirmed: the dev tree's `src/PR/tengine/sfx.ctl/.tbl` are NOT present anywhere in the
+    retail ROM, and the ROM holds the REAL banks (found by scanning for the ALBankFile `42 31`="B1" revision + walking the
+    ALBank tree, boundaries cross-checked vs 16-byte segment alignment): **SFX bank @ 0x667230 (.ctl 0xb2d0) + sfxtbl @
+    0x672500 (~1.1MB) = 228 sounds; music bank @ 0x626dd0 (.ctl 0x1580) + seqtbl @ 0x628350 (~256KB) = 24 instruments;
+    both 44100 Hz** (US v1.2). New `turok_audiobank.c turokAudioLoadBankFromROM(rompath, offset, size, expectBank)` reads
+    a chunk straight from the ROM file, validating the "B1" header so a wrong offset / non-v1.2 ROM falls back to the dev
+    bank. `audio.c` SFX+SEQ loads prefer the retail ROM banks when **TUROK_ROM** is set (Path B = play_level.sh default),
+    else the dev placeholder. The cart sound-elements come from the same ROM (Path B) so their `m_nSampleNum` indices
+    match the 228-sound bank. Verified: both banks load, SortSounds walks the 228-sound bank rc=0, all warps rc=0. **With
+    the 44100 rate fix + the retail bank, SFX should now be the correct Turok sounds at the correct speed (user to
+    confirm).** LESSON: a leaked DEV tree's bundled audio (`sfx.ctl/.tbl`) can be SCRATCH/PLACEHOLDER from another title —
+    the shipped assets live in the retail ROM as plain `B1` ALBankFile segments; find them by signature-scan + ALBank-tree
+    walk, not by trusting the dev files. (Python ROM-scan: find `b'\x42\x31'` with sane bankCount/instCount/sampleRate.)
 
 - **★ ANIMATED-OBJECT RENDERING (Item 3, 2026-06-14) — objects were all invisibly at the origin; fixed.**
   Found via a multi-agent workflow + runtime gate-counting: every animated instance (enemies, AI_OBJECT_DEVICE_*
