@@ -52,7 +52,8 @@ static SDL_AudioDeviceID s_dev = 0;
 /* headless WAV dump (TUROK_AUDIO_WAV) */
 static FILE *s_wav = NULL;
 static long  s_wav_bytes = 0;
-static long long s_wav_start_ns = 0;   /* set on first WAV write; paces the WAV sink to real-time */
+static long long s_produce_start_ns = 0;   /* first produced frame; paces ANY non-device sink to real-time */
+static long long s_produced_bytes  = 0;    /* total bytes the synth has produced (sink-agnostic pacer) */
 
 static long long audio_now_ns(void)
 {
@@ -114,21 +115,28 @@ s32 audioGetBytesBuffered(void)
 #if defined(GFX_USE_SDL2)
     if (s_dev) return (s32)SDL_GetQueuedAudioSize(s_dev);
 #endif
-    if (s_wav && s_wav_start_ns) {
-        /* Synthetic back-pressure: model the WAV sink as a device draining at the sample rate,
-         * so the audio thread produces at ~real-time instead of flat-out (which hogs the synth
-         * lock and starves the game thread headless). bytes_backed = written - drained_by_now. */
-        long long elapsed = audio_now_ns() - s_wav_start_ns;
+    /* Sink-agnostic synthetic back-pressure (the WAV dump AND the NOAUDIO/null sink — neither has a
+     * real device queue): model production as a device draining at the sample rate, so the audio
+     * thread produces at ~real-time instead of flat-out. Flat-out spins a core and hogs the synth
+     * lock, starving the game thread — a headless-only artifact (the SDL device path returns above
+     * with the real queue depth, so user gameplay is unaffected). */
+    if (s_produce_start_ns) {
+        long long elapsed = audio_now_ns() - s_produce_start_ns;
         long long drained = (long long)((double)elapsed * 1e-9 * (double)s_rate) * 4;
-        long long backed  = (long long)s_wav_bytes - drained;
+        long long backed  = s_produced_bytes - drained;
         return backed > 0 ? (s32)backed : 0;
     }
-    return 0;   /* null sink never backs up */
+    return 0;
 }
 
 s32 audioGetSamplesBuffered(void) { return audioGetBytesBuffered() / 4; }
 
-void audioSetNextBuffer(const s16 *buf, u32 len) { s_nextBuf = buf; s_nextSize = len; }
+void audioSetNextBuffer(const s16 *buf, u32 len)
+{
+    s_nextBuf = buf; s_nextSize = len;
+    if (!s_produce_start_ns) s_produce_start_ns = audio_now_ns();
+    s_produced_bytes += len;   /* drives the sink-agnostic real-time pacer in audioGetBytesBuffered */
+}
 
 void audioEndFrame(void)
 {
@@ -137,10 +145,7 @@ void audioEndFrame(void)
         if (s_dev) SDL_QueueAudio(s_dev, s_nextBuf, s_nextSize);
         else
 #endif
-        if (s_wav) {
-            if (!s_wav_start_ns) s_wav_start_ns = audio_now_ns();
-            fwrite(s_nextBuf, 1, s_nextSize, s_wav); s_wav_bytes += s_nextSize;
-        }
+        if (s_wav) { fwrite(s_nextBuf, 1, s_nextSize, s_wav); s_wav_bytes += s_nextSize; }
     }
     s_nextBuf = NULL; s_nextSize = 0;
 }
