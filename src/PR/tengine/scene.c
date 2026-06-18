@@ -469,6 +469,31 @@ void CScene__WarpPointsReceived(CScene *pThis, CCacheEntry **ppceTarget)
 		{
 			choice = first + RANDOM((last + 1) - first);
 #ifdef PLATFORM_PORT
+			/* ★ BLUE-PORTAL KEY GATE: a hub/bonus warp can list the key-gated Campaigner-boss approach as one
+			 * of its destinations (e.g. id 9600 -> lvl 26 bonus OR lvl 27, where lvl 27 RE-LISTS the dedicated
+			 * 9004 boss approach). The original gates the boss on all keys (aidoor.c PortalAI: LevelN_Access >=
+			 * MAX_KEYN). Mirror that: until the player has ALL access keys, skip any matched destination that
+			 * duplicates a dedicated LOWER-id warp's destination (= a boss approach re-listed under a bonus id)
+			 * and use the warp's own primary (first non-gated) point. With all keys, the original RANDOM stands.
+			 * Only multi-point warps (all 9100-9800) are affected; single-point/in-level warps are untouched. */
+			{ extern int CTMove__HasAllKeys(void);
+			  if (last > first && !CTMove__HasAllKeys()) {
+			    int _c, _k, _best = -1;
+			    for (_c = first; _c <= last && _best < 0; _c++) {
+			      int _gated = 0;
+			      for (_k = 0; _k < nWarpPoints; _k++)
+			        if ((int)ORDERBYTES(ids[_k]) < (int)ORDERBYTES(ids[_c])
+			         && warpPoints[_k].m_nLevel == warpPoints[_c].m_nLevel
+			         && ORDERBYTES(warpPoints[_k].m_vPos.x) == ORDERBYTES(warpPoints[_c].m_vPos.x)
+			         && ORDERBYTES(warpPoints[_k].m_vPos.y) == ORDERBYTES(warpPoints[_c].m_vPos.y)
+			         && ORDERBYTES(warpPoints[_k].m_vPos.z) == ORDERBYTES(warpPoints[_c].m_vPos.z))
+			          { _gated = 1; break; }
+			      if (!_gated) _best = _c;
+			    }
+			    if (_best >= 0) choice = _best;
+			  } }
+#endif
+#ifdef PLATFORM_PORT
 			/* TUROK_FORCECHOICE=<n>: force the n-th warp point in the matched range (debug the blue-portal
 			 * OOB — a warp ID with multiple points is RANDOM-picked; this pins a specific one). */
 			{ extern char *getenv(const char*); const char*_fce=getenv("TUROK_FORCECHOICE");

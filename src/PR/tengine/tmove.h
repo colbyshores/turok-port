@@ -488,6 +488,9 @@ void			CTMove__ResetDrawnWeapons			(CTMove *pThis);
 BOOL			CTMove__OnLastWeapon					(CTMove *pThis);
 
 extern	CTMove	CTurokMovement;
+#ifdef PLATFORM_PORT
+extern	BOOL		CTMove__HasAllKeys					(void);   /* blue-portal key gate — see tmove.c/scene.c */
+#endif
 extern	void		CTMove__GetWeaponOffset				(CTMove *pThis, CVector3 *pvVec);
 extern	BOOL		CTMove__WeaponExist					(CTMove *pThis, int weapon);
 extern	BOOL		CTMove__WeaponEmpty					(CTMove *pThis, int weapon, int variation);

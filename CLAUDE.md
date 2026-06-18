@@ -1252,6 +1252,27 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   spawn decode's ORDERBYTES) — likely the ORIGINAL "re-enter → Campaigner" report; fix once the forward OOB lands.
   ★ NFS GOTCHA hit again: an Edit to scene.c was silently lost (stale read-after-write) — re-add + `grep`-verify
   edits to the warp traces persisted before building.
+- **★★ BLUE-PORTAL OOB — FIXED via a key gate (2026-06-18, root-caused + fixed headlessly).** Added `TUROK_FORCEPORTAL`
+  (fire the real `CWarp__Warp` on a collision-list warp simple) + `TUROK_WARPTABLE` (dump the whole warp-dest table)
+  + `TUROK_FORCEWARP`/`TUROK_FORCECHOICE`. The table shows the bonus/hub warp IDs **9100-9800 each have TWO
+  destinations**, RANDOM-picked at `scene.c:458`. For **9600**: `wp[184]`→lvl 26 (the bonus cave) and `wp[185]`→lvl 27
+  `(115,34,0)` — and lvl-27 `(115,34,0)` is the **exact same destination as the dedicated `id=9004` Campaigner-boss
+  approach**. So entering the early bonus portal RANDOM-jumped to the boss (→ a 2nd auto-warp `9004` → reddish-fog
+  void); this was BOTH the "out of bounds" AND the older "re-enter → Campaigner" report. The user confirmed the
+  Campaigner is legitimately **key-gated** at the central hub (`aidoor.c PortalAI_MEvent_Start` opens each LevelN
+  portal on `LevelN_Access >= MAX_KEYN`). **FIX (user chose "key-gate"):** new `tmove.c CTMove__HasAllKeys()` (all 7
+  `LevelN_Access >= MAX_KEYN`); in `scene.c` warp-point selection, until all keys are in, **skip any matched
+  destination that RE-LISTS a dedicated lower-id warp's destination** (same id-is-lower + same level + same x/y/z) and
+  use the warp's own primary point. So 9600 → lvl 26 (bonus) until all keys, then RANDOM (boss reachable) — mirroring
+  the hub gate. **GOTCHA in the fix:** the position match MUST compare all of x/**y**/z — `wp[184]` (lvl 26, y=-154)
+  coincidentally shares x+z with a *different* lower-id warp `9018` (lvl 26, y=-171), so an x/z-only match wrongly
+  gated the bonus; +0/-0 differs in raw bytes so compare the **ORDERBYTES'd (host) floats**, not memcmp. Only the
+  multi-point warps (all ≥9100) are affected; single-point/in-level warps untouched. Verified headless: 5/5 runs 9600
+  →lvl 26 (was RANDOM 26/27), `FORCECHOICE=1` still forces the boss (key-path intact), bonus renders (cave), patrols
+  on warps 0/2000/6000/8000 rc=0 no anomalies. **User to confirm interactively** (walk the early portal repeatedly →
+  always the bonus; the Campaigner only via the all-keys hub portal). LESSON: a "leaking" destination wasn't a parse
+  bug — the cart genuinely lists the boss under the bonus id; the original gates it by KEYS (hub PortalAI), so the
+  port must reproduce that gate in the warp-point selection, not just trust the data.
 - **★ DEBUG-KNOB CLEANUP (2026-06-17, 9-agent Workflow).** Stripped ~36 one-off `TUROK_*` debug env knobs that
   accreted across the porting sessions — the `*LOG` trace prints (OBJLOG/GATELOG/BLENDLOG/RSLOG/MTXLOG/VTXLOG/
   QLOG/QCLOG/SIMPLOG/INSTLOG/XINSTLOG/PARTLOG/MATLOG/VMLOG/VP_LOG/CAMLOG/MOVELOG/GFX_DUMP/GFX_DRAWLOG/OBJLOG/

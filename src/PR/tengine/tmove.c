@@ -7101,6 +7101,23 @@ float CTMove__GetSpeed(CTMove *pThis)
 }
 
 
+#ifdef PLATFORM_PORT
+// Blue-portal key gate (port): has the player collected ALL level-access keys — the central-hub condition
+// that opens the Campaigner portal. Mirrors aidoor.c PortalAI, which opens each LevelN hub portal on
+// LevelN_Access >= MAX_KEYN. Used by the warp-point selection (scene.c) to keep a bonus/hub warp's
+// key-gated boss destination unreachable until every key is collected.
+BOOL CTMove__HasAllKeys(void)
+{
+	return (CTurokMovement.Level2Access >= MAX_KEY2)
+	    && (CTurokMovement.Level3Access >= MAX_KEY3)
+	    && (CTurokMovement.Level4Access >= MAX_KEY4)
+	    && (CTurokMovement.Level5Access >= MAX_KEY5)
+	    && (CTurokMovement.Level6Access >= MAX_KEY6)
+	    && (CTurokMovement.Level7Access >= MAX_KEY7)
+	    && (CTurokMovement.Level8Access >= MAX_KEY8);
+}
+#endif
+
 // decrease lives & return true if turok is still alive
 //
 BOOL CTMove__DecreaseLives(CTMove *pThis)
