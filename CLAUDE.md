@@ -1425,6 +1425,47 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   gotcha: `TUROK_CAPTURE_FRAME=N` on no-tick-gate builds needs `TUROK_MAX_FRAMES` WELL above N — the render-frame
   counter `s_frame_no` lags the frame-pump `g_frame`, else the capture silently never fires.)
 
+- **★ WEAPONS + TORCHES + BAND-AID AUDIT (2026-06-19).** Three of the user's reports.
+  - **PISTOL "not damaging enemies" — the damage chain is SOUND; no code fix needed (it works).** A headless
+    harness (`TUROK_AUTOAIM`/`TUROK_GIVEPISTOL`/`TUROK_AIMROT`/`TUROK_PBULLET`, all REMOVED after) arms the
+    semi-auto pistol, places the player on a real enemy, fires, and traces the chain. Verified end-to-end: the
+    bullet is a `PARTICLE_TYPE_BULLET` (NOT a hit-scan ray — the user's mental model was off), it collides
+    (`instcol.c CCollide__InstanceCollision` → `IntersectCylinder` returns COLLIDED=1), dispatches the impact
+    event (`particle.c CParticle__InstanceCollision` → `AI_Event_Dispatcher` → `AI_MEvent_Damage` AREA-damage),
+    and `AI_DoHit` decrements enemy health (100→95→90… at point-blank AND ~205u range through the game's bullet
+    auto-aim `GetAutoAimRotation`, which correctly picks the most-aligned enemy in the cone). The bullet inherits
+    the player's VALID region so the `unicol.c:85 PORT_REGION_BAD` band-aid does NOT bail it — the audit's #1
+    suspect was wrong for this bug. The "no damage" was almost certainly the FIRING itself, already fixed by the
+    `CTTYPE_DOWN` auto-fire commit 1f516f2 (with the old `CTTYPE_SINGLE` the gun barely fired = looked like no
+    damage). **USER TO RE-TEST on the current build.** ★ HARNESS GOTCHAS that cost real time: (a) headless weapon
+    tests REQUIRE `TUROK_TICK_FPS=0` (every render frame = a logic tick) — at the default 30Hz tick + uncapped
+    render, 250 render frames is <1s of game logic so the weapon never even raises/fires; (b) teleporting the
+    player BEHIND an enemy (`enemy.z - aimdist`) goes OOB → the bullet spawns in a wall and its Advance never
+    runs — rotate-only (face the enemy from the valid spawn) is the clean range test; (c) the area-damage means
+    the bullet need only land within ~35-60u of an enemy, and a CLOSER enemy in the line of fire takes the hit
+    (so the aimed-at enemy may not be the one damaged — correct behavior, not a targeting bug).
+  - **TORCHES NOT ANIMATING — REAL FIX (commit 62de09e).** Torch flames are animated-texture WORLD surfaces
+    driven by `geometry.c nFrame = game_frame_number / m_PlaybackSpeed`. `m_PlaybackSpeed` is authored for the
+    N64's fixed 30fps, but `game_frame_number` increments every PRESENTED frame, so at the port's uncapped/high
+    render rate the texture frame advanced in huge irregular steps and aliased into a frozen-looking shimmer.
+    Fix: drive it from a new 30Hz-paced `g_turok_tex_anim_frame` (incremented only on logic ticks — the SAME gate
+    that already decouples game motion at `tengine.c CEngineApp__UpdateGAME`) + guard a 0 `m_PlaybackSpeed`.
+    Underlying-cause fix, not a band-aid: the world texture-animation clock was simply never decoupled from the
+    present count the way gameplay motion already was. **LESSON: anything keyed off `game_frame_number` (per
+    PRESENTED frame) needs the 30Hz `g_turok_tex_anim_frame`/`g_turok_logic_tick` decouple, or it runs at render
+    rate and aliases/over-speeds — the same class as the original "game ran 2× too fast".**
+  - **BAND-AID AUDIT (per the user's "I only ever want to solve an underlying issue").** The dominant band-aid is
+    the **REGION-RESIDENCY cluster**: `unicol.c:85` `PORT_REGION_BAD` Collision3 bail, the per-frame + cinematic
+    `CScene__NearestRegion` re-acquires (tengine.c UpdateGAME), the `PORT_REGION_BAD`/`PORT_CORNER_BAD` distance
+    heuristics (romstruc.h), the flat-default ground/ceiling fallbacks (romstruc.c), and the corner-0→origin
+    fallback (unicol.c). They all stand in for ONE real M5 fix: **keep the collision-cache entry RESIDENT / rebase
+    region+corner pointers when the cart cache re-decompresses the collision buffer at a new address** (the cart
+    streams + relocates by design; `cart.c ResetAge`/`KeepAroundAnotherFrame` exist for the residency half; a
+    bigger cache does NOT stop the re-decompress). The blue-portal key-gate (9dbe14f) is BORDERLINE (faithful
+    KEYS condition, but a post-filter of warp-point selection rather than gating the portal at its source in
+    `aidoor.c PortalAI`). The recent CTTYPE_DOWN / warp-interp-skip / return-warp-endianness / audio-synthLock /
+    fmodf-wrap commits are clean real fixes, not band-aids.
+
 The port build infra (not game source): `Makefile.port`, `port/include/turok_port.h` (host compat shim),
 `lib/ultralib/` (vendored libultra headers), `tools/turok_rom.py`.
 
