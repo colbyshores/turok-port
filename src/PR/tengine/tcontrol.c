@@ -181,8 +181,13 @@ CTControl* CTControl__CTControl(BOOL Right)
 	pCTControl->PreFire1			= 0;
 	pCTControl->NotFire1			= 0;
 	pCTControl->Fire1				= Z_TRIG;
-//	pCTControl->TypeFire1		= CTTYPE_DOWN;
-	pCTControl->TypeFire1		= CTTYPE_SINGLE;
+	/* PORT: the leaked DEV snapshot left primary fire as CTTYPE_SINGLE (true only on the press EDGE) with the
+	 * shipped CTTYPE_DOWN (held) commented out. SINGLE => IsPrimaryFire is true for one frame per press, which
+	 * breaks three things at once: no auto-fire (hold to keep shooting), the bow/shockwave/chronoscepter can't
+	 * charge (the draw ramps only WHILE the trigger is HELD, so it fired at minimum draw), and the firing anim
+	 * doesn't sustain. The shipped game uses DOWN for primary fire; restore it (one flag fixes all three). */
+	pCTControl->TypeFire1		= CTTYPE_DOWN;
+//	pCTControl->TypeFire1		= CTTYPE_SINGLE;
 
 	// single press - weapons firing
 	pCTControl->PreGrenadeLauncherFired			= 0;
