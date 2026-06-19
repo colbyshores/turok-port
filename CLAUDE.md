@@ -1484,6 +1484,43 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     `aidoor.c PortalAI`). The recent CTTYPE_DOWN / warp-interp-skip / return-warp-endianness / audio-synthLock /
     fmodf-wrap commits are clean real fixes, not band-aids.
 
+- **★ 3 RESPAWN / GAME-OVER BUGS — root-caused via scouting; fix directions banked (2026-06-19). NOT yet
+  implemented (session limit; the investigation Workflow's agents all hit the limit before returning, so this is
+  my own read — VERIFY each before coding).**
+  - **(BUG 2) FALL/WATER-DEATH RESPAWNS AT THE DEATH SPOT (off the cliff) + "ghost" loop.** `CCamera__FadeToCinema`
+    (camera.c:1641-1644) captures `m_CinemaWarp` = the player's CURRENT pos at the moment of death; for a FALL
+    death that's MID-FALL off the cliff (the fall death is detected at camera.c:1689-1690 only once
+    `m_vPos.y < GetGroundHeight`). The resurrect (`CEngineApp__PlayerLostLife` tengine.c:2360 sets
+    `CINEMA_FLAG_PLAY_RESURRECT` when lives remain) respawns at `m_CinemaWarp` via `CScene__Construct(CINEMA_WARP_ID)`
+    (tengine.c:4058-4066 → scene.c:459-462) — i.e. back off the cliff → falls again → the death/resurrect transition
+    never resolves = the "ghost form". **FIX:** a CHECKPOINT system EXISTS — `CTurokMovement.CurrentCheckpoint`
+    (a warp ID; set on warp at tengine.c:3993-4003, used on load loadsave.c:706/1012; regions carry
+    `m_SaveCheckpointID` scene.c:1409). For a FALL/WATER death, route the respawn to
+    `CScene__Construct(CurrentCheckpoint)` instead of `CINEMA_WARP_ID` (detect via the CinemaFlag FALL/WATER bits
+    set at camera.c:1692/1703 — e.g. a PLATFORM_PORT global set in FadeToCinema, consumed+cleared at the
+    tengine.c:4065 respawn). ★ RISK TO VERIFY FIRST: is `CurrentCheckpoint` reliably the CURRENT level's checkpoint
+    when the port BOOTS straight into a level via `TUROK_WARP`? If it's 0/stale it would respawn in the WRONG level
+    (level-1 start) — confirm the boot-warp sets it, else guard/fallback. SECONDARY (latent): `m_CinemaWarp.m_RotY`
+    + `m_nRegion` are stored HOST-order (camera.c:1642/1644) but the spawn reads them BIG-ENDIAN (the sibling of the
+    fixed return-warp bug 16b5fa8) → wrong respawn facing (region currently masked by the per-frame NearestRegion
+    re-acquire). Store big-endian to match.
+  - **(BUG 3) GAME-OVER → BLACK VOID (lose all lives).** `PlayerLostLife` (tengine.c:2347-2369): lives remain ->
+    resurrect; NO lives -> `m_bGameOver=TRUE` + a 4s game-over overlay (`GameOverOverlay`, tengine.c:1674-1693)
+    then `MODE_RESETGAME` (tengine.c:1690). In the port MODE_RESETGAME reboots straight into the level (the
+    TUROK_WARP boot) and the legal/attract/title intro is FROZEN/skipped (frontend.c `CLegalScreen__Update`
+    early-returns under PLATFORM_PORT) -> game-over lands in a non-rendering state = black void (the HUD + weapon
+    are screen-space so they still draw). **FIX:** either (a) make the game-over overlay draw + on timeout restart
+    the current level from `CurrentCheckpoint` (not the frozen attract), or (b) reload the level on game-over
+    instead of MODE_RESETGAME's frozen-intro path. Verify whether GameOverOverlay actually draws (it's a
+    C16BitGraphic — the HUD-class endianness was already fixed in onscrn.c) and what MODE_RESETGAME renders in the
+    port.
+  - **(BUG 1) ENEMY RESPAWN LOOP — regenerating enemy never re-engages.** Regen path: ai.c:2377-2381 starts it
+    (`m_Regenerate--`; `m_cRegenerateAppearance = APPEARANCE_LENGTH*7/8`), ai.c:2044-2052 counts it down by
+    `frame_increment` to 0 then sets `m_cRegenerateAppearanceWhite`. **FIX DIRECTION (not yet root-caused):** trace
+    a killed+regenerating enemy — check (a) the appearance countdown completes at 30Hz, (b) the post-regen AI STATE
+    transitions back to attack vs staying in an idle/birth ANIM loop (the anim exit-to-frame / m_CycleCompleted),
+    or (c) an endianness bug in the respawn anim-type / AI type-flags leaving the AI stuck.
+
 The port build infra (not game source): `Makefile.port`, `port/include/turok_port.h` (host compat shim),
 `lib/ultralib/` (vendored libultra headers), `tools/turok_rom.py`.
 
