@@ -632,7 +632,20 @@ void CGeometry__DrawSection(CGeometry *pThis, Gfx **ppDLP, CIndexedSet *pisSecti
 		CTextureLoader__GetTextureInfo(&pGameSect->m_TextureLoader, &textureInfo);
 
 		if (nFrame < 0)
+#ifdef PLATFORM_PORT
+		{
+			/* PORT: drive world texture animation (torch flames, water, animated decals) from the
+			 * 30Hz-paced tick clock, not the per-presented-frame game_frame_number — otherwise at the
+			 * port's high/uncapped render rate the frame advanced in huge irregular steps and the flame
+			 * looked frozen/shimmering. Guard a 0 m_PlaybackSpeed (would divide by zero). */
+			extern int g_turok_tex_anim_frame;
+			int _ps = textureInfo.m_pFormat->m_PlaybackSpeed;
+			if (_ps < 1) _ps = 1;
+			nFrame = g_turok_tex_anim_frame / _ps;
+		}
+#else
 			nFrame = game_frame_number/textureInfo.m_pFormat->m_PlaybackSpeed;
+#endif
 
 		nBitmap = nFrame % textureInfo.m_nBitmaps;
 		if (textureInfo.m_nPalettes)

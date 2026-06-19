@@ -343,6 +343,12 @@ float			frame_increment = 1.0;
 /* the frame_increment used on the LAST logic tick (the amount every animation's m_cFrame advanced),
  * captured at the tick gate. Render interpolation of skeletal anims derives prev = m_cFrame - this. */
 float			g_turok_anim_step = 1.0f;
+/* PORT: a 30Hz-paced clock for WORLD TEXTURE animations (torch flames, water, etc.). m_PlaybackSpeed
+ * in the asset is calibrated against the N64's fixed 30fps; game_frame_number advances every PRESENTED
+ * frame, so at the port's uncapped/60fps render rate the texture frame jumped in large irregular steps
+ * and aliased into a frozen-looking shimmer. This counter advances only on logic ticks (see the tick
+ * gate in UpdateGAME), so geometry.c drives texture animation at the authored 30Hz regardless of FPS. */
+int			g_turok_tex_anim_frame = 0;
 #endif
 float			enemy_speed_scaler = 1.0;				// these vars are
 float			particle_speed_scaler = 1.0;			// also setup
@@ -4805,7 +4811,7 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	 * Render at TUROK_FPS but advance the LOGIC only at TUROK_TICK_FPS (default 30): on render-only
 	 * frames the frame-pump clears g_turok_logic_tick and we freeze the step so the frame just
 	 * re-presents the same state. (port/src/os_shim.c owns the timing.) */
-	{ extern int g_turok_logic_tick; if (!g_turok_logic_tick) frame_increment = 0.0; else g_turok_anim_step = frame_increment; }
+	{ extern int g_turok_logic_tick; extern int g_turok_tex_anim_frame; if (!g_turok_logic_tick) frame_increment = 0.0; else { g_turok_anim_step = frame_increment; g_turok_tex_anim_frame++; } }
 #endif
 
 	// Process player controller values
