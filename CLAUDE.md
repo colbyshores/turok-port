@@ -1425,6 +1425,24 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   gotcha: `TUROK_CAPTURE_FRAME=N` on no-tick-gate builds needs `TUROK_MAX_FRAMES` WELL above N — the render-frame
   counter `s_frame_no` lags the frame-pump `g_frame`, else the capture silently never fires.)
 
+- **★★ PROJECTILES DON'T DAMAGE + TORCHES DON'T ANIMATE — ROOT CAUSE = `PARTICLES_MAX_COUNT` was a DEBUG
+  value of `2` (fixed 2026-06-19, commit 326eabe).** The leaked dev source left `defs.h`'s
+  `PARTICLES_MAX_COUNT` at **2** (the real `128` commented out right above it). With only 2 particle slots,
+  every weapon shot's muzzle-flash + smoke instantly fills the pool, and `CParticleSystem__AllocateParticle`
+  PRIORITY-EVICTS the just-fired BULLET before `CParticleSystem__Advance` ever advances it — so the bullet
+  (traced: `m_nFrames=56`, valid region, velocity 7680) is created but **never enters the active-particle
+  loop** → never moves, collides, or damages. The SAME starvation freezes smoke/steam/flame particles → the
+  "torches not animating." One debug constant broke BOTH; restored to 128. **Verified:** at pool=2 the player
+  bullet is created but absent from the loop; at pool=128 it flies the level (`Z: -509→-1230`) and registers
+  instance collisions (`inst=1`). **★ THE SUB-BULLET BELOW ("the pistol works, no fix needed — it was the
+  CTTYPE_DOWN firing fix") WAS WRONG** — it only *looked* fine because `TICK=0` (every render frame is a logic
+  tick) runs the bullet fast enough to occasionally beat the 2-slot eviction; at the user's `TICK=30` it's
+  always evicted. **LESSONS: (1)** a leaked DEV tree can ship a core constant at a tiny debug value
+  (`PARTICLES_MAX_COUNT=2`) — when "projectiles never register" AND "particle FX frozen" co-occur, suspect a
+  pool/count cap before the per-particle logic. **(2)** NEVER trust a `TICK=0` headless "it works" for anything
+  rate/eviction-sensitive — `TICK=0` produces a degenerate tick cadence; always pace `TICK=30 FPS>0` to match
+  real play. **(3)** the geometry.c animated-TEXTURE 30Hz decouple (62de09e) is a valid correctness fix but the
+  smoke is PARTICLES, so the POOL fix is what actually restores it. (The now-superseded original investigation:)
 - **★ WEAPONS + TORCHES + BAND-AID AUDIT (2026-06-19).** Three of the user's reports.
   - **PISTOL "not damaging enemies" — the damage chain is SOUND; no code fix needed (it works).** A headless
     harness (`TUROK_AUTOAIM`/`TUROK_GIVEPISTOL`/`TUROK_AIMROT`/`TUROK_PBULLET`, all REMOVED after) arms the
