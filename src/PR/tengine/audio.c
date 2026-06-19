@@ -1776,6 +1776,9 @@ void SetupSeq()
 	u8				*seqPtr = (u8 *)SeqBuffer;
 	int			i;
 
+#ifdef PLATFORM_PORT
+	{ extern void audioSynthLock(void); audioSynthLock(); }   /* serialise the seq build with the audio thread */
+#endif
 	alCSeqNew(seq, seqPtr);
    alCSPSetSeq(seqp, seq);
 	alCSPSetBank(seqp, seqbankPtr->bankArray[0]);
@@ -1788,7 +1791,9 @@ void SetupSeq()
 
 	alCSPSetVol(seqp, __GlobalSEQvolume);
 
-
+#ifdef PLATFORM_PORT
+	{ extern void audioSynthUnlock(void); audioSynthUnlock(); }
+#endif
 }
 
 
@@ -2039,10 +2044,22 @@ void InsertQueueEntryBefore(t_WaitQue *Queue, t_WaitQue *Entry)
 //
 void SetAudioVolume(float Music, float Sfx)
 {
+#ifdef PLATFORM_PORT
+	/* ★ AUDIO-THREAD RACE FIX: the synth runs on its own thread (port/audio.c) holding synthLock during
+	 * alAudioFrame; this (game thread) mutates the SAME libaudio event queue via alCSPSetVol -> alEvtqPostEvent
+	 * EVERY FRAME. Unsynchronised, the two corrupt the event linked-list into a cycle -> alEvtqPostEvent spins
+	 * forever = the "music keeps playing but the game freezes, no crash dump" hang. Take the (recursive)
+	 * synthLock around every game-thread libaudio call. */
+	extern void audioSynthLock(void); extern void audioSynthUnlock(void);
+	audioSynthLock();
+#endif
 	__GlobalSEQvolume = (INT16)(Music * MAX_SEQ_VOL);
 	alCSPSetVol(seqp, __GlobalSEQvolume);
 
 	__GlobalSFXscalar = Sfx;
+#ifdef PLATFORM_PORT
+	audioSynthUnlock();
+#endif
 }
 
 
