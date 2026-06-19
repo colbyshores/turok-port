@@ -878,6 +878,28 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     division) — swap it at load; the event stream past it is byte-oriented and endian-neutral. And a leaked DEV tree
     may ship a subsystem stubbed OFF (here music `LoadSeq return FALSE`) — re-enable + endian-fix it, don't assume the
     leak's default state is the shipped one.**
+  - **★★ AUDIO-THREAD RACE = the "locks up, no crash dump" FREEZE — FIXED (2026-06-18, commit c6e12dc, on master).**
+    User: "the game has been locking up quite a bit.. just locking up no crash dump" + "music is playing but sdl2
+    crashed". Root cause: the synth runs on the dedicated audio thread (`port/audio.c`) holding the recursive
+    `s_synthLock` across `alAudioFrame`, but the **game thread mutates the SAME libaudio event queue every frame**
+    (`CEngineApp__Main → SetAudioVolume → alCSPSetVol → alEvtqPostEvent`, and `UpdateSeq`/`SetupSeq` for music) and
+    **never took the lock** — so the two threads raced on the `ALEventQueue` linked list, occasionally splicing it
+    into a CYCLE → the audio OR game thread spins forever in the list walk = a hang with no crash dump (or a wild
+    deref = "sdl2 crashed"). The tell: **music keeps playing** (the audio thread owns the lock + keeps producing)
+    **while the game freezes**. CLAUDE.md had CLAIMED the synthLock was wired "at S3+" but a grep proved the game
+    thread NEVER locked — the lock existed but only the audio side used it. **Fix (`audio.c` + `tengine.c`, all
+    PLATFORM_PORT):** wrap the game-thread libaudio calls in `audioSynthLock()/audioSynthUnlock()` — `SetAudioVolume`,
+    `SetupSeq`, and the per-frame `UpdateSeq` call. VERIFIED: the freeze repro that reliably hung at frame ~3180 now
+    runs clean past 5460 with SFX firing + music + the `TUROK_WATCHDOG` silent. **Diagnosis tooling (kept):**
+    `TUROK_WATCHDOG=1` (`turok_main.c`) arms a thread that `pthread_kill(main, SIGUSR1)`+`backtrace()`s the MAIN
+    thread after ~4s of no `g_frame` progress — the only way to catch an infinite-loop spin here, since gdb-attach
+    is blocked by yama `ptrace_scope`. **LESSON: any data the game thread shares with a real (non-cooperative)
+    audio/render thread — here the libaudio event queue — MUST be taken under the SAME lock on BOTH sides; a
+    one-sided lock is a no-op. A "music plays but the game freezes, no crash dump" symptom = a shared-structure
+    race, not a deadlock (a deadlock stops the audio too).** Also hardened the render-INTERPOLATION angle wraps
+    (`tengine.c`/`romstruc.c`) from `while(a>PI)a-=2PI;` to O(1) `turok_wrap_pi()` (commit e50814b) — a separate
+    latent freeze class (a huge finite interp-delta angle spins the while-loop ~1e17×; the game's own angle funcs
+    already had the `fmodf` fix but the interp loops I added did not).
 
 - **★ ANIMATED-OBJECT RENDERING (Item 3, 2026-06-14) — objects were all invisibly at the origin; fixed.**
   Found via a multi-agent workflow + runtime gate-counting: every animated instance (enemies, AI_OBJECT_DEVICE_*
@@ -1304,6 +1326,26 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   always the bonus; the Campaigner only via the all-keys hub portal). LESSON: a "leaking" destination wasn't a parse
   bug — the cart genuinely lists the boss under the bonus id; the original gates it by KEYS (hub PortalAI), so the
   port must reproduce that gate in the warp-point selection, not just trust the data.
+  - **★ "PORTAL TAKES ME TO THE VOID" = the DARK lvl-26 bonus-cave interior, NOT out-of-bounds (2026-06-18).**
+    After the key-gate, the user: "portal takes me to the void btw" (a pure-black screenshot with the HUD + weapon
+    still visible). Root-caused headlessly: the warp resolves CORRECTLY to lvl 26 (`resolve nWarpID=9600
+    choice=184 nLevel=26`, the key-gated bonus cave — confirmed in BOTH the SDL2 and EGL builds). An EGL capture of
+    the **landing spot** (`TUROK_FORCEWARP=9600 TUROK_FAKEINPUT=0`, no walk, HUD on) shows the player arrives
+    **facing a large dark cave-tunnel mouth**: side walls lit dim-green stone, pickup sparkles marking a path
+    forward, but straight ahead is a deep UNLIT tunnel. Walk into it → surrounded by black (unlit) geometry while
+    the HUD + weapon (screen-space) stay lit = EXACTLY the user's "void" screenshot. So it is **not** OOB / not a
+    broken warp / not a missing level — it's the bonus cave's genuinely-dark interior. (Whether it's TOO dark vs
+    the N64 — a fog/ambient/brightness question — is the separate open "brightness polish" item; the lighting
+    isn't obviously broken since the walls light correctly and deep tunnels reading black is normal.) **HEADLESS-
+    REPRO GOTCHA: the SDL2 backend can't be captured under Xvfb** — `xvfb-run` has no GPU, so its software-GL/
+    capture path renders EVERYTHING black (level 1 fire-pit AND lvl 26 both came out pure black), so SDL2 captures
+    are NOT diagnostic. Use the **EGL/GBM** build (real GPU, render-node, no X) for any headless pixel check; the
+    user's real SDL2 runs on their GPU and renders fine. **LESSON: a "void" report is usually one of three —
+    (a) wrong warp / OOB (ruled out by the resolve trace), (b) the v49-vs-retail missing-asset class (ruled out,
+    EGL renders the cave), or (c) a genuinely dark area the player walked into. Capture the LANDING spot (no walk)
+    in EGL to tell them apart before assuming a bug.** NOTE: an intermittent EGL segfault appeared in the lvl-26
+    path during testing (attempt 1 crashed, attempt 2 clean) — most likely the documented GPU-wedge from repeated
+    headless kill -9 runs, but watch for a real intermittent lvl-26 crash if it recurs.
 - **★ DEBUG-KNOB CLEANUP (2026-06-17, 9-agent Workflow).** Stripped ~36 one-off `TUROK_*` debug env knobs that
   accreted across the porting sessions — the `*LOG` trace prints (OBJLOG/GATELOG/BLENDLOG/RSLOG/MTXLOG/VTXLOG/
   QLOG/QCLOG/SIMPLOG/INSTLOG/XINSTLOG/PARTLOG/MATLOG/VMLOG/VP_LOG/CAMLOG/MOVELOG/GFX_DUMP/GFX_DRAWLOG/OBJLOG/
