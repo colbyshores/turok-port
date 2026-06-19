@@ -519,9 +519,20 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   read `/proc/<pid>/task/<main-tid>/stat` field 3 — `state=R` + a frozen frame counter = an infinite loop (the
   angle-wrap while-loop is the #1 suspect). gdb-attach is blocked by `ptrace_scope` here.** LESSON: EVERY angle-wrap
   while-loop in PORT-added code must be fmodf — the render-interp ones were missed (the game's own ones were already
-  done). ★ GOTCHA: repeated `kill -9` of the rendering EGL turoks WEDGED the GPU (a stuck D-state `kworker`; new EGL
-  inits then hang with no output) — so the FIXED binary couldn't be re-verified headless this session; it's
-  build-clean + diagnosis-confirmed, user confirms on the SDL/display build (unaffected by the headless GPU wedge).
+  done). **★ VERIFIED FIXED** via a new watchdog: `TUROK_WATCHDOG=1` (`turok_main.c`) starts a thread that
+  `pthread_kill(main, SIGUSR1)`s + `backtrace()`s the MAIN thread if `g_frame` stalls ~4s — the gdb-substitute for
+  the `ptrace_scope` block (it catches a spin AND a stall, and prints the exact frozen call stack). The original
+  repro (warp 0 → TESTPORTAL → bonus, patrol+audio AND forward-walk, 4 runs to 800-1500 frames) now runs clean,
+  watchdog silent, rc=0. **★★ TWO TEST-HARNESS GOTCHAS cost most of this session — the hang LOOKED un-fixable when
+  it was already fixed: (1) `pkill -9 -f 'tbm/turok'` is SUICIDAL — `pkill -f` matches the running bash command's
+  OWN command line (it contains the binary path `/tmp/tbm/turok`), so it kills the very shell running it → every
+  turok launch came back "failed, exit 1, no output". Use `pkill -9 -x turok` (exact PROCESS-NAME match, never
+  matches your bash). (2) Repeatedly `kill -9`-ing a RENDERING EGL turok can briefly WEDGE the GPU (a stuck D-state
+  `kworker`; new EGL inits then stall with no output); it self-recovers in ~a minute. A one-off "froze at frame
+  180" was one of these (a GPU level-reload upload stall), NOT the game spin — the watchdog never caught it, and it
+  didn't reproduce.** LESSON: when "the binary won't even run / produces no output", suspect the TEST HARNESS
+  (self-kill, GPU wedge, output buffering on a killed proc) before the binary — verify the shell works, then run
+  with `pkill -x`, line-buffered (`stdbuf -oL`), and a `SIGKILL` timeout.
 - **★ DEATH FALL-THROUGH — re-acquire timing fix (2026-06-17, 3-agent Workflow).** User: dying drops the player
   through the floor; suspected a band-aid regression. Root cause (workflow): the DEATH cinematic
   (cinecam.c `CScene__LoadObjectModelType`, AI_ANIM_DEATH_*) does a model-swap INSIDE `CCamera__Update`, streaming

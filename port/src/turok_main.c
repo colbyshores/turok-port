@@ -15,6 +15,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
+#include <string.h>
+#include <pthread.h>
+#include <signal.h>
+#include <execinfo.h>
+#include <time.h>
+#include <unistd.h>
 
 /* game boot-chain entry wrappers (tengine.c) */
 extern void boot(void);
@@ -53,6 +59,36 @@ void turokVideoSwap(void *frameBuf)
         longjmp(g_escape, 1);              /* bounded run complete */
 }
 
+/* TUROK_WATCHDOG=1: catch infinite-loop freezes (no crash dump) — gdb-attach is blocked by ptrace_scope.
+ * A watchdog thread backtraces the MAIN thread if g_frame stops advancing for ~4s (= a spin in a sub-call). */
+static pthread_t s_wd_main;
+static void wd_sig(int s) {
+    static const char msg[] = "\n[WATCHDOG] main thread STUCK in an infinite loop — backtrace:\n";
+    void *bt[80]; int n;
+    (void)s;
+    write(2, msg, sizeof(msg) - 1);
+    n = backtrace(bt, 80);
+    backtrace_symbols_fd(bt, n, 2);
+    _exit(42);
+}
+static void *wd_thread(void *a) {
+    long last = -1; int stuck = 0;
+    (void)a;
+    for (;;) {
+        struct timespec ts; ts.tv_sec = 1; ts.tv_nsec = 0; nanosleep(&ts, NULL);
+        if (*(volatile long *)&g_frame == last) { if (++stuck >= 4) { pthread_kill(s_wd_main, SIGUSR1); return NULL; } }
+        else { stuck = 0; last = *(volatile long *)&g_frame; }
+    }
+}
+static void turok_watchdog_start(void) {
+    pthread_t t;
+    if (!getenv("TUROK_WATCHDOG")) return;
+    s_wd_main = pthread_self();
+    signal(SIGUSR1, wd_sig);
+    pthread_create(&t, NULL, wd_thread, NULL);
+    fprintf(stderr, "[WATCHDOG] armed (backtraces the main thread after ~4s of no frame progress)\n");
+}
+
 int main(int argc, char **argv)
 {
     const char *mf = getenv("TUROK_MAX_FRAMES");
@@ -63,6 +99,7 @@ int main(int argc, char **argv)
     /* Unbuffer stderr so a crash doesn't swallow the last (most diagnostic) lines —
      * release builds otherwise buffer it and lose the location on a segfault. */
     setvbuf(stderr, NULL, _IONBF, 0);
+    turok_watchdog_start();
     if (mf) g_max_frames = strtol(mf, NULL, 10);
     if (cf) g_capture_frame = strtol(cf, NULL, 10);
     if (cp) g_capture_path = cp;
