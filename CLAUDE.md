@@ -1333,7 +1333,10 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   always the bonus; the Campaigner only via the all-keys hub portal). LESSON: a "leaking" destination wasn't a parse
   bug — the cart genuinely lists the boss under the bonus id; the original gates it by KEYS (hub PortalAI), so the
   port must reproduce that gate in the warp-point selection, not just trust the data.
-  - **★ "PORTAL TAKES ME TO THE VOID" = the DARK lvl-26 bonus-cave interior, NOT out-of-bounds (2026-06-18).**
+  - **★★ "PORTAL TAKES ME TO THE VOID" — CORRECTED: a REAL render-interpolation/warp REGRESSION (fixed 7bfd06c),
+    NOT the "dark cave interior" I first concluded below. The (now-wrong) first investigation is kept verbatim as a
+    lesson in how a TICK=0 headless capture MASKED it — the real root cause + fix follow it.**
+  - **[SUPERSEDED — first, WRONG conclusion] "PORTAL TAKES ME TO THE VOID" = the DARK lvl-26 bonus-cave interior (2026-06-18).**
     After the key-gate, the user: "portal takes me to the void btw" (a pure-black screenshot with the HUD + weapon
     still visible). Root-caused headlessly: the warp resolves CORRECTLY to lvl 26 (`resolve nWarpID=9600
     choice=184 nLevel=26`, the key-gated bonus cave — confirmed in BOTH the SDL2 and EGL builds). An EGL capture of
@@ -1353,6 +1356,28 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     in EGL to tell them apart before assuming a bug.** NOTE: an intermittent EGL segfault appeared in the lvl-26
     path during testing (attempt 1 crashed, attempt 2 clean) — most likely the documented GPU-wedge from repeated
     headless kill -9 runs, but watch for a real intermittent lvl-26 crash if it recurs.
+  - **★★ THE ACTUAL ROOT CAUSE = RENDER-INTERPOLATION CLOBBERS THE WARP DESTINATION (2026-06-18, commit 7bfd06c) —
+    the user was right, my "dark cave" call above was WRONG.** The user pushed back: "trust me... it's absolutely
+    pitch black... the geometry either isn't rendering or I'm being dropped out of bounds... it RENDERED in an
+    earlier commit so there's a regression." Re-investigated and REPRODUCED headlessly. ROOT: the player
+    render-interpolation (smooth motion between 30Hz logic ticks, `tengine.c CEngineApp__UpdateGAME`) ran
+    **regardless of warp state**, and its restore (~line 4903) UNCONDITIONALLY wrote `m_vPos = _ipCurPos` (the last
+    logic-tick snapshot). On **render-only frames** (FPS>TICK — the default TICK=30 + uncapped render), after a warp
+    repositioned the player to the destination, the interp dragged `m_vPos` back to the stale pre-warp snapshot AND
+    the next snapshot re-read that clobbered value → the player was **stuck at the OLD position inside the NEW level
+    → out of bounds → the world culled to PITCH BLACK** (only the HUD + weapon, both screen-space, drew); moving
+    re-triggered a warp because the player sat on the wrong spot. **FIX:** skip interpolation + its restore while
+    `pThis->m_Warp != WARP_NOT_WARPING`, and force `_ipHave=0` so the first post-warp frame re-snapshots from the
+    real destination. **★ WHY I FIRST GOT IT WRONG: the bug ONLY manifests at TICK<FPS (render-only frames exist).
+    My headless captures used TICK=0 — every frame is a logic tick, so there's no stale snapshot — so lvl 26
+    rendered fine and I mis-concluded "dark cave". REPRODUCED by matching the user's config class: TICK=30/FPS=120
+    = BLACK, TICK=30/FPS=30 = renders, TICK=30/FPS=120 + fix = renders.** Verified: lvl-26 bonus renders the cave;
+    fire-pit spawn clean; patrols warp 0/2000/6000 rc=0, zero anomalies. **LESSON: a headless capture at a
+    non-default tick/fps can MASK a bug that only exists in the user's real config — when a render bug "won't
+    reproduce," MATCH the user's TICK/FPS (you need render-only frames, i.e. FPS>TICK). And when the user says "it's
+    a regression" and "it rendered before," TRUST that over a headless capture that looks fine — bisect the
+    mechanism, don't explain the screenshot away.** (This is the same render-interpolation system behind the death
+    fall-through saga — interpolation interacting badly with a position discontinuity; warps are another one.)
 - **★ DEBUG-KNOB CLEANUP (2026-06-17, 9-agent Workflow).** Stripped ~36 one-off `TUROK_*` debug env knobs that
   accreted across the porting sessions — the `*LOG` trace prints (OBJLOG/GATELOG/BLENDLOG/RSLOG/MTXLOG/VTXLOG/
   QLOG/QCLOG/SIMPLOG/INSTLOG/XINSTLOG/PARTLOG/MATLOG/VMLOG/VP_LOG/CAMLOG/MOVELOG/GFX_DUMP/GFX_DRAWLOG/OBJLOG/
