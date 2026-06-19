@@ -66,8 +66,12 @@
 #define	MAX_ACTIVE_ANIM_INSTANCES	64
 #define	STATICEVENTS_MAX_INSTANCES 64
 
+/* PORT: the leaked dev source left this at a debug value of 2. With only 2 particle slots, every
+ * weapon shot's muzzle-flash/smoke instantly fills the pool and AllocateParticle evicts the BULLET
+ * before it can advance/collide -> projectiles never damage; and steam/smoke/flame effects can't
+ * sustain enough particles to animate. Restored to the original (commented-out) 128. */
 //#define	PARTICLES_MAX_COUNT		128
-#define	PARTICLES_MAX_COUNT		2
+#define	PARTICLES_MAX_COUNT		128
 
 //#define	MATTABLE_MATRICES			400
 #ifdef PLATFORM_PORT
