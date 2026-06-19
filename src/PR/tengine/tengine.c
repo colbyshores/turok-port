@@ -4706,34 +4706,6 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 #endif
 
 #ifdef PLATFORM_PORT
-	/* TUROK_FORCERETURN=1: once a forward blue-portal warp has STORED a return point (m_ReturnWarpSaved) and
-	 * we've settled back to WARP_NOT_WARPING (i.e. arrived in the bonus), fire the RETURN warp ONCE (~120 logic
-	 * ticks later) to headlessly exercise the round-trip: does the player land back at the stored entry,
-	 * grounded, not OOB? Pair with TUROK_TESTPORTAL=1 + TUROK_FAKEINPUT=3 (walk into the fire-pit portal). */
-	{ extern char *getenv(const char*); static int fr=-2; static int frc=0; extern int g_turok_logic_tick;
-	  if (fr==-2){ const char*e=getenv("TUROK_FORCERETURN"); fr=(e&&atoi(e))?1:0; }
-	  if (fr && frc>=0 && pThis->m_ReturnWarpSaved && pThis->m_Warp == WARP_NOT_WARPING && g_turok_logic_tick){
-	    if (++frc >= 120){
-	      extern int fprintf(void*,const char*,...); extern void *stderr;
-	      fprintf(stderr,"[WARP] FORCERETURN -> CEngineApp__WarpReturn\n");
-	      CEngineApp__WarpReturn(pThis); frc = -1;
-	    } }
-	}
-
-	/* TUROK_POSLOG=1: log the player's level / world position / region every ~30 logic ticks (~1s) — to watch a
-	 * warp's landing. A falling Y (region with no ground) or a bad region = the player dropped out of bounds. */
-	{ extern char *getenv(const char*); static int pl=-2; static int pc=0; extern int g_turok_logic_tick;
-	  if (pl==-2){ const char*e=getenv("TUROK_POSLOG"); pl=(e&&atoi(e))?1:0; }
-	  if (pl && g_turok_logic_tick && (++pc % 30)==0){
-	    CGameObjectInstance *_p = CEngineApp__GetPlayer(pThis);
-	    extern int fprintf(void*,const char*,...); extern void *stderr;
-	    if (_p) fprintf(stderr,"[POS] lvl=%d pos=(%.0f,%.0f,%.0f) region=%p rbad=%d\n",
-	      pThis->m_Scene.m_nLevel, _p->ah.ih.m_vPos.x, _p->ah.ih.m_vPos.y, _p->ah.ih.m_vPos.z,
-	      (void*)_p->ah.ih.m_pCurrentRegion, (int)PORT_REGION_BAD(_p->ah.ih.m_pCurrentRegion)); }
-	}
-#endif
-
-#ifdef PLATFORM_PORT
 	/* TUROK_TESTPORTAL=1: a re-triggerable blue-portal test trigger AT the fire-pit (warp-0) spawn, so the
 	 * 9600 key-gate can be exercised repeatedly without hiking to the real portal. Just walk AWAY from the
 	 * fire-pit — the moment the player crosses a ~200u zone around the spawn (-1837,-3290) outward, it fires
