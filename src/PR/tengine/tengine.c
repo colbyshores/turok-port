@@ -349,6 +349,9 @@ float			g_turok_anim_step = 1.0f;
  * and aliased into a frozen-looking shimmer. This counter advances only on logic ticks (see the tick
  * gate in UpdateGAME), so geometry.c drives texture animation at the authored 30Hz regardless of FPS. */
 int			g_turok_tex_anim_frame = 0;
+/* PORT: set in CCamera__FadeToCinema when a FALL/WATER death occurs (the death pos is off the cliff /
+ * underwater). Consumed at the resurrect respawn to reroute to CurrentCheckpoint instead of m_CinemaWarp. */
+int			g_turok_death_was_fall = 0;
 #endif
 float			enemy_speed_scaler = 1.0;				// these vars are
 float			particle_speed_scaler = 1.0;			// also setup
@@ -3725,6 +3728,17 @@ void CEngineApp__Main(CEngineApp *pThis)
 				// Increase mode time
 				pThis->m_ModeTime += frame_increment ;
 
+#ifdef PLATFORM_PORT
+				{ extern char *getenv(const char*); static int mt=-2; static int lastmode=-99;
+				  if (mt==-2){ const char*e=getenv("TUROK_MODELOG"); mt=(e&&atoi(e))?1:0; }
+				  if (mt && (int)pThis->m_Mode != lastmode){
+				    extern int fprintf(void*,const char*,...); extern void *stderr;
+				    fprintf(stderr,"[MODE] -> %d (WarpID=%d NextMode=%d FadeStatus=%d bGameOver=%d)\n",
+				            (int)pThis->m_Mode, pThis->m_WarpID, (int)pThis->m_NextMode,
+				            (int)pThis->m_FadeStatus, pThis->m_bGameOver);
+				    lastmode = (int)pThis->m_Mode; } }
+#endif
+
 				switch (pThis->m_Mode)
 				{
 					// --------------------------- STARTUP ---------------------------
@@ -4051,6 +4065,17 @@ void CEngineApp__Main(CEngineApp *pThis)
 								CPickup__DisplayKeysRemaining() ;
 							}
 							pThis->m_UseCinemaWarp = FALSE ;
+#ifdef PLATFORM_PORT
+							/* PORT: a fall/water death's m_CinemaWarp is the unsafe death position (off the cliff /
+							 * underwater) -> respawning there falls/drowns again. Respawn at the last CHECKPOINT
+							 * (CurrentCheckpoint = the save-region warp) so the player lands on solid ground. */
+							if (g_turok_death_was_fall)
+							{
+								g_turok_death_was_fall = 0 ;
+								CScene__Construct(&pThis->m_Scene, CTurokMovement.CurrentCheckpoint) ;
+							}
+							else
+#endif
 							CScene__Construct(&pThis->m_Scene, CINEMA_WARP_ID) ;
 						}
 						else
@@ -4691,6 +4716,21 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	{ CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
 	  if (_pl && PORT_REGION_BAD(_pl->ah.ih.m_pCurrentRegion))
 	    _pl->ah.ih.m_pCurrentRegion = CScene__NearestRegion(&pThis->m_Scene, &_pl->ah.ih.m_vPos); }
+#endif
+
+#ifdef PLATFORM_PORT
+	/* TUROK_FORCEGAMEOVER=<frames>: DEBUG — force game-over after N frames to repro the black-void bug. */
+	{ extern char *getenv(const char*); static int fgo=-2; static int fgoc=0;
+	  if (fgo==-2){ const char*e=getenv("TUROK_FORCEGAMEOVER"); fgo=(e?atoi(e):-1); }
+	  if (fgo>=0 && !pThis->m_bGameOver){
+	    if (++fgoc>=fgo){
+	      extern int fprintf(void*,const char*,...); extern void *stderr;
+	      fprintf(stderr,"[GO] FORCEGAMEOVER frame=%d -> m_bGameOver=TRUE (Lives=%d)\n", fgoc, CTurokMovement.Lives);
+	      CTurokMovement.Lives = 0;
+	      pThis->m_bGameOver = TRUE; pThis->m_GameOverAlpha=0; pThis->m_GameOverMode=0;
+	      pThis->m_GameOverTime = SECONDS_TO_FRAMES(1);
+	    } }
+	}
 #endif
 
 #ifdef PLATFORM_PORT

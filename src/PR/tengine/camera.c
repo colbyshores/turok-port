@@ -1643,6 +1643,17 @@ void CCamera__FadeToCinema(CCamera *pThis, INT32 CinemaFlag)
 	pEngine->m_CinemaWarp.m_nLevel = pEngine->m_Scene.m_nLevel ;
 	pEngine->m_CinemaWarp.m_nRegion = CScene__GetRegionIndex(&pEngine->m_Scene, pTurok->ah.ih.m_pCurrentRegion) ;
 
+#ifdef PLATFORM_PORT
+	/* PORT: a FALL or WATER death captured m_CinemaWarp at the (unsafe) death position — off the cliff /
+	 * underwater — so the resurrect would respawn there and the player immediately falls/drowns again (the
+	 * "respawn off the cliff in ghost form" loop). Flag it so the respawn (tengine.c) reroutes to the last
+	 * CHECKPOINT (a safe save-region warp) instead. Only set (never cleared here) so it survives the resurrect's
+	 * own FadeToCinema; consumed+cleared at the respawn. Normal/boss deaths are unaffected (death spot is safe). */
+	{ extern int g_turok_death_was_fall;
+	  if (CinemaFlag & (CINEMA_FLAG_PLAY_FALL_DEATH | CINEMA_FLAG_PLAY_WATER_DEATH))
+		g_turok_death_was_fall = 1; }
+#endif
+
 	// Reset the level so object can be allocated!
 	CEngineApp__SetupFadeTo(pEngine, MODE_RESETLEVEL) ;
 }
