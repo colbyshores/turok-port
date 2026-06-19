@@ -3728,17 +3728,6 @@ void CEngineApp__Main(CEngineApp *pThis)
 				// Increase mode time
 				pThis->m_ModeTime += frame_increment ;
 
-#ifdef PLATFORM_PORT
-				{ extern char *getenv(const char*); static int mt=-2; static int lastmode=-99;
-				  if (mt==-2){ const char*e=getenv("TUROK_MODELOG"); mt=(e&&atoi(e))?1:0; }
-				  if (mt && (int)pThis->m_Mode != lastmode){
-				    extern int fprintf(void*,const char*,...); extern void *stderr;
-				    fprintf(stderr,"[MODE] -> %d (WarpID=%d NextMode=%d FadeStatus=%d bGameOver=%d)\n",
-				            (int)pThis->m_Mode, pThis->m_WarpID, (int)pThis->m_NextMode,
-				            (int)pThis->m_FadeStatus, pThis->m_bGameOver);
-				    lastmode = (int)pThis->m_Mode; } }
-#endif
-
 				switch (pThis->m_Mode)
 				{
 					// --------------------------- STARTUP ---------------------------
@@ -4716,21 +4705,6 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	{ CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
 	  if (_pl && PORT_REGION_BAD(_pl->ah.ih.m_pCurrentRegion))
 	    _pl->ah.ih.m_pCurrentRegion = CScene__NearestRegion(&pThis->m_Scene, &_pl->ah.ih.m_vPos); }
-#endif
-
-#ifdef PLATFORM_PORT
-	/* TUROK_FORCEGAMEOVER=<frames>: DEBUG — force game-over after N frames to repro the black-void bug. */
-	{ extern char *getenv(const char*); static int fgo=-2; static int fgoc=0;
-	  if (fgo==-2){ const char*e=getenv("TUROK_FORCEGAMEOVER"); fgo=(e?atoi(e):-1); }
-	  if (fgo>=0 && !pThis->m_bGameOver){
-	    if (++fgoc>=fgo){
-	      extern int fprintf(void*,const char*,...); extern void *stderr;
-	      fprintf(stderr,"[GO] FORCEGAMEOVER frame=%d -> m_bGameOver=TRUE (Lives=%d)\n", fgoc, CTurokMovement.Lives);
-	      CTurokMovement.Lives = 0;
-	      pThis->m_bGameOver = TRUE; pThis->m_GameOverAlpha=0; pThis->m_GameOverMode=0;
-	      pThis->m_GameOverTime = SECONDS_TO_FRAMES(1);
-	    } }
-	}
 #endif
 
 #ifdef PLATFORM_PORT
