@@ -889,8 +889,15 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     **while the game freezes**. CLAUDE.md had CLAIMED the synthLock was wired "at S3+" but a grep proved the game
     thread NEVER locked — the lock existed but only the audio side used it. **Fix (`audio.c` + `tengine.c`, all
     PLATFORM_PORT):** wrap the game-thread libaudio calls in `audioSynthLock()/audioSynthUnlock()` — `SetAudioVolume`,
-    `SetupSeq`, and the per-frame `UpdateSeq` call. VERIFIED: the freeze repro that reliably hung at frame ~3180 now
-    runs clean past 5460 with SFX firing + music + the `TUROK_WATCHDOG` silent. **Diagnosis tooling (kept):**
+    `SetupSeq`, the per-frame `UpdateSeq` call, AND `CScene__DoSoundEffect`'s critical section (the cfx_counter bump
+    + the SFX event posts). ★ The **source itself documents this exact race** at `DoSoundEffect` (scene.c:2853-2894:
+    "This function can be called by the audio thread... can preempt the game thread... corrupt CCartCache") and
+    serialized it on the N64 via `osSetThreadPri(PRIORITY_AUDIOLOCK)` — a **no-op in our cooperative port**, so the
+    synthLock is its direct port-equivalent (placed in the same PRIORITY_AUDIOLOCK window; both lock+unlock kept
+    INSIDE the `if (nIndex != -1)` block so a no-match path can't unbalance the recursive mutex). VERIFIED: the
+    freeze repro that reliably hung at frame ~3180 now runs clean past 5460 with SFX firing + music + the
+    `TUROK_WATCHDOG` silent; a 2000-frame heavy-fire (`FAKEINPUT=5`) run exits rc=0, watchdog silent, 250KB of SFX
+    audio produced (no deadlock, SFX fires through the lock). **Diagnosis tooling (kept):**
     `TUROK_WATCHDOG=1` (`turok_main.c`) arms a thread that `pthread_kill(main, SIGUSR1)`+`backtrace()`s the MAIN
     thread after ~4s of no `g_frame` progress — the only way to catch an infinite-loop spin here, since gdb-attach
     is blocked by yama `ptrace_scope`. **LESSON: any data the game thread shares with a real (non-cooperative)

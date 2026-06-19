@@ -2888,6 +2888,15 @@ int CScene__DoSoundEffect(CScene *pThis,
 		// is usually sounds getting cut off at the wrong time.  Setting the current
 		// thread to a higher priority than the audio thread delays the preemption
 		// until the result is copied into cFX, fixing this problem.
+#ifdef PLATFORM_PORT
+		/* PORT: the original serialized the game/audio thread across this critical section via
+		 * PRIORITY_AUDIOLOCK (osSetThreadPri), which is a NO-OP in our cooperative port — here the
+		 * audio thread is a real pthread that runs alAudioFrame concurrently. Take the SAME recursive
+		 * synthLock the audio thread holds, so the cfx_counter bump + the event-queue posts below
+		 * (DoSoundElement -> alSndp* -> alEvtqPostEvent) can't race the synth and splice the
+		 * ALEventQueue into a cycle (the freeze class). Recursive => an audio-thread caller is safe. */
+		{ extern void audioSynthLock(void); audioSynthLock(); }
+#endif
 		ospri = osGetThreadPri(NULL);
 		osSetThreadPri(NULL, PRIORITY_AUDIOLOCK);
 		cFX = ++AW.cfx_counter;
@@ -2913,6 +2922,9 @@ int CScene__DoSoundEffect(CScene *pThis,
 
 		CIndexedSet__Destruct(&isSounds);
 		CUnindexedSet__Destruct(&usSound);
+#ifdef PLATFORM_PORT
+		{ extern void audioSynthUnlock(void); audioSynthUnlock(); }   /* pairs with the lock above (both inside this block) */
+#endif
 	}
 
 	CIndexedSet__Destruct(&isSoundEffects);
