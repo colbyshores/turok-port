@@ -4812,7 +4812,16 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	{
 		extern int g_turok_logic_tick; extern float turok_render_alpha(void);
 		CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
-		if (_pl)
+		/* PORT: do NOT interpolate (or restore) while a warp/teleport is in progress. The warp
+		 * repositions the player to the destination, but on render-only frames (when FPS>TICK) the lerp
+		 * below uses the last logic-tick snapshot (the pre-warp position) and the restore (after the
+		 * graphics task) clobbers m_vPos back to it — then the next snapshot re-reads the clobbered value,
+		 * so the player stays stuck at the OLD position inside the NEW level (out of bounds -> the world
+		 * culls to PITCH BLACK, only HUD+weapon draw). Skip interpolation while warping and force a re-sync
+		 * (_ipHave=0) so the first frame after the warp re-snapshots from the real destination. (This is the
+		 * blue-portal "black bonus area" regression — render-only frames only exist at TICK<FPS, which is
+		 * exactly why TICK=0 headless captures rendered fine and masked it.) */
+		if (_pl && pThis->m_Warp == WARP_NOT_WARPING)
 		{
 			if (g_turok_logic_tick || !_ipHave)
 			{
@@ -4869,6 +4878,7 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 				}
 			}
 		}
+		else { _ipHave = 0; }   /* warping (or no player): skip interp; re-init the snapshot from the real destination once the warp completes */
 	}
 #endif
 
