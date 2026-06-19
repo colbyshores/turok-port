@@ -1378,6 +1378,28 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     a regression" and "it rendered before," TRUST that over a headless capture that looks fine — bisect the
     mechanism, don't explain the screenshot away.** (This is the same render-interpolation system behind the death
     fall-through saga — interpolation interacting badly with a position discontinuity; warps are another one.)
+  - **★ BONUS-EXIT OUT-OF-BOUNDS = the RETURN-warp point stored HOST-order but the spawn reads it BIG-ENDIAN
+    (2026-06-18, commit 16b5fa8).** User: exiting the bonus stage "teleports me out of bounds... not being
+    teleported back to where I entered the portal." Root: the blue portal's STORE (`tengine.c CEngineApp__DoWarp`,
+    ~line 2448) saves the entry point (pos/rot/level/region) in HOST order, but the RETURN spawn (`scene.c
+    CScene__RequestWarpPoints` RETURN branch:434 -> the player injection ~scene.c:1701/1710) consumes m_WarpPoint
+    with the CART warp-point endianness convention: m_vPos + m_nLevel HOST, but **m_RotY + m_nRegion BIG-ENDIAN**
+    (the spawn / instance-decoder ORDERBYTES them back to host). So on return the rotation + region byte-swapped to
+    GARBAGE: a wrong region -> wrong `GetGroundHeight` -> the player spawned ~530u too HIGH (**Y=891 vs the entry's
+    358**) on a frozen wrong region = OOB; m_vPos is host in both so the xyz was ~right (lands near the entry but
+    floating OOB). FIX: encode m_RotY (4-byte, via a `union`+`__builtin_bswap32`) + m_nRegion (2-byte WORD,
+    `__builtin_bswap16`) BIG-ENDIAN at store time (PLATFORM_PORT) to match the spawn; m_vPos + m_nLevel stay host.
+    **PROVEN by A/B (`TUROK_OLDSTORE`): old store -> return Y=891 on a stuck wrong region; fixed -> Y=358 grounded
+    at the entry, region tracks as you walk.** New debug hooks: `TUROK_FORCERETURN` (headless return-warp trigger)
+    + `TUROK_POSLOG` (per-~second player level/pos/region log — the position-trace methodology the user suggested).
+    **★ SIBLING (latent, deferred): `m_CinemaWarp` (camera.c:1641-1644, the death/key-cinematic respawn) has the
+    IDENTICAL host-order store -> the same garbage m_RotY + m_nRegion on the cinema respawn. Its REGION is currently
+    MASKED by the death-fix per-frame `CScene__NearestRegion` re-acquire (which overrides the stored region at the
+    correct live position), so only the respawn FACING is wrong (not user-reported). Fix it the same way if a
+    death/key respawn-facing issue surfaces — but the re-acquire makes the region a no-op, so it's low priority.**
+    LESSON: a SAVED warp/return/cinema point that's later fed through the CART warp-point spawn MUST match the cart
+    endianness convention (m_vPos host, but **m_RotY + m_nRegion big-endian**), not pure host order — else the
+    respawn region + facing byte-swap to garbage (wrong region -> wrong ground height -> floats OOB).
 - **★ DEBUG-KNOB CLEANUP (2026-06-17, 9-agent Workflow).** Stripped ~36 one-off `TUROK_*` debug env knobs that
   accreted across the porting sessions — the `*LOG` trace prints (OBJLOG/GATELOG/BLENDLOG/RSLOG/MTXLOG/VTXLOG/
   QLOG/QCLOG/SIMPLOG/INSTLOG/XINSTLOG/PARTLOG/MATLOG/VMLOG/VP_LOG/CAMLOG/MOVELOG/GFX_DUMP/GFX_DRAWLOG/OBJLOG/
