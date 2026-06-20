@@ -4723,6 +4723,7 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	      extern int fprintf(void*,const char*,...); extern void *stderr;
 	      fprintf(stderr,"[WARP] FORCEWARP -> CEngineApp__Warp(%d, WARP_WITHINLEVEL)\n", fw);
 	      CEngineApp__Warp(pThis, fw, WARP_WITHINLEVEL, FALSE);
+	      CTurokMovement.CurrentCheckpoint = fw ;   /* PORT: treat the forced warp as a checkpoint so a fall here respawns back at it (clean test loop) */
 	      fwc = -1;   /* fired; never again */
 	    } }
 	}
