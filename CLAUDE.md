@@ -653,6 +653,38 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   in tengine.c. Verified headless: egl+sdl2 build clean, round-trip (save@200→load@400 on a warp-0 patrol) writes a
   256-byte file, restarts at the checkpoint, rc=0. **NEEDS INTERACTIVE CONFIRM** (mouse turn/look sign + scroll
   direction can't be headless-tested). **NEXT: an in-game OPTIONS menu** to tune sensitivity/invert/walk + rebinds.
+- **★ SETTINGS PERSISTENCE — `turok.cfg` (2026-06-20, commit 65b521a).** `port/src/config.c` (new, shared-layer):
+  loads/saves a plain `key value` file (PC `$TUROK_CFG`/`./turok.cfg`; 3DS `sdmc:/3ds/turok/turok.cfg`) at
+  startup for mouse_sensitivity / mouse_invert / walk_default / window_width/height. The env knobs still
+  override at read time. The data layer the eventual in-game options menu reads/writes.
+- **★★ 3DS BUILD STOOD UP — M0 (compiles) + M1 (links to turok.3dsx) (2026-06-20, a8a96b2/f5caa21/b79e4c2).**
+  A SECOND build system, `Makefile.3ds` (devkitARM + libctru + Citro3D), ADDITIVE alongside the PC
+  `tools/build_port.sh`. The game tree compiles UNCHANGED under `-DPLATFORM_PORT` (PC+3DS shared) + a new
+  `-DPLATFORM_3DS` (3DS-only). **The Citro3D backend (`port/fast3d/gfx_citro3d.cpp` + `gfx_3ds.c` + the PICA
+  shader) was already vendored from Perfect Dark**, so the work was the Makefile + sys/audio/input/stub TUs +
+  a small bridge branch, NOT a from-scratch backend. **3DS-M0** (`make -f Makefile.3ds objects`): all 201 TUs
+  (77 engine + 105 libaudio + gu + port + Citro3D C++) compile clean on ARM — devkitARM gcc 15 promotes
+  legacy-C (implicit-int/K&R/pointer-puns) to hard errors `-w` doesn't suppress, so the Makefile adds the
+  `-Wno-*` downgrades + `-fno-short-enums` (CRITICAL: ARM-EABI packs enums → breaks the `-1` sentinels) +
+  force-includes `turok_port.h` (qsort rename / fmodf proto / `turok_wrap_pi` inline). **3DS-M1** (`make -f
+  Makefile.3ds`): LINKS → `build_3ds/turok.3dsx` (1.05 MB). New 3DS port TUs (all `#ifdef PLATFORM_3DS`, empty
+  on PC, auto-globbed): **`audio_3ds.c`** (audio.h contract on ndsp + the dedicated audio thread via libctru
+  threadCreate/RecursiveLock — same stash/push sink + `turokAudioManagerFrame` synth seam as the PC `audio.c`,
+  22050Hz, wave buffers in linearAlloc); **`input_3ds.c`** (HID → the portable `inputSetState` seam; `input.c`
+  KEPT as platform-agnostic; first-boot FPS map, polled per frame from `gfx_3ds.c::handle_events`);
+  **`sys_3ds.c`** (`__stacksize__=2MB` — the inline boot overflows the 32KB default — + `plat3dsBootLog` = the
+  on-device trace `sdmc:/3ds/turok/boot.log`+svcOutputDebugString = the PC-stderr equivalent, + fb capture);
+  **`stderr_3ds.c`** (provides the `stderr` GLOBAL SYMBOL the game's port traces link against — newlib makes
+  stderr a macro, not a symbol; `turok_main.c` points it at the real stream early). Port host-bits gated for
+  3DS: `system.c` x86-`pause`→ARM barrier; `turok_main.c` watchdog (pthread+execinfo)→no-op; `romdata.c`
+  DMA-OOB backtrace→host-only + **the asset ROM defaults to `sdmc:/3ds/turok/baserom.us.v12.z64`** (Path B).
+  `turok_gfx.c` routes to `gfx_3ds`+`gfx_citro3d_api`. PC re-verified unaffected at every step. **NEXT —
+  3DS-M2 (boot in Mandarine, the RUNTIME phase):** run `build_3ds/turok.3dsx` in Mandarine
+  (`~/Desktop/citra/mandarine.AppImage`) with `baserom.us.v12.z64` on the virtual SD at `sdmc:/3ds/turok/`;
+  `boot.log` on the SD shows where it faults. **ARM byte-alignment fixes** (ARMv6K faults on unaligned
+  LDM/LDRD/VLDR — the big-endian asset parsers are the suspects) are crash-driven from there (same methodology
+  as the PC port), + heap/dspfirm tuning. Mandarine can't be booted headless from this sandbox (GUI AppImage,
+  needs a display + SD setup), so M2+ needs the user's interactive run.
 - **★ ANGLE-WRAP HANG CLASS (Item 4) — fixed; all 8 level warps load+render, no hang.** Three iterative
   angle-normalization `while` loops spin ~1e17× (hang) on a garbage/huge angle from an unspawned AI off-N64.
   Replaced with O(1) `fmodf` wraps under PLATFORM_PORT: `graphu64.c NormalizeRotation` (turning toward an
@@ -1723,3 +1755,17 @@ game-over reroute); the one true band-aid that caused a regression (a453228 deat
 `TUROK_WATCHDOG` (default-ON in play_level.sh, fixed to not false-fire on the slow SDL2 GL startup) backtraces an
 in-game freeze. **Next:** the deeper M5 collision-streaming fix (keep the cache resident / rebase corners on
 relocation → removes most of the band-aid cluster); brightness polish; M3 (3DS Citro3D).*
+
+*Status: **★★ PC FEATURES + 3DS BUILD STOOD UP (2026-06-20).** Added the PC FPS control scheme (held mouse-look —
+no spring-back, WASD on the C-buttons so movement no longer fires the engine's native D-pad run/walk toggle,
+inverted pitch, one-weapon-per-scroll-notch via a tick-gated discrete seam, E walk toggle, exclusive cursor,
+1280x1024), a FILE-BASED SAVE (F5/F9 quick-save/load of the same CPersistantData blob the N64 pak-save uses,
+restart-at-checkpoint), and SETTINGS PERSISTENCE (`turok.cfg`). Then STOOD UP THE 3DS BUILD: `Makefile.3ds`
+(devkitARM + libctru + Citro3D, additive), 3DS-M0 (all 201 TUs compile on ARM) + 3DS-M1 (links →
+`build_3ds/turok.3dsx`, 1.05 MB). The Citro3D backend was already vendored from Perfect Dark; the new work is
+the Makefile + the sys/audio(ndsp)/input(HID)/stderr 3DS TUs, all `#ifdef PLATFORM_3DS` so the PC build is
+untouched (re-verified clean at every step). **Two interactive handoffs:** (1) PC input/save feel needs the
+user to confirm mouse turn/look SIGN + scroll direction (can't be headless-tested); (2) 3DS-M2 = the user runs
+`turok.3dsx` in Mandarine (ROM at `sdmc:/3ds/turok/baserom.us.v12.z64`) → `boot.log` shows where it faults →
+ARM byte-alignment + boot fixes are crash-driven from there. **Next autonomous (unblocked):** the M5
+collision-streaming root fix; the in-game options menu UI (after input-feel confirm).*
