@@ -105,6 +105,7 @@ int main(int argc, char **argv)
     /* Unbuffer stderr so a crash doesn't swallow the last (most diagnostic) lines —
      * release builds otherwise buffer it and lose the location on a segfault. */
     setvbuf(stderr, NULL, _IONBF, 0);
+    { extern void turokConfigLoad(void); turokConfigLoad(); }   /* load turok.cfg before gfx/input init */
     turok_watchdog_start();
     if (mf) g_max_frames = strtol(mf, NULL, 10);
     if (cf) g_capture_frame = strtol(cf, NULL, 10);

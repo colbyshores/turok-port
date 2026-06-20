@@ -19,6 +19,8 @@ static bool vsync_enabled = true;
 // OTRTODO: These are redundant. Info can be queried from SDL.
 static int window_width = DESIRED_SCREEN_WIDTH;
 static int window_height = DESIRED_SCREEN_HEIGHT;
+/* saved PC settings (config.c) — used by gfx_sdl_init below + the mouse helpers further down. */
+extern "C" { extern float g_cfg_mouse_sens; extern int g_cfg_mouse_invert, g_cfg_win_w, g_cfg_win_h; }
 static uint32_t fullscreen_flag = SDL_WINDOW_FULLSCREEN_DESKTOP;
 static bool fullscreen_state;
 static bool maximized_state;
@@ -85,11 +87,11 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
     window_width = set->width;
     window_height = set->height;
 
-    /* PC: default to a usable 1280x1024 window (the internal N64 res upscales into it) instead of a
-     * postage stamp on a 4K panel; TUROK_WIN_W / TUROK_WIN_H override. (Native widescreen = later TODO.) */
+    /* PC: default to the saved window size (1280x1024 out of the box) instead of a postage stamp on a 4K
+     * panel; TUROK_WIN_W / TUROK_WIN_H override the saved config. (Native widescreen = later TODO.) */
     { const char *w = getenv("TUROK_WIN_W"), *h = getenv("TUROK_WIN_H");
-      window_width  = (w && atoi(w) > 0) ? atoi(w) : 1280;
-      window_height = (h && atoi(h) > 0) ? atoi(h) : 1024; }
+      window_width  = (w && atoi(w) > 0) ? atoi(w) : (g_cfg_win_w > 0 ? g_cfg_win_w : 1280);
+      window_height = (h && atoi(h) > 0) ? atoi(h) : (g_cfg_win_h > 0 ? g_cfg_win_h : 1024); }
 
 #if defined(__linux__)
     /* On a Wayland session SDL2 prefers the Wayland video driver even when DISPLAY (XWayland)
@@ -356,18 +358,19 @@ static signed char axis_to_n64(int v) {            /* SDL axis -> N64 stick (-80
  * bit fires the engine's run/walk toggle on every keypress (the "W keeps toggling run/walk" bug). The N64
  * action map in this config: Z_TRIG=fire, R_TRIG=jump, L_TRIG=map, A=next-weapon, B=prev-weapon, Start=pause. */
 extern "C" { extern int g_turok_walk_mode; extern float g_look_yaw, g_look_pitch; extern int g_weapon_cycle;
-             extern int g_quicksave_req, g_quickload_req; }
+             extern int g_quicksave_req, g_quickload_req; }  /* g_cfg_* declared near the top of the file */
 static int mouse_invert(void) {                          /* 0 = forward looks up (standard FPS); 1 = inverted */
-    static int v = -2;
-    if (v == -2) { const char *e = getenv("TUROK_MOUSE_INVERT"); v = e ? atoi(e) : 0; }
+    static int v = -2;                                   /* env TUROK_MOUSE_INVERT overrides the saved config */
+    if (v == -2) { const char *e = getenv("TUROK_MOUSE_INVERT"); v = e ? atoi(e) : g_cfg_mouse_invert; }
     return v;
 }
 static float    g_mouse_dx = 0.0f, g_mouse_dy = 0.0f;   /* accumulated relative motion since last poll */
 static unsigned g_mouse_buttons = 0;                    /* SDL_BUTTON_* mask */
 static bool     g_relmouse_on = false;                  /* cursor captured for look */
 static float mouse_sens(void) {
-    static float s = -1.0f;
-    if (s < 0.0f) { const char *e = getenv("TUROK_MOUSE_SENS"); s = e ? (float)atof(e) : 6.0f; if (s <= 0.0f) s = 6.0f; }
+    static float s = -1.0f;                              /* env TUROK_MOUSE_SENS overrides the saved config */
+    if (s < 0.0f) { const char *e = getenv("TUROK_MOUSE_SENS"); s = e ? (float)atof(e) : g_cfg_mouse_sens;
+                    if (s <= 0.0f) s = g_cfg_mouse_sens > 0.0f ? g_cfg_mouse_sens : 6.0f; }
     return s;
 }
 
