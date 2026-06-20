@@ -76,8 +76,14 @@ static void *wd_thread(void *a) {
     (void)a;
     for (;;) {
         struct timespec ts; ts.tv_sec = 1; ts.tv_nsec = 0; nanosleep(&ts, NULL);
-        if (*(volatile long *)&g_frame == last) { if (++stuck >= 4) { pthread_kill(s_wd_main, SIGUSR1); return NULL; } }
-        else { stuck = 0; last = *(volatile long *)&g_frame; }
+        long cur = *(volatile long *)&g_frame;
+        /* Don't arm until the game is actually running. The graphics/SDL2-GL init + first asset load run
+         * BEFORE the first frame and can take well over the timeout (SDL2 shader/driver bring-up alone is
+         * several seconds on some machines), during which g_frame stays 0 — that is NOT a lock-up. Only
+         * monitor once frames have started advancing; an in-game freeze leaves g_frame > 0 and frozen. */
+        if (cur <= 0) { stuck = 0; last = cur; continue; }
+        if (cur == last) { if (++stuck >= 6) { pthread_kill(s_wd_main, SIGUSR1); return NULL; } }
+        else { stuck = 0; last = cur; }
     }
 }
 static void turok_watchdog_start(void) {
