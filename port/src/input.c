@@ -34,6 +34,13 @@ int g_turok_walk_mode = 0;
  * zeroed by the tengine.c mouse-look hook. Held (no spring back to center), gated PLATFORM_PORT. */
 float g_look_yaw = 0.0f, g_look_pitch = 0.0f;
 
+/* Discrete weapon-cycle accumulator (signed notch count: +next, -prev), written by the scroll wheel in
+ * the SDL2 backend, consumed ONE step per LOGIC TICK by tmove.c (CTMove__UpdateTurokInstance). A dedicated
+ * seam — NOT a held N64 button — so each wheel notch switches exactly one weapon regardless of render rate
+ * (the button path's SelectWeaponTimer is frame_increment-gated, so a held button over-cycles at FPS>TICK).
+ * Defined here (always-linked) so the EGL/OSMesa headless builds resolve the symbol. */
+int g_weapon_cycle = 0;
+
 s32 inputInit(void) { return 0; }   /* host: the window manager pumps events; nothing to init here */
 
 /* Backend -> here: set the current N64 pad (button bits + stick, -80..80). */

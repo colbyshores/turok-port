@@ -146,8 +146,15 @@ CVector3 CTMove__ControlFlyUpDown(CTMove *pThis, CEngineApp *pApp, CTControl *pC
  * SDL2 input backend. */
 extern int g_turok_walk_mode;
 #define	TUROK_WALKCAP(x)	((g_turok_walk_mode) ? (x)*0.5f : (x))
+/* PORT (scroll-wheel weapon cycle): discrete signed notch accumulator fed by the SDL2 backend, consumed
+ * ONE step per LOGIC TICK (see the weapon-select block) so each notch = exactly one weapon regardless of
+ * render rate. TUROK_IS_TICK is false on render-only frames (frame_increment==0 at FPS>TICK) — used to
+ * gate the held-button weapon-switch so it can't over-cycle between ticks. */
+extern int g_weapon_cycle;
+#define	TUROK_IS_TICK		(frame_increment != 0.0f)
 #else
 #define	TUROK_WALKCAP(x)	(x)
+#define	TUROK_IS_TICK		1
 #endif
 
 
@@ -1884,7 +1891,10 @@ void CTMove__GroundMovement(CTMove *pThis, CEngineApp *pApp, CTControl *pCTContr
 		if (		(CTControl__IsSelectWeaponNext ( pCTControl ) )
 				&&	(pThis->InMenuTimer == 0.0))
 		{
-			if (pThis->SelectWeaponTimer == 0.0)
+			/* PORT: gate the switch on a LOGIC TICK — on render-only frames (frame_increment==0 at
+			 * FPS>TICK) SelectWeaponTimer never grows, so an un-gated "timer==0 -> switch" re-fires every
+			 * render frame = weapon cycling far too fast. TUROK_IS_TICK is 1 on the N64 (no behavior change). */
+			if (pThis->SelectWeaponTimer == 0.0 && TUROK_IS_TICK)
 			{
 				CTMove__SelectWeapon ( pThis, TWEAPON_ANY, TRUE );
 				CTMove__DisplayWeaponsIcons(pThis, TRUE);
@@ -1899,7 +1909,7 @@ void CTMove__GroundMovement(CTMove *pThis, CEngineApp *pApp, CTControl *pCTContr
 		else if (		(CTControl__IsSelectWeaponPrev(pCTControl))
 						&&	(pThis->InMenuTimer == 0.0))
 		{
-			if (pThis->SelectWeaponTimer == 0.0)
+			if (pThis->SelectWeaponTimer == 0.0 && TUROK_IS_TICK)
 			{
 				CTMove__SelectWeapon ( pThis, TWEAPON_ANY, FALSE );
 				CTMove__DisplayWeaponsIcons(pThis, FALSE);
@@ -1913,6 +1923,19 @@ void CTMove__GroundMovement(CTMove *pThis, CEngineApp *pApp, CTControl *pCTContr
 		{
 			pThis->SelectWeaponTimer = 0.0;
 		}
+
+#ifdef PLATFORM_PORT
+		/* PORT scroll-wheel weapon cycle: consume ONE pending notch per LOGIC TICK so each wheel notch
+		 * switches exactly one weapon, render-rate independent (discrete — bypasses the SelectWeaponTimer
+		 * autorepeat path the held buttons use). Honors the same not-ducking + not-in-menu guards. */
+		if (TUROK_IS_TICK && g_weapon_cycle != 0 && pThis->InMenuTimer == 0.0)
+		{
+			BOOL next = (g_weapon_cycle > 0) ? TRUE : FALSE;
+			CTMove__SelectWeapon ( pThis, TWEAPON_ANY, next );
+			CTMove__DisplayWeaponsIcons(pThis, next);
+			if (next) g_weapon_cycle--; else g_weapon_cycle++;
+		}
+#endif
 	}
 
 	// do collision test to see how far turok really got

@@ -348,12 +348,22 @@ static signed char axis_to_n64(int v) {            /* SDL axis -> N64 stick (-80
 }
 
 /* PORT (PC FPS controls): mouse-look drives turn/pitch, WASD moves (A/D strafe), LMB fires, E toggles
- * run/walk. The walk flag is read by tmove.c (TUROK_WALKCAP). Sensitivity: TUROK_MOUSE_SENS (default 6). */
-extern "C" { extern int g_turok_walk_mode; extern float g_look_yaw, g_look_pitch; }
+ * run/walk. The walk flag is read by tmove.c (TUROK_WALKCAP). Sensitivity: TUROK_MOUSE_SENS (default 6).
+ *
+ * ★ The engine's DEFAULT control config is right-handed (m_RHControl=TRUE, options.c:205), where MOVEMENT
+ * lives on the C-buttons (Forward=C-up, Back=C-down, SideStep=C-left/right) and the D-PAD is the native
+ * run/walk + burst-swim TOGGLE (CTTYPE_SINGLE). So WASD must map to the C-BUTTONS ONLY — touching any D-pad
+ * bit fires the engine's run/walk toggle on every keypress (the "W keeps toggling run/walk" bug). The N64
+ * action map in this config: Z_TRIG=fire, R_TRIG=jump, L_TRIG=map, A=next-weapon, B=prev-weapon, Start=pause. */
+extern "C" { extern int g_turok_walk_mode; extern float g_look_yaw, g_look_pitch; extern int g_weapon_cycle; }
+static int mouse_invert(void) {                          /* 0 = forward looks up (standard FPS); 1 = inverted */
+    static int v = -2;
+    if (v == -2) { const char *e = getenv("TUROK_MOUSE_INVERT"); v = e ? atoi(e) : 0; }
+    return v;
+}
 static float    g_mouse_dx = 0.0f, g_mouse_dy = 0.0f;   /* accumulated relative motion since last poll */
 static unsigned g_mouse_buttons = 0;                    /* SDL_BUTTON_* mask */
 static bool     g_relmouse_on = false;                  /* cursor captured for look */
-static int      g_scroll_accum = 0;                     /* mouse-wheel ticks pending -> weapon cycle (R/L) */
 static float mouse_sens(void) {
     static float s = -1.0f;
     if (s < 0.0f) { const char *e = getenv("TUROK_MOUSE_SENS"); s = e ? (float)atof(e) : 6.0f; if (s <= 0.0f) s = 6.0f; }
@@ -365,65 +375,64 @@ static void turok_sdl_update_input(void) {
     int sx = 0, sy = 0;
     const Uint8 *k = SDL_GetKeyboardState(NULL);
 
-    /* PC FPS scheme: WASD = MOVE (Turok's movement is on the C-buttons/D-pad — bind both so handedness
-     * is moot: W/S forward/back, A/D strafe); MOUSE-LOOK drives turn (X) + pitch (Y) via the analog STICK;
-     * LMB = fire; E toggles run/walk (on key-DOWN, in the event loop). Esc releases the cursor; click re-grabs. */
+    /* PC FPS scheme (right-handed config): WASD = MOVE on the C-BUTTONS ONLY (W/S forward/back, A/D strafe);
+     * the D-pad is the native run/walk toggle so it must stay clear. MOUSE-LOOK drives a HELD turn+pitch via
+     * the g_look_* seam; LMB=fire, RMB=jump, wheel=cycle weapons, E toggles run/walk (event loop). */
     { static bool inited = false; if (!inited) { SDL_SetRelativeMouseMode(SDL_TRUE); g_relmouse_on = true; inited = true; } }
 
-    if (k[SDL_SCANCODE_W]) btn |= (N64_CU | N64_DU);   /* forward      */
-    if (k[SDL_SCANCODE_S]) btn |= (N64_CD | N64_DD);   /* backward     */
-    if (k[SDL_SCANCODE_A]) btn |= (N64_CL | N64_DL);   /* strafe left  */
-    if (k[SDL_SCANCODE_D]) btn |= (N64_CR | N64_DR);   /* strafe right */
+    if (k[SDL_SCANCODE_W]) btn |= N64_CU;   /* forward (C-up)        */
+    if (k[SDL_SCANCODE_S]) btn |= N64_CD;   /* backward (C-down)     */
+    if (k[SDL_SCANCODE_A]) btn |= N64_CL;   /* strafe left (C-left)  */
+    if (k[SDL_SCANCODE_D]) btn |= N64_CR;   /* strafe right (C-right)*/
 
     /* mouse-look -> HELD body-turn (yaw) + held pitch via the port seam (g_look_*), NOT the spring stick
-     * (which recenters on rest). Scaled to radians; TUROK_MOUSE_SENS tunes it. Mouse up = look up. */
+     * (which recenters on rest). Scaled to radians; TUROK_MOUSE_SENS tunes it. Pitch: forward(up)=look up
+     * by default (standard FPS); TUROK_MOUSE_INVERT=1 flips it. */
     { float s = mouse_sens() * 0.0005f;
+      float pitch_sign = mouse_invert() ? 1.0f : -1.0f;   /* SDL yrel +down; -1 => mouse-forward looks up */
       g_look_yaw   += g_mouse_dx * s;
-      g_look_pitch += g_mouse_dy * s;
+      g_look_pitch += g_mouse_dy * s * pitch_sign;
       g_mouse_dx = g_mouse_dy = 0.0f; }
 
-    /* arrow keys: turn/look fallback for no-mouse play. */
+    /* arrow keys: turn/look fallback for no-mouse play (analog stick: x=turn, y=move). */
     if (k[SDL_SCANCODE_LEFT])  sx -= 80;
     if (k[SDL_SCANCODE_RIGHT]) sx += 80;
     if (k[SDL_SCANCODE_UP])    sy += 80;
     if (k[SDL_SCANCODE_DOWN])  sy -= 80;
 
-    /* actions: LMB = fire, RMB = jump, mouse-wheel = cycle weapons (one R/L pulse per tick). */
+    /* actions (right-handed map): LMB/Ctrl = fire (Z), RMB/Space = jump (R_TRIG), wheel = cycle weapons
+     * (discrete g_weapon_cycle seam, NOT a held button), Tab/M = map (L_TRIG), Enter/Esc = pause (Start). */
     if (g_mouse_buttons & SDL_BUTTON(SDL_BUTTON_LEFT))  btn |= N64_Z;   /* fire */
-    if (g_mouse_buttons & SDL_BUTTON(SDL_BUTTON_RIGHT)) btn |= N64_B;   /* jump */
-    if (g_scroll_accum > 0)      { btn |= N64_R; g_scroll_accum--; }    /* wheel up   = next weapon */
-    else if (g_scroll_accum < 0) { btn |= N64_L; g_scroll_accum++; }    /* wheel down = prev weapon */
-    if (k[SDL_SCANCODE_SPACE])  btn |= N64_B;                           /* jump (kbd)  */
+    if (g_mouse_buttons & SDL_BUTTON(SDL_BUTTON_RIGHT)) btn |= N64_R;   /* jump (R_TRIG) */
+    if (k[SDL_SCANCODE_SPACE])  btn |= N64_R;                           /* jump (kbd)  */
     if (k[SDL_SCANCODE_LCTRL] || k[SDL_SCANCODE_RCTRL]) btn |= N64_Z;   /* fire (kbd)  */
-    if (k[SDL_SCANCODE_LSHIFT]) btn |= N64_R;                           /* next weapon */
-    if (k[SDL_SCANCODE_TAB])    btn |= N64_L;                           /* prev / map  */
-    if (k[SDL_SCANCODE_F])      btn |= N64_A;                           /* action      */
-    if (k[SDL_SCANCODE_RETURN]) btn |= N64_START;                       /* pause       */
-    if (k[SDL_SCANCODE_COMMA])  btn |= N64_DL;
-    if (k[SDL_SCANCODE_PERIOD]) btn |= N64_DR;
+    if (k[SDL_SCANCODE_TAB] || k[SDL_SCANCODE_M]) btn |= N64_L;         /* map toggle (L_TRIG) */
+    if (k[SDL_SCANCODE_RETURN] || k[SDL_SCANCODE_ESCAPE]) btn |= N64_START; /* pause */
 
-    /* gamepad: left stick move/turn, right stick look, RT fire, A jump */
+    /* gamepad: left stick = move (Y fwd/back, X strafe via C-buttons); right stick = HELD look (g_look_*);
+     * RT fire, A jump, shoulders cycle weapons (A/B button path, tick-gated), Start pause. D-pad -> C-buttons
+     * (movement) NOT the raw D-pad, which would fire the native run/walk toggle. */
     if (g_sdl_controller) {
         SDL_GameController *c = g_sdl_controller;
-        signed char gx = axis_to_n64(SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_LEFTX));
         signed char gy = (signed char)(-(int)axis_to_n64(SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_LEFTY)));
-        if (gx) sx = gx;
         if (gy) sy = gy;
+        int lx = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_LEFTX);
+        if (lx < -12000) btn |= N64_CL; else if (lx > 12000) btn |= N64_CR;   /* strafe */
         int rx = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_RIGHTX);
         int ry = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_RIGHTY);
-        if (rx < -12000) btn |= N64_CL; else if (rx > 12000) btn |= N64_CR;
-        if (ry < -12000) btn |= N64_CU; else if (ry > 12000) btn |= N64_CD;
-        if (SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 8000) btn |= N64_Z;
-        if (SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_TRIGGERLEFT)  > 8000) btn |= N64_R;
-        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_A))            btn |= N64_B;
-        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_B))            btn |= N64_A;
-        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER))btn |= N64_R;
-        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) btn |= N64_L;
+        float gs = mouse_sens() * 0.00004f;
+        if (rx < -8000 || rx > 8000) g_look_yaw   += (float)rx * gs;
+        if (ry < -8000 || ry > 8000) g_look_pitch += (float)ry * gs * (mouse_invert() ? 1.0f : -1.0f);
+        if (SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 8000) btn |= N64_Z;  /* fire */
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_A))            btn |= N64_R;      /* jump */
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER))btn |= N64_A;      /* next weapon */
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) btn |= N64_B;      /* prev weapon */
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_BACK))         btn |= N64_L;      /* map */
         if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_START))        btn |= N64_START;
-        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_UP))      btn |= N64_DU;
-        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_DOWN))    btn |= N64_DD;
-        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_LEFT))    btn |= N64_DL;
-        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_RIGHT))   btn |= N64_DR;
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_UP))      btn |= N64_CU;
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_DOWN))    btn |= N64_CD;
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_LEFT))    btn |= N64_CL;
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_RIGHT))   btn |= N64_CR;
     }
 
     if (sx > 80) sx = 80; if (sx < -80) sx = -80;
@@ -453,7 +462,9 @@ static void gfx_sdl_handle_events(void) {
                 g_mouse_buttons &= ~SDL_BUTTON(event.button.button);
                 break;
             case SDL_MOUSEWHEEL:
-                g_scroll_accum += event.wheel.y;                                 /* +up = next weapon, -down = prev */
+                g_weapon_cycle += event.wheel.y;                                 /* +up = next weapon, -down = prev (one per tick) */
+                if (g_weapon_cycle >  12) g_weapon_cycle =  12;                  /* cap the backlog (< #weapons) so scrolling */
+                if (g_weapon_cycle < -12) g_weapon_cycle = -12;                  /* while ducking/paused can't dump a huge run  */
                 break;
             case SDL_WINDOWEVENT:
                 if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
