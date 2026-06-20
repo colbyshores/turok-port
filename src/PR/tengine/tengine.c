@@ -4051,8 +4051,8 @@ void CEngineApp__Main(CEngineApp *pThis)
 #ifdef PLATFORM_PORT
 						{ extern char *getenv(const char*); static int dl=-2; if(dl==-2){const char*e=getenv("TUROK_DEATHLOG");dl=(e&&atoi(e))?1:0;}
 						  if(dl){ extern int fprintf(void*,const char*,...); extern void *stderr;
-						    fprintf(stderr,"[DEATHLOG] respawn: UseCinemaWarp=%d m_WarpID=%d CurrentCheckpoint=%d CinemaFlags=0x%x CinemaWarp=(%.0f,%.0f,%.0f)\n",
-						      pThis->m_UseCinemaWarp, pThis->m_WarpID, CTurokMovement.CurrentCheckpoint, (unsigned)pThis->m_CinemaFlags,
+						    fprintf(stderr,"[DEATHLOG] respawn: UseCinemaWarp=%d m_WarpID=%d CurrentCheckpoint=%d CinemaFlags=0x%x wasFall=%d CinemaWarp=(%.0f,%.0f,%.0f)\n",
+						      pThis->m_UseCinemaWarp, pThis->m_WarpID, CTurokMovement.CurrentCheckpoint, (unsigned)pThis->m_CinemaFlags, g_turok_death_was_fall,
 						      pThis->m_CinemaWarp.m_vPos.x, pThis->m_CinemaWarp.m_vPos.y, pThis->m_CinemaWarp.m_vPos.z); } }
 #endif
 						if (pThis->m_UseCinemaWarp)
@@ -4063,22 +4063,33 @@ void CEngineApp__Main(CEngineApp *pThis)
 							}
 							pThis->m_UseCinemaWarp = FALSE ;
 #ifdef PLATFORM_PORT
-							/* PORT: a FALL/WATER death captured m_CinemaWarp at the unsafe death position (off the cliff /
-							 * underwater). The death respawn AND the following RESURRECT respawn must BOTH go to the last
-							 * CHECKPOINT — else the resurrect (CinemaFlags=RESURRECT, not FALL_DEATH) re-captures the
-							 * off-the-cliff pos -> death loop. g_turok_death_was_fall (set at the fall/water death) spans both;
-							 * cleared once the resurrect respawn fires. Normal/boss deaths keep the in-place respawn. */
-							if ((pThis->m_CinemaFlags & (CINEMA_FLAG_PLAY_FALL_DEATH | CINEMA_FLAG_PLAY_WATER_DEATH)) || g_turok_death_was_fall)
-							{
-								if (pThis->m_CinemaFlags & CINEMA_FLAG_PLAY_RESURRECT) g_turok_death_was_fall = 0 ;
+							/* PORT: the DEATH pass of a fall/water death — m_CinemaWarp is the off-the-cliff death
+							 * pos, so the death + resurrect cinematics would otherwise play off the cliff. Land at the
+							 * last CHECKPOINT instead. g_turok_death_was_fall is set at the fall/water death and spans the
+							 * whole 3-pass death->resurrect->final reset sequence; it is cleared in the else branch once
+							 * the sequence finishes. Normal / key-pickup cinema warps (flag clear) are unaffected. */
+							if (g_turok_death_was_fall)
 								CScene__Construct(&pThis->m_Scene, CTurokMovement.CurrentCheckpoint) ;
-							}
 							else
 #endif
 							CScene__Construct(&pThis->m_Scene, CINEMA_WARP_ID) ;
 						}
 						else
 						{
+#ifdef PLATFORM_PORT
+							/* PORT: the RESURRECT + FINAL passes of a fall/water death fall through here
+							 * (m_UseCinemaWarp==0). The stock branch reconstructs at m_WarpID = the level-ENTRY warp,
+							 * NOT the checkpoint — so the player lands back at the entry (on level 1 that is right by
+							 * the cliff) -> death loop. Route the whole fall/water sequence to the last CHECKPOINT;
+							 * clear the flag once no death/resurrect cinematic remains pending (the final pass). */
+							if (g_turok_death_was_fall)
+							{
+								if (!(pThis->m_CinemaFlags & (CINEMA_FLAG_PLAY_FALL_DEATH | CINEMA_FLAG_PLAY_WATER_DEATH | CINEMA_FLAG_PLAY_RESURRECT)))
+									g_turok_death_was_fall = 0 ;
+								CScene__Construct(&pThis->m_Scene, CTurokMovement.CurrentCheckpoint) ;
+							}
+							else
+#endif
 							CScene__Construct(&pThis->m_Scene, pThis->m_WarpID) ;
 
 							// so doesn't ask if you wanna save again
@@ -4845,6 +4856,25 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	// Start pressed? - if so signal it to camera
 	if ((CTControl__IsStart(pCTControl)) && (pThis->m_FadeStatus == FADE_NULL))
 		pThis->m_Camera.m_StartPressed = TRUE ;
+
+#ifdef PLATFORM_PORT
+	/* TUROK_POSLOG: periodic player pos + death/warp state, for diagnosing fall-death respawn headlessly. */
+	{ extern char *getenv(const char*); static int pl=-2; if(pl==-2){const char*e=getenv("TUROK_POSLOG");pl=(e&&atoi(e))?1:0;}
+	  if(pl){ static int _pc=0; CGameObjectInstance *_p=CEngineApp__GetPlayer(pThis);
+	    if(_p && (++_pc%30)==0){ extern int fprintf(void*,const char*,...); extern void *stderr;
+	      fprintf(stderr,"[POS] pos=(%.0f,%.0f,%.0f) m_Death=%d m_Warp=%d hp=%d region=%p\n",
+	        _p->ah.ih.m_vPos.x,_p->ah.ih.m_vPos.y,_p->ah.ih.m_vPos.z, (int)pThis->m_Death, (int)pThis->m_Warp,
+	        (int)_p->m_AI.m_Health, (void*)_p->ah.ih.m_pCurrentRegion); } }
+	}
+	/* TUROK_FORCEYAW: override player facing each frame (headless cliff-steering for fall-death repro). */
+	{ extern char *getenv(const char*); extern double atof(const char*); static int fy=-2; static float fyv;
+	  if(fy==-2){const char*e=getenv("TUROK_FORCEYAW");fy=e?1:0;if(e)fyv=(float)atof(e);}
+	  if(fy){ CGameObjectInstance *_p=CEngineApp__GetPlayer(pThis); if(_p) _p->m_RotY=fyv; } }
+	/* TUROK_SETCHECKPOINT: force CurrentCheckpoint each frame (test fall-death respawn with m_WarpID != checkpoint). */
+	{ extern char *getenv(const char*); extern int atoi(const char*); static int sc=-2; static int scv;
+	  if(sc==-2){const char*e=getenv("TUROK_SETCHECKPOINT");sc=e?1:0;if(e)scv=atoi(e);}
+	  if(sc) CTurokMovement.CurrentCheckpoint=scv; }
+#endif
 
 	// Update turok
 	if ((pThis->m_bPause==FALSE) && (pThis->m_Warp == WARP_NOT_WARPING) && (pThis->m_Death == DEATH_NOT_DIEING) &&(pThis->m_bTraining ==FALSE))
