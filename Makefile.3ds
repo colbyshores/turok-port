@@ -1,0 +1,152 @@
+# Makefile.3ds — Turok: Dinosaur Hunter, Nintendo 3DS (devkitARM + libctru + Citro3D)
+#
+# A SECOND, additive build system alongside tools/build_port.sh (the PC build). The original
+# game tree (src/PR/tengine/**) is compiled UNCHANGED, gated by -DPLATFORM_PORT (PC+3DS shared)
+# and -DPLATFORM_3DS (3DS-only). Architecture mirrors the sibling Banjo-Kazooie / Perfect Dark
+# 3DS ports: original game C -> libultra shim + Fast3D + audio HLE + asset loader (port/) ->
+# Citro3D/PICA200 backend (port/fast3d/gfx_citro3d.cpp + gfx_3ds.c, already vendored from PD).
+#
+# Incremental milestones:
+#   make -f Makefile.3ds objects     # 3DS-M0 : compile the whole tree to .o (ARM)
+#   make -f Makefile.3ds             # full link -> build_3ds/turok.3dsx
+#
+# Run in Mandarine:  ~/Desktop/citra/mandarine.AppImage build_3ds/turok.3dsx
+# Assets on SD:      sdmc:/3ds/turok/baserom.us.v12.z64
+
+ifeq ($(strip $(DEVKITPRO)),)
+DEVKITPRO := /opt/devkitpro
+endif
+
+DEVKITARM ?= $(DEVKITPRO)/devkitARM
+PORTLIBS  := $(DEVKITPRO)/portlibs/3ds
+LIBCTRU   := $(DEVKITPRO)/libctru
+TOOLS     := $(DEVKITPRO)/tools/bin
+
+PREFIX   := $(DEVKITARM)/bin/arm-none-eabi-
+CC       := $(PREFIX)gcc
+CXX      := $(PREFIX)g++
+LD       := $(PREFIX)g++
+PICASSO  := $(TOOLS)/picasso
+BIN2S    := $(TOOLS)/bin2s
+TDSXTOOL := $(TOOLS)/3dsxtool
+
+BUILD   := build_3ds
+OBJDIR  := $(BUILD)/obj
+TARGET  := turok
+OUTPUT  := $(BUILD)/$(TARGET)
+
+# --- architecture / flags (identical to banjo + PD 3DS builds) ---------------
+ARCH := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
+
+# Platform gates. PLATFORM_PORT guards the endian/null-tolerance work in src/PR/tengine;
+# PLATFORM_3DS is 3DS-only. (No -DSHIP_IT vs the PC build? The PC build sets it; keep parity.)
+PORT_DEFINES := -DPLATFORM_PORT=1 -DPLATFORM_3DS=1 -D__3DS__ -D_3DS
+
+# Mirror tools/build_port.sh GAME_D exactly (minus host-only bits).
+GAME_DEFINES := -D_LANGUAGE_C=1 -D_MIPS_SZLONG=32 -DF3DEX_GBI -DN_MICRO -D_FINALROM -DNDEBUG -DSHIP_IT
+DEFINES      := $(PORT_DEFINES) $(GAME_DEFINES)
+
+# Game-tree includes (mirror GAME_I) + libctru/citro3d.
+GAME_INC := -Isrc/PR/tengine -Ilib/ultralib/include -Ilib/ultralib/include/PR -Iport/include \
+            -I$(LIBCTRU)/include -I$(PORTLIBS)/include
+# Port-layer includes (mirror PORT_I) + fast3d (turok_gfx.c bridges to gfx_api.h / the backends).
+PORT_INC := -Ilib/ultralib/include -Ilib/ultralib/include/PRinternal -Iport/include \
+            -Iport/fast3d -Iport/fast3d/shaders \
+            -I$(LIBCTRU)/include -I$(PORTLIBS)/include
+GU_INC   := $(PORT_INC) -Ilib/ultralib/include/PR
+# libaudio (turoksnd/abi) includes (mirror TSND_I).
+TSND_INC := -Ituroksnd/abi -Ilib/ultralib/include/PR -Ilib/ultralib/include -Ituroksnd/abi/buildss \
+            -Iport/include -I$(LIBCTRU)/include
+# Fast3D C++ includes (mirror F3D_I) — deliberately NOT -Isrc/PR/tengine.
+F3D_INC  := -Ilib/ultralib/include -Iport/fast3d -Iport/fast3d/shaders -Iport/include \
+            -I$(LIBCTRU)/include -I$(PORTLIBS)/include
+
+OPT  := -O2 -ffunction-sections -fdata-sections -mword-relocations
+# devkitARM gcc 15 promotes legacy-C constructs to HARD ERRORS that plain -w doesn't suppress
+# (the PC build's older gcc treated them as warnings). Downgrade them back — the original IRIX
+# source is full of implicit-int typedefs / K&R-isms / pointer puns that compiled fine for decades.
+WARN := -w -Wno-implicit-int -Wno-implicit-function-declaration -Wno-int-conversion \
+        -Wno-incompatible-pointer-types -Wno-builtin-declaration-mismatch \
+        -Wno-return-mismatch -Wno-declaration-missing-parameter-type
+
+# -fno-short-enums is CRITICAL: devkitARM ARM-EABI defaults to PACKED enums, which breaks the
+# game's -1 enum sentinels and mis-lays every struct with an enum field. -fcommon: the game
+# relies on tentative-definition merging (it's pre-C99-strict). -fwrapv/-fno-strict-aliasing
+# match the PC build's tolerance of the original IRIX code.
+CBASE   := $(ARCH) $(OPT) $(WARN) $(DEFINES) -std=gnu11 -fcommon -fno-strict-aliasing -fwrapv -fno-short-enums
+CXXBASE := $(ARCH) $(OPT) $(WARN) $(DEFINES) -std=gnu++20 -fno-rtti -fno-exceptions
+
+GAME_CFLAGS := $(CBASE) $(GAME_INC)
+PORT_CFLAGS := $(CBASE) $(PORT_INC)
+GU_CFLAGS   := $(CBASE) $(GU_INC)
+TSND_CFLAGS := $(CBASE) $(TSND_INC)
+F3D_CFLAGS  := $(CXXBASE) $(F3D_INC)
+
+LDFLAGS := $(ARCH) -specs=$(DEVKITARM)/arm-none-eabi/lib/3dsx.specs \
+           -Wl,--gc-sections -Wl,--allow-multiple-definition -Wl,-Map,$(OUTPUT).map
+LIBS    := -L$(LIBCTRU)/lib -L$(PORTLIBS)/lib -lcitro3d -lctru -lz -lm
+
+# --- sources -----------------------------------------------------------------
+# Game engine (exclude coll.c — stale vs CCollisionInfo2, same as the PC build).
+GAME_C := $(filter-out src/PR/tengine/coll.c, $(wildcard src/PR/tengine/*.c))
+# libaudio synth + CSP music (real al* — so the audio_lib_stub.c is excluded from PORT_C below).
+TSND_C := $(wildcard turoksnd/abi/*.c)
+# libultra gu matrix utils (the 5 the PC build compiles).
+GU_C   := lib/ultralib/src/gu/mtxutil.c lib/ultralib/src/gu/ortho.c lib/ultralib/src/gu/perspective.c \
+          lib/ultralib/src/gu/lookat.c lib/ultralib/src/gu/lookatref.c
+# Port layer: all port/src/*.c EXCEPT the PC-only SDL audio/input sinks + the superseded stub.
+PORT_C := $(filter-out port/src/audio.c port/src/input.c port/src/audio_lib_stub.c, \
+            $(wildcard port/src/*.c)) \
+          port/fast3d/gfx_3ds.c
+# Port C++: the fast3d driver + Citro3D backend (NOT gfx_opengl/sdl2/osmesa/egl).
+PORT_CXX := port/fast3d/gfx_pc.cpp port/fast3d/gfx_cc.cpp port/fast3d/gfx_citro3d.cpp
+
+obj = $(OBJDIR)/$(1:.c=.o)
+GAME_O := $(GAME_C:%=$(OBJDIR)/%.o)
+TSND_O := $(TSND_C:%=$(OBJDIR)/%.o)
+GU_O   := $(GU_C:%=$(OBJDIR)/%.o)
+PORT_O := $(PORT_C:%=$(OBJDIR)/%.o)
+PCXX_O := $(PORT_CXX:%=$(OBJDIR)/%.o)
+SHADER_O := $(OBJDIR)/shaders/gfx_citro3d_shbin.o
+
+ALL_O := $(GAME_O) $(TSND_O) $(GU_O) $(PORT_O) $(PCXX_O)
+
+.PHONY: all objects clean
+.DEFAULT_GOAL := all
+all: $(OUTPUT).3dsx
+objects: $(ALL_O)
+
+# Per-tree compile rules (object name = $(OBJDIR)/<path>.o so trees don't collide).
+$(OBJDIR)/turoksnd/abi/%.c.o: turoksnd/abi/%.c
+	@mkdir -p $(@D)
+	$(CC) $(TSND_CFLAGS) -c $< -o $@
+$(OBJDIR)/lib/ultralib/src/gu/%.c.o: lib/ultralib/src/gu/%.c
+	@mkdir -p $(@D)
+	$(CC) $(GU_CFLAGS) -c $< -o $@
+$(OBJDIR)/src/PR/tengine/%.c.o: src/PR/tengine/%.c
+	@mkdir -p $(@D)
+	$(CC) $(GAME_CFLAGS) -c $< -o $@
+$(OBJDIR)/port/fast3d/%.cpp.o: port/fast3d/%.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(F3D_CFLAGS) -c $< -o $@
+$(OBJDIR)/port/fast3d/%.c.o: port/fast3d/%.c
+	@mkdir -p $(@D)
+	$(CC) $(PORT_CFLAGS) -c $< -o $@
+$(OBJDIR)/port/src/%.c.o: port/src/%.c
+	@mkdir -p $(@D)
+	$(CC) $(PORT_CFLAGS) -c $< -o $@
+
+# PICA200 vertex shader: picasso .v.pica -> .shbin, bin2s embeds it (+ regenerates the header).
+$(SHADER_O): port/fast3d/shaders/gfx_citro3d.v.pica
+	@mkdir -p $(@D)
+	$(PICASSO) -o $(BUILD)/gfx_citro3d.shbin $<
+	$(BIN2S) -a 4 -H port/fast3d/shaders/gfx_citro3d_shbin.h $(BUILD)/gfx_citro3d.shbin | $(CC) $(ARCH) -x assembler -c - -o $@
+
+$(OUTPUT).elf: $(ALL_O) $(SHADER_O)
+	$(LD) $(LDFLAGS) $(ALL_O) $(SHADER_O) $(LIBS) -o $@
+$(OUTPUT).3dsx: $(OUTPUT).elf
+	$(TDSXTOOL) $< $@
+	@echo "[3ds] built $@"
+
+clean:
+	rm -rf $(OBJDIR) $(OUTPUT).elf $(OUTPUT).3dsx $(OUTPUT).map $(BUILD)/gfx_citro3d.shbin

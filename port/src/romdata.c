@@ -15,7 +15,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <execinfo.h>
+#ifndef PLATFORM_3DS
+#include <execinfo.h>            /* glibc backtrace() — host-only DMA-OOB diagnostic */
+#endif
 #include <ultra64.h>
 /* no <string.h> (bcopy/bzero clash with os_libc.h); use the builtin */
 #define memcpy __builtin_memcpy
@@ -108,9 +110,11 @@ void romPiRead(void *dst, u32 devAddr, u32 nbytes)
                 s_dma_calls, dst, devAddr, nbytes, (long)(a - base),
                 "  <<< OUT OF CARTDATA RANGE");
     if (nbytes > 0x1000000u) {                 /* absurd size — show who asked */
-        void *bt[16]; int n = backtrace(bt, 16);
-        fprintf(stderr, "[dma] ABSURD nbytes=%u — caller backtrace:\n", nbytes);
-        backtrace_symbols_fd(bt, n, 2);
+        fprintf(stderr, "[dma] ABSURD nbytes=%u\n", nbytes);
+#ifndef PLATFORM_3DS
+        { void *bt[16]; int n = backtrace(bt, 16);
+          fprintf(stderr, "[dma]  caller backtrace:\n"); backtrace_symbols_fd(bt, n, 2); }
+#endif
         fflush(stderr);
         return;                                /* don't actually crash; let us read the trace */
     }

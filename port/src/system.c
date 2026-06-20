@@ -33,4 +33,10 @@ s32 sysArgCheck(const char *arg) { (void)arg; return 0; }
 const char *sysArgGetString(const char *arg) { (void)arg; return 0; }
 s32 sysArgGetInt(const char *arg, s32 defval) { (void)arg; return defval; }
 void sysSleep(long long hns) { (void)hns; }
-void sysCpuRelax(void) { __asm__ __volatile__("pause" ::: "memory"); }
+void sysCpuRelax(void) {
+#if defined(__i386__) || defined(__x86_64__)
+    __asm__ __volatile__("pause" ::: "memory");   /* x86 spin-wait hint */
+#else
+    __asm__ __volatile__("" ::: "memory");        /* ARM/other: a compiler barrier is enough */
+#endif
+}

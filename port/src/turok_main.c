@@ -16,11 +16,13 @@
 #include <stdlib.h>
 #include <setjmp.h>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
+#ifndef PLATFORM_3DS              /* watchdog = host pthread + glibc backtrace (no 3DS equivalent) */
 #include <pthread.h>
 #include <signal.h>
 #include <execinfo.h>
-#include <time.h>
-#include <unistd.h>
+#endif
 
 /* game boot-chain entry wrappers (tengine.c) */
 extern void boot(void);
@@ -59,6 +61,9 @@ void turokVideoSwap(void *frameBuf)
         longjmp(g_escape, 1);              /* bounded run complete */
 }
 
+#ifdef PLATFORM_3DS
+static void turok_watchdog_start(void) {}   /* 3DS: no pthread/backtrace; on-device triage via plat3dsBootLog */
+#else
 /* TUROK_WATCHDOG=1: catch infinite-loop freezes (no crash dump) — gdb-attach is blocked by ptrace_scope.
  * A watchdog thread backtraces the MAIN thread if g_frame stops advancing for ~4s (= a spin in a sub-call). */
 static pthread_t s_wd_main;
@@ -94,6 +99,7 @@ static void turok_watchdog_start(void) {
     pthread_create(&t, NULL, wd_thread, NULL);
     fprintf(stderr, "[WATCHDOG] armed (backtraces the main thread after ~4s of no frame progress)\n");
 }
+#endif  /* !PLATFORM_3DS (watchdog) */
 
 int main(int argc, char **argv)
 {

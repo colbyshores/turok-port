@@ -16,23 +16,32 @@
 
 #include <PR/gbi.h>          /* Gfx */
 #include "gfx_api.h"         /* GfxInitSettings + gfx_init/gfx_run/... */
-#if defined(GFX_USE_EGL)
+#if defined(PLATFORM_3DS)
+#include "gfx_3ds.h"         /* libctru window manager (top/bottom screens, aptMainLoop) */
+#include "gfx_citro3d.h"     /* PICA200 Citro3D renderer */
+#define TUROK_WM         gfx_3ds
+#define TUROK_RAPI       gfx_citro3d_api
+#define TUROK_SAVEPNG(p) (-1)            /* no headless PNG capture on hardware */
+#elif defined(GFX_USE_EGL)
 #include "gfx_egl.h"         /* surfaceless EGL (hardware GL, headless) — WIP: hangs at init */
 #define TUROK_WM         gfx_egl_wm
+#define TUROK_RAPI       gfx_opengl_api
 #define TUROK_SAVEPNG(p) gfx_egl_save_png(p)
 #elif defined(GFX_USE_SDL2)
 #include "gfx_sdl.h"         /* SDL2 hidden-window hardware GL (fast, via the X display) */
 extern int gfx_glreadpixels_png(const char *path, int w, int h);
 #define TUROK_WM         gfx_sdl
+#define TUROK_RAPI       gfx_opengl_api
 #define TUROK_SAVEPNG(p) gfx_glreadpixels_png(p, s_w, s_h)
 #else
 #include "gfx_osmesa.h"      /* software OSMesa (slow but works, default) */
 #define TUROK_WM         gfx_osmesa_wm
+#define TUROK_RAPI       gfx_opengl_api
 #define TUROK_SAVEPNG(p) gfx_osmesa_save_png(p)
 #endif
 
-extern struct GfxWindowManagerAPI TUROK_WM;        /* gfx_sdl2 / gfx_egl / gfx_osmesa */
-extern struct GfxRenderingAPI     gfx_opengl_api;  /* gfx_opengl.cpp */
+extern struct GfxWindowManagerAPI TUROK_WM;        /* gfx_3ds / gfx_sdl2 / gfx_egl / gfx_osmesa */
+extern struct GfxRenderingAPI     TUROK_RAPI;      /* gfx_citro3d_api / gfx_opengl.cpp */
 /* gfx_framebuffers_enabled is declared in gfx_api.h (bool) */
 
 static int s_inited = 0;
@@ -48,7 +57,7 @@ void turokGfxInit(int w, int h)
 
     for (size_t i = 0; i < sizeof(settings); i++) ((char*)&settings)[i] = 0;
     settings.wapi = &TUROK_WM;
-    settings.rapi = &gfx_opengl_api;
+    settings.rapi = &TUROK_RAPI;
     settings.window_settings.title = "turok";
     settings.window_settings.width = (uint32_t)s_w;
     settings.window_settings.height = (uint32_t)s_h;
