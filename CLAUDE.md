@@ -1542,6 +1542,29 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     checkpoint — a fix must cover the resurrect/final passes (the else branch), not just the death pass.** GOTCHA:
     `TUROK_FORCEWARP` set `m_WarpID==CurrentCheckpoint`, masking the bug headlessly — needed `TUROK_SETCHECKPOINT` to
     make them differ.
+  - **★★ (BUG 2, follow-up) THE RESPAWN STILL LOOPED IN REAL PLAY — render-interp clobbered the respawn on
+    render-only frames (FPS>TICK) (2026-06-20, commit 3d16ef4).** The a453228 reroute was correct, but the user
+    STILL looped because `play_level.sh` defaults to **FPS=0 (uncapped) > TICK=30** → RENDER-ONLY frames where the
+    player render-interpolation runs; my FPS=30==TICK verification had NO render-only frames so it MASKED it (the
+    EXACT "portal to the void" trap, re-fallen-into). Mechanism: the respawn repositions the player to the
+    checkpoint during MODE_RESETLEVEL where UpdateGAME (and the interp SNAPSHOT) never runs, so the interp's
+    `_ipCurPos` keeps the STALE pre-death off-cliff pos; on the first MODE_GAME frame back, if render-only, the
+    tick-gated snapshot is skipped and the end-of-frame restore (`m_vPos=_ipCurPos`, gated on `_ipActive`) writes
+    the stale pos OVER the checkpoint respawn → dragged back off the cliff → dies again → loop. Neither existing
+    guard caught it: a death respawn keeps `m_Warp==WARP_NOT_WARPING` (warp-skip off) and the off-cliff→checkpoint
+    jump (~773u) is under the 1000u inter-tick snap (which compares prev-vs-cur, not actual-vs-snapshot). **Fix:**
+    a DISCONTINUITY guard at the TOP of `CEngineApp__UpdateGAME` (before any logic moves the player, where `m_vPos`
+    must still equal the prior restore `_ipCurPos`): if `game_frame_number==0` (first frame after ANY reset) OR
+    `m_vPos` diverged from `_ipCurPos` (>100u), invalidate `_ipHave` → the interp re-snapshots prev=cur from the
+    live respawn pos (snap, no clobber, no slide); a re-snapshot is always safe. The enemy/instance interp
+    (romstruc.c) is already safe (per-instance prev, d² vs live `m_vPos` each frame, never made canonical from a
+    stale snapshot). Verified FPS=120/TICK=30: respawn lands at 751 (9569,1178) not off-cliff (9175,415); patrols
+    rc=0; game-over restart still works. Root-caused via a 4-agent workflow (map interp + adversarial verify).
+    **★★ LESSON (re-learned the hard way): the render interpolation interacts badly with EVERY position
+    discontinuity (warp, fall-death respawn, game-over restart, cinema), and the bug ONLY appears on render-only
+    frames (FPS>TICK). ALWAYS verify respawn/warp/teleport fixes at the USER's config (FPS=0 or FPS>TICK), NEVER
+    at FPS==TICK — a matched-rate test has no render-only frames and gives a FALSE PASS. The general guard
+    (game_frame_number==0 + actual-vs-snapshot divergence at the top of the frame) now covers ALL repositions.**
   - **(BUG 3) GAME-OVER → BLACK VOID — FIXED (commit db42c8f).** Confirmed: lose all lives → `m_GameOverTime<0` →
     `SetupFadeTo(MODE_RESETGAME)` (tengine.c:1694) → MODE_RESETGAME sets `m_WarpID=LEGALSCREEN_WARP_ID` (3830/3863)
     → `MODE_LEGALSCREEN` (frozen) = black void; even WITH TUROK_WARP it does a full heavy game-reinit. **Fix
