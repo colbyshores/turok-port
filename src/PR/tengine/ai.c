@@ -1864,6 +1864,25 @@ void AI_Advance(CGameObjectInstance *pMe)
 	// get pointer to player
 	pPlayer = CEngineApp__GetPlayer(GetApp());
 
+#ifdef PLATFORM_PORT
+	/* TUROK_KILLALL: kill every active enemy from frame 100 (repro the regenerate/respawn loop). */
+	{ extern char *getenv(const char*); extern int atoi(const char*); extern DWORD game_frame_number; static int ka=-2; static int kn=0;
+	  if(ka==-2){const char*e=getenv("TUROK_KILLALL");ka=(e&&atoi(e))?1:0;}
+	  if(ka && pMe!=pPlayer && game_frame_number>=130 && game_frame_number<=160 && AI_GetDyn(pMe)->m_Health>0){
+	    if(getenv("TUROK_REGENLOG") && kn<30){ kn++; extern int fprintf(void*,const char*,...); extern void *stderr;
+	      fprintf(stderr,"[KILL] frame=%u type=%d regen=%d hp=%d\n",(unsigned)game_frame_number,
+	        (int)CGameObjectInstance__TypeFlag(pMe),(int)AI_GetDyn(pMe)->m_Regenerate,(int)AI_GetDyn(pMe)->m_Health); }
+	    AI_GetDyn(pMe)->m_Health=0; } }
+	/* TUROK_REGENSTATE: trace a regenerated enemy's combat state over time (does it fight or stay passive?). */
+	{ extern char *getenv(const char*); extern DWORD game_frame_number; static int rsn=0;
+	  if(getenv("TUROK_REGENSTATE") && (AI_GetDyn(pMe)->m_dwStatusFlags & AI_REGENERATE)
+	     && (game_frame_number%30)==0 && rsn<50){ rsn++; extern int fprintf(void*,const char*,...); extern void *stderr;
+	    fprintf(stderr,"[REGENST] f=%u type=%d agit=%d hp=%d vis=%d gone=%d sf=0x%x sf2=0x%x appear=%.1f\n",
+	      (unsigned)game_frame_number,(int)CGameObjectInstance__TypeFlag(pMe),(int)AI_GetDyn(pMe)->m_Agitation,
+	      (int)AI_GetDyn(pMe)->m_Health,(int)((AI_GetDyn(pMe)->m_dwStatusFlags2&AI_VISIBLE)!=0),
+	      (int)CGameObjectInstance__IsGone(pMe),(unsigned)AI_GetDyn(pMe)->m_dwStatusFlags,
+	      (unsigned)AI_GetDyn(pMe)->m_dwStatusFlags2,(double)AI_GetDyn(pMe)->m_cRegenerateAppearance); } }
+#endif
 
 	// first time running ai ?
 	if (AI_GetDyn(pMe)->m_FirstRun)
@@ -2378,6 +2397,13 @@ void AI_Advance(CGameObjectInstance *pMe)
 	{
 		// initialize ai do redo its interactive animation & fade in
 		AI_GetDyn(pMe)->m_Regenerate--;											// one less regeneration
+#ifdef PLATFORM_PORT
+		{ extern char *getenv(const char*); if(getenv("TUROK_REGENLOG")){ extern int fprintf(void*,const char*,...); extern void *stderr; extern DWORD game_frame_number;
+		    fprintf(stderr,"[REGEN] frame=%u type=%d regenLeft=%d pos=(%.0f,%.0f,%.0f) tf3=0x%x tf=0x%x intAnim=%d\n",
+		      (unsigned)game_frame_number, (int)CGameObjectInstance__TypeFlag(pMe), (int)AI_GetDyn(pMe)->m_Regenerate,
+		      (double)AI_GetPos(pMe).x, (double)AI_GetPos(pMe).y, (double)AI_GetPos(pMe).z,
+		      (unsigned)AI_GetEA(pMe)->m_wTypeFlags3, (unsigned)AI_GetEA(pMe)->m_dwTypeFlags, (int)AI_GetEA(pMe)->m_InteractiveAnim); } }
+#endif
 		AI_GetDyn(pMe)->m_cRegenerateAppearance = APPEARANCE_LENGTH*7/8;	// start completely faded out
 		AI_GetDyn(pMe)->m_dwStatusFlags |= AI_REGENERATE;
 		pMe->m_cMelt = 0;
