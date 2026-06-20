@@ -76,7 +76,9 @@ WARN := -w -Wno-implicit-int -Wno-implicit-function-declaration -Wno-int-convers
 CBASE   := $(ARCH) $(OPT) $(WARN) $(DEFINES) -std=gnu11 -fcommon -fno-strict-aliasing -fwrapv -fno-short-enums
 CXXBASE := $(ARCH) $(OPT) $(WARN) $(DEFINES) -std=gnu++20 -fno-rtti -fno-exceptions
 
-GAME_CFLAGS := $(CBASE) $(GAME_INC)
+# Force-include the port compat shim into every game TU (mirrors build_port.sh FI): the qsort rename,
+# the float fmodf prototype, and the turok_wrap_pi inline the game references. PLATFORM_PORT-gated, portable.
+GAME_CFLAGS := $(CBASE) -include port/include/turok_port.h $(GAME_INC)
 PORT_CFLAGS := $(CBASE) $(PORT_INC)
 GU_CFLAGS   := $(CBASE) $(GU_INC)
 TSND_CFLAGS := $(CBASE) $(TSND_INC)
@@ -94,8 +96,10 @@ TSND_C := $(wildcard turoksnd/abi/*.c)
 # libultra gu matrix utils (the 5 the PC build compiles).
 GU_C   := lib/ultralib/src/gu/mtxutil.c lib/ultralib/src/gu/ortho.c lib/ultralib/src/gu/perspective.c \
           lib/ultralib/src/gu/lookat.c lib/ultralib/src/gu/lookatref.c
-# Port layer: all port/src/*.c EXCEPT the PC-only SDL audio/input sinks + the superseded stub.
-PORT_C := $(filter-out port/src/audio.c port/src/input.c port/src/audio_lib_stub.c, \
+# Port layer: all port/src/*.c EXCEPT the PC-only SDL audio sink + the superseded libaudio stub.
+# input.c is KEPT (it's the platform-agnostic pad seam; input_3ds.c only adds the HID poll). The 3DS
+# TUs (audio_3ds/input_3ds/sys_3ds/stderr_3ds) are picked up by the wildcard (each #ifdef PLATFORM_3DS).
+PORT_C := $(filter-out port/src/audio.c port/src/audio_lib_stub.c, \
             $(wildcard port/src/*.c)) \
           port/fast3d/gfx_3ds.c
 # Port C++: the fast3d driver + Citro3D backend (NOT gfx_opengl/sdl2/osmesa/egl).

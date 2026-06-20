@@ -133,6 +133,8 @@ static void gfx_3ds_handle_events(void) {
         exit(0);
     }
 
+    { extern void input3dsScan(void); input3dsScan(); }   // poll HID -> the inputSetState seam each frame
+
     // 3D slider: osGet3DSliderState() returns garbage in Mandarine, so clamp.
     float s = osGet3DSliderState();
     if (s < 0.0f || s > 1.0f || s != s /* NaN */) s = 0.0f;

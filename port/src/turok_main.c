@@ -110,6 +110,12 @@ int main(int argc, char **argv)
 
     /* Unbuffer stderr so a crash doesn't swallow the last (most diagnostic) lines —
      * release builds otherwise buffer it and lose the location on a segfault. */
+#ifdef PLATFORM_3DS
+    /* point the game's global `stderr` symbol (stderr_3ds.c) at the real newlib stream before boot() —
+     * the game's port traces fprintf(stderr,...) through it. */
+    { extern void turok3dsSetStderr(void *); extern void *plat3dsRealStderr(void);
+      turok3dsSetStderr(plat3dsRealStderr()); }
+#endif
     setvbuf(stderr, NULL, _IONBF, 0);
     { extern void turokConfigLoad(void); turokConfigLoad(); }   /* load turok.cfg before gfx/input init */
     turok_watchdog_start();
