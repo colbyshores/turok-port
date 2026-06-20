@@ -341,39 +341,56 @@ static signed char axis_to_n64(int v) {            /* SDL axis -> N64 stick (-80
     return (signed char)s;
 }
 
+/* PORT (PC FPS controls): mouse-look drives turn/pitch, WASD moves (A/D strafe), LMB fires, E toggles
+ * run/walk. The walk flag is read by tmove.c (TUROK_WALKCAP). Sensitivity: TUROK_MOUSE_SENS (default 6). */
+extern "C" { extern int g_turok_walk_mode; }
+static float    g_mouse_dx = 0.0f, g_mouse_dy = 0.0f;   /* accumulated relative motion since last poll */
+static unsigned g_mouse_buttons = 0;                    /* SDL_BUTTON_* mask */
+static bool     g_relmouse_on = false;                  /* cursor captured for look */
+static float mouse_sens(void) {
+    static float s = -1.0f;
+    if (s < 0.0f) { const char *e = getenv("TUROK_MOUSE_SENS"); s = e ? (float)atof(e) : 6.0f; if (s <= 0.0f) s = 6.0f; }
+    return s;
+}
+
 static void turok_sdl_update_input(void) {
     unsigned short btn = 0;
     int sx = 0, sy = 0;
     const Uint8 *k = SDL_GetKeyboardState(NULL);
 
-    /* keyboard mapped to TUROK's default control scheme (tcontrol.c): movement is on the
-     * C-buttons/D-pad (Forward=C-up, Backward=C-down, SideStep=C-left/right), and the analog
-     * STICK is LOOK/TURN (stick-fwd/back = look up/down, stick-left/right = turn). So:
-     *   W/S  = move forward/back   (C-up / C-down — bind both C+JPAD so handedness doesn't matter)
-     *   A/D  + Left/Right arrows = TURN (stick X)
-     *   Up/Down arrows = LOOK up/down (stick Y)
-     *   Q/E  = strafe left/right (C-left / C-right)
-     * Previously W/S drove stick-Y, so pressing forward pitched the camera — the "screwy camera". */
-    if (k[SDL_SCANCODE_W])      btn |= (N64_CU | N64_DU);   /* forward  */
-    if (k[SDL_SCANCODE_S])      btn |= (N64_CD | N64_DD);   /* backward */
-    if (k[SDL_SCANCODE_A])      sx -= 80;                   /* turn left  */
-    if (k[SDL_SCANCODE_D])      sx += 80;                   /* turn right */
-    if (k[SDL_SCANCODE_LEFT])   sx -= 80;
-    if (k[SDL_SCANCODE_RIGHT])  sx += 80;
-    if (k[SDL_SCANCODE_UP])     sy += 80;                   /* look up   */
-    if (k[SDL_SCANCODE_DOWN])   sy -= 80;                   /* look down */
-    if (k[SDL_SCANCODE_Q])      btn |= (N64_CL | N64_DL);   /* strafe left  */
-    if (k[SDL_SCANCODE_E])      btn |= (N64_CR | N64_DR);   /* strafe right */
-    if (k[SDL_SCANCODE_SPACE])  btn |= N64_B;
-    if (k[SDL_SCANCODE_LCTRL] || k[SDL_SCANCODE_RCTRL]) btn |= N64_Z;
-    if (k[SDL_SCANCODE_LSHIFT]) btn |= N64_R;
-    if (k[SDL_SCANCODE_TAB])    btn |= N64_L;
-    if (k[SDL_SCANCODE_F])      btn |= N64_A;
-    if (k[SDL_SCANCODE_RETURN]) btn |= N64_START;
+    /* PC FPS scheme: WASD = MOVE (Turok's movement is on the C-buttons/D-pad — bind both so handedness
+     * is moot: W/S forward/back, A/D strafe); MOUSE-LOOK drives turn (X) + pitch (Y) via the analog STICK;
+     * LMB = fire; E toggles run/walk (on key-DOWN, in the event loop). Esc releases the cursor; click re-grabs. */
+    { static bool inited = false; if (!inited) { SDL_SetRelativeMouseMode(SDL_TRUE); g_relmouse_on = true; inited = true; } }
+
+    if (k[SDL_SCANCODE_W]) btn |= (N64_CU | N64_DU);   /* forward      */
+    if (k[SDL_SCANCODE_S]) btn |= (N64_CD | N64_DD);   /* backward     */
+    if (k[SDL_SCANCODE_A]) btn |= (N64_CL | N64_DL);   /* strafe left  */
+    if (k[SDL_SCANCODE_D]) btn |= (N64_CR | N64_DR);   /* strafe right */
+
+    /* mouse-look -> turn (X) + pitch (Y, inverted), from motion accumulated since the last poll. */
+    { float s = mouse_sens();
+      sx += (int)(g_mouse_dx * s);
+      sy -= (int)(g_mouse_dy * s);
+      g_mouse_dx = g_mouse_dy = 0.0f; }
+
+    /* arrow keys: turn/look fallback for no-mouse play. */
+    if (k[SDL_SCANCODE_LEFT])  sx -= 80;
+    if (k[SDL_SCANCODE_RIGHT]) sx += 80;
+    if (k[SDL_SCANCODE_UP])    sy += 80;
+    if (k[SDL_SCANCODE_DOWN])  sy -= 80;
+
+    /* actions */
+    if (g_mouse_buttons & SDL_BUTTON(SDL_BUTTON_LEFT))  btn |= N64_Z;   /* fire   */
+    if (g_mouse_buttons & SDL_BUTTON(SDL_BUTTON_RIGHT)) btn |= N64_A;   /* action */
+    if (k[SDL_SCANCODE_SPACE])  btn |= N64_B;                           /* jump        */
+    if (k[SDL_SCANCODE_LCTRL] || k[SDL_SCANCODE_RCTRL]) btn |= N64_Z;   /* fire (kbd)  */
+    if (k[SDL_SCANCODE_LSHIFT]) btn |= N64_R;                           /* next weapon */
+    if (k[SDL_SCANCODE_TAB])    btn |= N64_L;                           /* prev / map  */
+    if (k[SDL_SCANCODE_F])      btn |= N64_A;                           /* action      */
+    if (k[SDL_SCANCODE_RETURN]) btn |= N64_START;                       /* pause       */
     if (k[SDL_SCANCODE_COMMA])  btn |= N64_DL;
     if (k[SDL_SCANCODE_PERIOD]) btn |= N64_DR;
-    if (k[SDL_SCANCODE_LEFTBRACKET])  btn |= N64_DU;
-    if (k[SDL_SCANCODE_RIGHTBRACKET]) btn |= N64_DD;
 
     /* gamepad: left stick move/turn, right stick look, RT fire, A jump */
     if (g_sdl_controller) {
@@ -412,7 +429,21 @@ static void gfx_sdl_handle_events(void) {
                 if (event.key.keysym.sym == SDLK_RETURN && (event.key.keysym.mod & KMOD_ALT)) {
                     // alt-enter received, switch fullscreen state
                     set_fullscreen(!fullscreen_state, true);
+                } else if (event.key.keysym.sym == SDLK_e && !event.key.repeat) {
+                    g_turok_walk_mode = !g_turok_walk_mode;                       /* run/walk toggle */
+                } else if (event.key.keysym.sym == SDLK_ESCAPE) {
+                    SDL_SetRelativeMouseMode(SDL_FALSE); g_relmouse_on = false;   /* release the cursor */
                 }
+                break;
+            case SDL_MOUSEMOTION:
+                if (g_relmouse_on) { g_mouse_dx += (float)event.motion.xrel; g_mouse_dy += (float)event.motion.yrel; }
+                break;
+            case SDL_MOUSEBUTTONDOWN:
+                if (!g_relmouse_on) { SDL_SetRelativeMouseMode(SDL_TRUE); g_relmouse_on = true; }  /* click re-grabs */
+                g_mouse_buttons |= SDL_BUTTON(event.button.button);
+                break;
+            case SDL_MOUSEBUTTONUP:
+                g_mouse_buttons &= ~SDL_BUTTON(event.button.button);
                 break;
             case SDL_WINDOWEVENT:
                 if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {

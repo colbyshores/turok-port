@@ -139,6 +139,17 @@ CVector3 CTMove__ControlFlyUpDown(CTMove *pThis, CEngineApp *pApp, CTControl *pC
 #define	TMOVE_MAX_UPSWIMSPEED			(2.2 *SCALING_FACTOR)	// 1.8
 #define	TMOVE_SWIM_SMOOTH					(5.0 *SCALING_FACTOR)
 
+#ifdef PLATFORM_PORT
+/* PORT (PC walk/run toggle — bound to E in the SDL2 backend): the keyboard moves on the digital
+ * C-buttons which always hit RUN speed; when walk-mode is on, scale the run-speed CAP so the player
+ * accelerates to a slower top speed (forward/back/strafe alike). g_turok_walk_mode lives in the
+ * SDL2 input backend. */
+extern int g_turok_walk_mode;
+#define	TUROK_WALKCAP(x)	((g_turok_walk_mode) ? (x)*0.5f : (x))
+#else
+#define	TUROK_WALKCAP(x)	(x)
+#endif
+
 
 
 // private members
@@ -2413,7 +2424,7 @@ CVector3 CTMove__ControlFBward(CTMove *pThis, CEngineApp *pApp, CTControl *pCTCo
 		}
 		else
 		{
-			dm = TMOVE_MAX_RUNSPEED - pThis->MoveSpeed;
+			dm = TUROK_WALKCAP(TMOVE_MAX_RUNSPEED) - pThis->MoveSpeed;
 			dm = dm / TMOVE_RUNFORWARD_SMOOTH;
 		}
 		pThis->MoveSpeed += dm;
@@ -2502,7 +2513,7 @@ CVector3 CTMove__ControlFBward(CTMove *pThis, CEngineApp *pApp, CTControl *pCTCo
 		}
 		else
 		{
-			dm = -TMOVE_MAX_BACKRUNSPEED - pThis->MoveSpeed;
+			dm = TUROK_WALKCAP(-TMOVE_MAX_BACKRUNSPEED) - pThis->MoveSpeed;
 			dm = dm / TMOVE_RUNFORWARD_SMOOTH;
 		}
 		pThis->MoveSpeed += dm;
@@ -2632,7 +2643,7 @@ CVector3 CTMove__ControlSideStep(CTMove *pThis, CEngineApp *pApp, CTControl *pCT
 			}
 			else
 			{
-				dm = TMOVE_MAX_SIDESTEPSPEED - pThis->SideStepSpeed;
+				dm = TUROK_WALKCAP(TMOVE_MAX_SIDESTEPSPEED) - pThis->SideStepSpeed;
 				dm = dm / TMOVE_SIDESTEP_SMOOTH;
 			}
 		}
@@ -2677,7 +2688,7 @@ CVector3 CTMove__ControlSideStep(CTMove *pThis, CEngineApp *pApp, CTControl *pCT
 			}
 			else
 			{
-				dm = -TMOVE_MAX_SIDESTEPSPEED - pThis->SideStepSpeed;
+				dm = TUROK_WALKCAP(-TMOVE_MAX_SIDESTEPSPEED) - pThis->SideStepSpeed;
 				dm = dm / TMOVE_SIDESTEP_SMOOTH;
 			}
 		}

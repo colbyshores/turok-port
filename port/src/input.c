@@ -25,6 +25,11 @@ static volatile unsigned short g_button = 0;
 static volatile signed char    g_stick_x = 0;
 static volatile signed char    g_stick_y = 0;
 
+/* PC walk/run toggle (bound to E in the SDL2 backend; read by tmove.c TUROK_WALKCAP). Defined here in
+ * an always-linked TU so the EGL/OSMesa headless builds — which don't compile the SDL2 backend — still
+ * resolve the symbol. */
+int g_turok_walk_mode = 0;
+
 s32 inputInit(void) { return 0; }   /* host: the window manager pumps events; nothing to init here */
 
 /* Backend -> here: set the current N64 pad (button bits + stick, -80..80). */
