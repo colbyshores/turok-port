@@ -4058,6 +4058,16 @@ void CEngineApp__Main(CEngineApp *pThis)
 								CPickup__DisplayKeysRemaining() ;
 							}
 							pThis->m_UseCinemaWarp = FALSE ;
+#ifdef PLATFORM_PORT
+							/* PORT: a FALL/WATER death captured m_CinemaWarp at the unsafe death position (off the cliff /
+							 * underwater) -> respawning there falls/drowns again. The death type is still set in m_CinemaFlags
+							 * at this respawn (confirmed via TUROK_DEATHLOG: CinemaFlags=0x4=FALL_DEATH), so route to the last
+							 * CHECKPOINT instead. The resurrect respawn that follows re-captures m_CinemaWarp from this safe
+							 * spot, so the player stays put. Normal/boss deaths (death pos is safe) keep the in-place respawn. */
+							if (pThis->m_CinemaFlags & (CINEMA_FLAG_PLAY_FALL_DEATH | CINEMA_FLAG_PLAY_WATER_DEATH))
+								CScene__Construct(&pThis->m_Scene, CTurokMovement.CurrentCheckpoint) ;
+							else
+#endif
 							CScene__Construct(&pThis->m_Scene, CINEMA_WARP_ID) ;
 						}
 						else
