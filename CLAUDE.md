@@ -1574,17 +1574,69 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     N via MODE_RESETLEVEL`, never MODE_RESETGAME, the restarted level renders (12678 colors, not 1-color black). NOTE:
     a true attract/title on game-over is a SEPARATE task (un-freeze the legal/intro frontend + intro frame-pacing);
     the port does a checkpoint-continue until then.
-  - **(BUG 1) ENEMY RESPAWN LOOP — NOT REPRODUCED; regenerate works (repro tooling committed 60a23ca).** The regen
-    COUNT is correct (the `ORDERBYTES` double-swap suspicion is moot — aistruc.c:69 is `#ifdef WIN32` ENCODE-only,
-    not compiled; the runtime uses the scene.c-swapped value via `RANDOM(pEA->m_Regenerate+1)`). Only warp-8000's
-    type-1 enemy regenerates (m_Regenerate=1 → regenerates exactly once → 0). With the player NEAR, it re-engages
-    combat in ~4s (regen → agit=299 fighting + appear fades 6.6→0). The ~16s stall I first saw was the player
-    patrolling AWAY (distant enemies aren't AI-updated, so the AI_INTERANIMDELAY interactive timer — decremented
-    `1/20` per AI_Advance CALL, ai.c:1970 — can't tick down); that's **N64-faithful**, not a port bug. So the "loop
-    forever, never fight" symptom is NOT reproduced in any tested level/spot. **NEEDS USER SPECIFICS:** which
-    enemy/level, near or far, how long observed — then re-run with `TUROK_KILLALL=1 TUROK_REGENLOG=1
-    TUROK_REGENSTATE=1`. Candidate not-yet-checked: a different mechanism (AI_TYPE_RANDOMRESURRECTION) or an enemy
-    with a garbage regen count in an untested level.
+  - **(BUG 1) ENEMY RESPAWN LOOP — ★ FIXED (FPS>TICK regen-appear loop, 2026-06-20, commit 9844a7e).** The earlier
+    "NOT REPRODUCED" was the SAME FPS==TICK masking as the player loop. The regen WORKS at FPS=30 (regen → agit=299
+    fighting + appear fades 6.6→0 in ~4s when near) but LOOPS at FPS>TICK (play_level.sh default FPS=0). Root cause
+    (traced the AI timers FPS=30 vs FPS=120): the regen "appearance" phase has a 1.5s delay (`m_Time1`); when it clears
+    (ai.c ~2055) the code re-checks `m_cRegenerateAppearance == APPEARANCE_LENGTH*7/8` (EXACT equality) to detect
+    "appear just started", but that counter only decrements via `frame_increment` = 0 on RENDER-ONLY frames — so when
+    the delay clears ON a render-only frame (3/4 of frames at FPS=120) the counter stays EXACTLY at the initial → the
+    check re-arms the delay (m_Time1=1.5) → the enemy loops the appearance forever, stuck `agit=0`/gone, never
+    re-engaging. **Fix (ai.c, PLATFORM_PORT):** on the delay clear, nudge `m_cRegenerateAppearance -= 0.01f` off its
+    exact initial value so the check can't re-fire; the appear then fades normally on the next logic tick. Verified
+    FPS=120: re-engages (`agit=299`), appear fades 6.1→0. (The regen COUNT was always fine — the `ORDERBYTES`
+    double-swap suspicion is moot: aistruc.c:69 is `#ifdef WIN32` ENCODE-only, not compiled. The 16s "far-stall" is
+    N64-faithful distant-AI throttle, not the bug.) Repro tooling: `TUROK_KILLALL`/`REGENLOG`/`REGENSTATE` (60a23ca).
+
+- **★★ RECURRING BUG CLASS — RENDER-ONLY FRAMES (FPS>TICK) break `frame_increment`-gated EXACT-EQUALITY / one-shot /
+  snapshot logic (2026-06-20).** `play_level.sh` defaults to **FPS=0 (uncapped) > TICK=30**, so the render runs faster
+  than the 30Hz logic and produces RENDER-ONLY frames where `frame_increment=0` (the logic step is frozen; only the
+  render + interpolation advance). ANY game logic that (a) compares a `frame_increment`-decremented counter for EXACT
+  equality to detect a one-shot transition, or (b) takes/restores a position snapshot assuming every frame is a logic
+  tick, MISBEHAVES on render-only frames. Hit **3× now**: (1) **portal-to-void** — interp clobbered m_vPos to the
+  pre-warp snapshot (7bfd06c); (2) **player fall-death respawn loop** — interp restored the stale pre-death pos over
+  the checkpoint respawn (3d16ef4 = a discontinuity guard at the TOP of UpdateGAME: `game_frame_number==0 || m_vPos
+  diverged from _ipCurPos` → re-snapshot); (3) **enemy regen-appear loop** — the `==exact` appear check re-armed because
+  the counter didn't decrement on the render-only clear frame (9844a7e). **★ LESSON: ALWAYS test respawn / warp /
+  teleport / AI-timer / cinematic fixes at FPS>TICK (FPS=120 TICK=30, or FPS=0), NEVER at FPS==TICK — a matched-rate
+  run has NO render-only frames and gives a FALSE PASS that masks the bug. When a "fix" works headless but the user
+  still sees it, FPS==TICK masking is the #1 suspect.** Generalized in `docs/N64_PORTING_PLAYBOOK.md`.
+
+- **★ FALLING-DEATH CINEMATIC FIXED + BAND-AID AUDIT (2026-06-20, commit 973e23d).** User: Turok hangs SUSPENDED
+  mid-air in the falling pose instead of falling to his death. TWO band-aids combined: (1) **a453228** rerouted the
+  DEATH pass of the fall-death reset (tengine.c cinema-warp branch) to CurrentCheckpoint — teleporting the cinematic
+  to the checkpoint instead of the off-cliff fall position (`m_CinemaWarp`); (2) **tmove.c:744** skips the dead/cinema
+  drop-to-ground velocity+Collision3 on the port (it crashes on KEY-PICKUP cinematics where the M5 collision parse
+  derefs garbage region corners) — which ALSO froze the fall-death descent. **Fix (keeps the checkpoint respawn the
+  user wants):** revert ONLY the death-pass reroute → the death pass uses STOCK `CINEMA_WARP_ID` (the fall pos) so the
+  cinematic plays AT THE CLIFF; the RESURRECT+FINAL passes (else branch) still reroute to CurrentCheckpoint so the
+  player ENDS at the checkpoint. AND re-enable velocity+Collision3 ONLY for `CAMERA_CINEMA_TUROK_FALL_DEATH_MODE`,
+  crash-safe because that cinematic sets `GroundBehavior=INTERSECT_BEHAVIOR_IGNORE` (gates the ground-corner deref off,
+  unicol.c:1039) + `waterFlag==PLAYER_NOT_NEAR_WATER`. Verified FPS=120: at the death pass Turok is at the fall spot
+  (9201,-3339), Y descends 338→-2551 (falls), then respawns at the 751 checkpoint grounded.
+  - **★ BAND-AID AUDIT VERDICT** (user asked which respawn fixes are source-faithful vs band-aids / regression risks;
+    4-agent workflow). **NECESSARY host-portability (KEEP** — replace the N64's no-MMU tolerance of stale pointers a
+    protected host can't replicate**):** the render-interp discontinuity guard (3d16ef4), the per-frame + cinematic
+    `CScene__NearestRegion` re-acquire when `PORT_REGION_BAD` (~4759/5014), the GetGround/Ceiling flat-default
+    fallbacks. **BAND-AID (papers over the real M5 collision-STREAMING root: the cart re-decompresses the collision
+    buffer at a NEW address without updating the player's region pointer → stale/garbage corners; becomes DEAD CODE
+    once M5 keeps the cache resident / rebases corners):** the tmove.c:744 cinema-physics skip, the
+    `PORT_REGION_BAD`/`PORT_CORNER_BAD` distance heuristics. **a453228 death-pass reroute = a true band-aid that caused
+    the cinematic regression → REVERTED.** **DESIRED DEVIATIONS (not source-faithful but the user wants them):** the
+    checkpoint respawn (else-branch; the N64 respawns at `m_WarpID`), the game-over→checkpoint reroute (db42c8f; until
+    the frozen legal/attract frontend is unfrozen). **DEFERRED faithful alternative:** sync `m_WarpID` to
+    CurrentCheckpoint at checkpoint-pass time (tmove.c) and drop a453228 entirely — higher-risk (`m_WarpID` is read by
+    several paths), so the verified reroute stays the safe default.
+
+- **★ TUROK_WATCHDOG=1 — in-game freeze backtracer, default-ON in `play_level.sh` (2026-06-20, turok_main.c, commits
+  973e23d/7c22d59).** gdb-attach is blocked by yama `ptrace_scope`, so to catch a freeze-with-no-crash-dump (an
+  infinite loop / spin) a watchdog thread `pthread_kill(main, SIGUSR1)`s + `backtrace()`s the MAIN thread when
+  `g_frame` stops advancing. **★ GOTCHA fixed (7c22d59):** it must NOT arm until frames are advancing — the SDL2
+  GL/shader/driver init in `turokGfxInit` runs BEFORE the first frame and can exceed the timeout (g_frame stays 0),
+  which the watchdog read as a hang and `_exit`'d a healthy boot (the user couldn't start the game; the backtrace was
+  all SDL2 init frames). Now it skips monitoring while `g_frame<=0` and uses a 6s stall threshold. A real in-game
+  freeze leaves g_frame>0 + frozen → caught, and the backtrace points at the stuck GAME function. `WATCHDOG=0
+  ./play_level.sh` disables.
 
 The port build infra (not game source): `Makefile.port`, `port/include/turok_port.h` (host compat shim),
 `lib/ultralib/` (vendored libultra headers), `tools/turok_rom.py`.
@@ -1628,3 +1680,19 @@ by default** — fixed the big-endian `C16BitGraphic`/`C16BitPart` header decode
 read-time swaps); Turok's face + life-force "600" + lives "x2" draw, 150 frames clean, `TUROK_HUD=0` disables.
 **Next:** levels 2-8 load perf (collision-list), object/creature material (interactive), brightness polish, M3
 (3DS Citro3D).*
+
+*Status: **★ GAMEPLAY SOLID — DEATH / RESPAWN / ENEMY / AUDIO all working (2026-06-20).** This session closed the
+gameplay-breaking respawn/death cluster: a fall death respawns at the last CHECKPOINT (not off the cliff → no death
+loop), the fall-death CINEMATIC plays correctly (Turok falls at the cliff, then respawns at the checkpoint), GAME-OVER
+restarts at the checkpoint (not a black void), and regenerating ENEMIES re-engage combat instead of looping the spawn.
+**The dominant bug class was RENDER-ONLY FRAMES (FPS>TICK):** three separate "fixed headless but still broken in play"
+bugs (player respawn loop 3d16ef4, enemy regen loop 9844a7e, portal-to-void 7bfd06c) all traced to logic that breaks
+when render-rate > tick-rate (`play_level.sh` defaults FPS=0 > TICK=30) — **ALWAYS test respawn/warp/AI-timer/cinematic
+fixes at FPS>TICK, never FPS==TICK** (the matched-rate run has no render-only frames → false pass; see §8 of
+`docs/N64_PORTING_PLAYBOOK.md`). A BAND-AID AUDIT (4-agent workflow) classified the death-fall-through fix cluster:
+NECESSARY host-portability (render-interp guard, region re-acquire, ground fallbacks) vs BAND-AID for the M5
+collision-STREAMING root (tmove cinema-skip, region distance heuristics) vs DESIRED deviations (checkpoint respawn,
+game-over reroute); the one true band-aid that caused a regression (a453228 death-pass reroute) was reverted.
+`TUROK_WATCHDOG` (default-ON in play_level.sh, fixed to not false-fire on the slow SDL2 GL startup) backtraces an
+in-game freeze. **Next:** the deeper M5 collision-streaming fix (keep the cache resident / rebase corners on
+relocation → removes most of the band-aid cluster); brightness polish; M3 (3DS Citro3D).*

@@ -161,6 +161,22 @@ render frame and everything runs **2–5× too fast**.
   nlerp/slerp for quaternions), and **restoring the exact tick state immediately after the draw** so gameplay
   stays bit-exact. **Snap (don't lerp) across genuine teleports/warps** — gate the snap on the cinematic/teleport
   *state*, not a distance threshold (short teleports slip under a distance guard).
+- **★ THE RENDER-ONLY-FRAME TRAP (the decouple's #1 latent bug class).** Once you tick logic at 30Hz but render
+  faster, most frames are **render-only** — the logic step is frozen (`frame_increment == 0`) and only the
+  render/interpolation advances. ANY game logic that **(a)** compares a `frame_increment`-decremented counter for
+  **exact equality** to detect a one-shot transition, or **(b)** **snapshots/restores** state assuming every frame is
+  a logic tick, **misbehaves on render-only frames — and ONLY when render-rate > tick-rate.** Real examples (all from
+  one port, found the hard way): a respawn/warp repositions an entity *outside* the per-frame loop, so the interp's
+  stale snapshot is restored *over* the new position on the next render-only frame → the entity is dragged back →
+  death/warp loop; a "regenerate appearance" one-shot keyed off `counter == INITIAL` re-fires forever because the
+  counter can't decrement on the render-only frame where its gate clears → the enemy loops the spawn, never fights.
+  **Fixes:** for snapshots, add a **discontinuity guard at the TOP of the update** (before any logic runs the live
+  position must equal the last restored snapshot — if it diverged, a reposition happened outside the loop, so
+  re-snapshot); for exact-equality one-shots, **nudge the counter off the exact value** when the gate fires, or use a
+  real flag. **★ THE TESTING RULE: verify EVERY respawn / warp / teleport / AI-timer / cinematic fix at
+  render-rate > tick-rate (e.g. 120/30, or uncapped) — NEVER at render==tick.** A matched-rate run has **no
+  render-only frames** and gives a **FALSE PASS** that masks the entire class. When a fix works in your headless
+  harness but the user still reproduces it, **render==tick masking is the first suspect** — match the user's pacing.
 
 ---
 
