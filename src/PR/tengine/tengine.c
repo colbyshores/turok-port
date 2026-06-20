@@ -4762,6 +4762,27 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 #endif
 
 #ifdef PLATFORM_PORT
+	/* PORT (render-interp DISCONTINUITY guard — fixes the fall-death respawn loop at FPS>TICK): a respawn
+	 * (fall-death/game-over -> checkpoint, cinema teleport, level load) repositions the player during
+	 * MODE_RESETLEVEL/RESETGAME, where UpdateGAME (hence the interp SNAPSHOT) never runs, so _ipCurPos keeps
+	 * the STALE pre-respawn position. On the first MODE_GAME frame back — when it is a RENDER-ONLY frame
+	 * (these only exist at FPS>TICK) — the tick-gated snapshot below is skipped and the end-of-frame restore
+	 * (m_vPos=_ipCurPos) writes the stale pos OVER the respawn -> the player is dragged back to the death
+	 * spot -> dies again -> death loop. (Reproduced: FPS=120/TICK=30 sticks at the off-cliff pos;
+	 * FPS=30/TICK=30 lands at the checkpoint — that matched-rate test MASKED the bug.) Neither existing guard
+	 * catches it: a death respawn keeps m_Warp==WARP_NOT_WARPING (warp-skip off) and the off-cliff->checkpoint
+	 * jump (~773u) is under the 1000u inter-tick snap. Here at the TOP of the frame, BEFORE any logic moves
+	 * the player, m_vPos must still equal _ipCurPos (the prior restore); a reset zeroes game_frame_number. So
+	 * if game_frame_number==0 (first frame after ANY reset) OR m_vPos diverged from _ipCurPos, invalidate the
+	 * snapshot — the interp then re-takes prev=cur from the live respawn pos (snap, no stale clobber, no
+	 * slide). A re-snapshot is always safe (it just skips one frame's interpolation), so this can't glitch. */
+	{ CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
+	  if (_pl && _ipHave) {
+	    float ex=_pl->ah.ih.m_vPos.x-_ipCurPos.x, ey=_pl->ah.ih.m_vPos.y-_ipCurPos.y, ez=_pl->ah.ih.m_vPos.z-_ipCurPos.z;
+	    if (game_frame_number == 0 || ex*ex+ey*ey+ez*ez > 100.0f*100.0f) _ipHave = 0; } }
+#endif
+
+#ifdef PLATFORM_PORT
 	/* TUROK_FORCEWARP=<id>: headlessly reproduce a within-level (blue-portal) warp to <id>. Fires ONCE,
 	 * ~60 frames after a player exists and we're not already warping, so the level is settled. Lets us
 	 * capture the warp resolution + level-block selection for a bonus warp (9600) that TUROK_WARP can't
@@ -4941,6 +4962,34 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 		 * exactly why TICK=0 headless captures rendered fine and masked it.) */
 		if (_pl && pThis->m_Warp == WARP_NOT_WARPING)
 		{
+			/* PORT (fall-death / game-over / cinema respawn discontinuity): m_Warp stays WARP_NOT_WARPING for
+			 * these (only DoWarp sets it), so the warp-skip above does NOT cover them, and a same-level
+			 * checkpoint respawn jump (~773u) is UNDER the >1000 inter-tick snap below, so neither existing
+			 * guard catches it. The reposition happens in the MODE_RESETLEVEL/RESETGAME case where UpdateGAME
+			 * (and this snapshot) never runs, so the _ipCur snapshot and _ipHave keep the stale pre-death
+			 * values; on the first (render-only) MODE_GAME frame the snapshot block is skipped (_ipHave still
+			 * 1, g_turok_logic_tick 0), the lerp slides toward the stale pos, and the restore writes _ipCurPos
+			 * (stale, off-cliff) back as the canonical logic pos -> the next tick re-reads it -> a death loop
+			 * / OOB-black. TWO complementary re-syncs, BOTH OUTSIDE the tick-gated snapshot block so they fire
+			 * on render-only frames too:
+			 *  (1) game_frame_number==0 is the universal "just (re)positioned this frame" signal — it is zeroed
+			 *      by every reposition case (MODE_RESETLEVEL/RESETGAME) and only ticks to 1 at the END of this
+			 *      first MODE_GAME frame (SendGraphicsTask->AdvanceFrameData). Zero false positives.
+			 *  (2) a general divergence guard: if the live m_vPos has moved from the last snapshot _ipCurPos by
+			 *      more than one tick's plausible motion, treat it as a discontinuity. Catches ANY reposition
+			 *      the frame-counter signal might miss (a non-reset teleport that leaves m_Warp clear). The
+			 *      bound is generous (300u/tick, ~30x a fast run step) so legit dashes never trip it but the
+			 *      773u respawn does. The !(d<bound) form is NaN-safe (garbage delta -> re-snap, not lerp).
+			 * Either condition forces _ipHave=0, so the snapshot block below re-inits prev=cur from the live
+			 * (respawn) position for ALL fields (pos/yaw/pitch/head-offsets/qGround) -> a-lerp is a no-op ->
+			 * renders exactly at the new spot, no slide, no stale clobber. */
+			if (_ipHave)
+			{
+				float _ddx = _pl->ah.ih.m_vPos.x - _ipCurPos.x, _ddy = _pl->ah.ih.m_vPos.y - _ipCurPos.y,
+				      _ddz = _pl->ah.ih.m_vPos.z - _ipCurPos.z;
+				if (game_frame_number == 0 || !(_ddx*_ddx+_ddy*_ddy+_ddz*_ddz < 300.0f*300.0f))
+					_ipHave = 0;   /* discontinuity: force re-snapshot (prev=cur=live), no lerp from stale */
+			}
 			if (g_turok_logic_tick || !_ipHave)
 			{
 				if (_ipHave) { _ipPrevPos = _ipCurPos; _ipPrevRotY = _ipCurRotY; _ipPrevPitch = _ipCurPitch;
