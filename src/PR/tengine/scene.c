@@ -514,6 +514,15 @@ void CScene__WarpPointsReceived(CScene *pThis, CCacheEntry **ppceTarget)
 			pThis->m_WarpPoint.m_vPos.x = ORDERBYTES(pThis->m_WarpPoint.m_vPos.x);
 			pThis->m_WarpPoint.m_vPos.y = ORDERBYTES(pThis->m_WarpPoint.m_vPos.y);
 			pThis->m_WarpPoint.m_vPos.z = ORDERBYTES(pThis->m_WarpPoint.m_vPos.z);
+#ifdef PLATFORM_PORT
+			/* TUROK_SPAWNAT="x,y,z": override the spawn position (host-order) for testing — e.g. spawn at a
+			 * cliff edge to test the fall-death respawn without walking there. Only the real-warp (initial)
+			 * spawn passes here; the CINEMA_WARP_ID fall-death respawn uses a separate branch, so it's untouched. */
+			{ extern char *getenv(const char*); extern int sscanf(const char*,const char*,...);
+			  static int rd=0; static float sx,sy,sz; static int have=0;
+			  if(!rd){ rd=1; const char*e=getenv("TUROK_SPAWNAT"); if(e) have=(sscanf(e,"%f,%f,%f",&sx,&sy,&sz)==3); }
+			  if(have){ pThis->m_WarpPoint.m_vPos.x=sx; pThis->m_WarpPoint.m_vPos.y=sy; pThis->m_WarpPoint.m_vPos.z=sz; } }
+#endif
 			pThis->m_WarpPoint.m_nLevel = ORDERBYTES(pThis->m_WarpPoint.m_nLevel);
 #endif
 			pThis->m_nLevel = pThis->m_WarpPoint.m_nLevel;

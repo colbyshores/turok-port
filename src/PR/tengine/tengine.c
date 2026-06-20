@@ -4044,6 +4044,13 @@ void CEngineApp__Main(CEngineApp *pThis)
 						}
 
 						// Goto cinema warp?
+#ifdef PLATFORM_PORT
+						{ extern char *getenv(const char*); static int dl=-2; if(dl==-2){const char*e=getenv("TUROK_DEATHLOG");dl=(e&&atoi(e))?1:0;}
+						  if(dl){ extern int fprintf(void*,const char*,...); extern void *stderr;
+						    fprintf(stderr,"[DEATHLOG] respawn: UseCinemaWarp=%d m_WarpID=%d CurrentCheckpoint=%d CinemaFlags=0x%x CinemaWarp=(%.0f,%.0f,%.0f)\n",
+						      pThis->m_UseCinemaWarp, pThis->m_WarpID, CTurokMovement.CurrentCheckpoint, (unsigned)pThis->m_CinemaFlags,
+						      pThis->m_CinemaWarp.m_vPos.x, pThis->m_CinemaWarp.m_vPos.y, pThis->m_CinemaWarp.m_vPos.z); } }
+#endif
 						if (pThis->m_UseCinemaWarp)
 						{
 							if (pThis->m_UseCinemaWarp == 2)
