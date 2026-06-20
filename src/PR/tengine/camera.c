@@ -1643,6 +1643,15 @@ void CCamera__FadeToCinema(CCamera *pThis, INT32 CinemaFlag)
 	pEngine->m_CinemaWarp.m_nLevel = pEngine->m_Scene.m_nLevel ;
 	pEngine->m_CinemaWarp.m_nRegion = CScene__GetRegionIndex(&pEngine->m_Scene, pTurok->ah.ih.m_pCurrentRegion) ;
 
+#ifdef PLATFORM_PORT
+	/* PORT: flag a FALL/WATER death so BOTH the death respawn AND the following RESURRECT respawn reroute to
+	 * the checkpoint. The resurrect's m_CinemaFlags is RESURRECT (not FALL_DEATH), so a direct flag check at
+	 * the respawn misses it and the resurrect re-captures the off-the-cliff death pos -> death loop. Set here;
+	 * cleared at the respawn only after the resurrect (tengine.c). */
+	{ extern int g_turok_death_was_fall;
+	  if (CinemaFlag & (CINEMA_FLAG_PLAY_FALL_DEATH | CINEMA_FLAG_PLAY_WATER_DEATH)) g_turok_death_was_fall = 1; }
+#endif
+
 	// Reset the level so object can be allocated!
 	CEngineApp__SetupFadeTo(pEngine, MODE_RESETLEVEL) ;
 }

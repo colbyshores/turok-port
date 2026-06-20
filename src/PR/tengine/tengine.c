@@ -349,6 +349,10 @@ float			g_turok_anim_step = 1.0f;
  * and aliased into a frozen-looking shimmer. This counter advances only on logic ticks (see the tick
  * gate in UpdateGAME), so geometry.c drives texture animation at the authored 30Hz regardless of FPS. */
 int			g_turok_tex_anim_frame = 0;
+/* PORT: set in CCamera__FadeToCinema for a FALL/WATER death; spans the death+resurrect respawns so both
+ * route to CurrentCheckpoint (the resurrect's CinemaFlags is RESURRECT, not FALL_DEATH). Cleared at the
+ * resurrect respawn. Fixes the "respawn off the cliff -> death loop". */
+int			g_turok_death_was_fall = 0;
 #endif
 float			enemy_speed_scaler = 1.0;				// these vars are
 float			particle_speed_scaler = 1.0;			// also setup
@@ -4060,12 +4064,15 @@ void CEngineApp__Main(CEngineApp *pThis)
 							pThis->m_UseCinemaWarp = FALSE ;
 #ifdef PLATFORM_PORT
 							/* PORT: a FALL/WATER death captured m_CinemaWarp at the unsafe death position (off the cliff /
-							 * underwater) -> respawning there falls/drowns again. The death type is still set in m_CinemaFlags
-							 * at this respawn (confirmed via TUROK_DEATHLOG: CinemaFlags=0x4=FALL_DEATH), so route to the last
-							 * CHECKPOINT instead. The resurrect respawn that follows re-captures m_CinemaWarp from this safe
-							 * spot, so the player stays put. Normal/boss deaths (death pos is safe) keep the in-place respawn. */
-							if (pThis->m_CinemaFlags & (CINEMA_FLAG_PLAY_FALL_DEATH | CINEMA_FLAG_PLAY_WATER_DEATH))
+							 * underwater). The death respawn AND the following RESURRECT respawn must BOTH go to the last
+							 * CHECKPOINT — else the resurrect (CinemaFlags=RESURRECT, not FALL_DEATH) re-captures the
+							 * off-the-cliff pos -> death loop. g_turok_death_was_fall (set at the fall/water death) spans both;
+							 * cleared once the resurrect respawn fires. Normal/boss deaths keep the in-place respawn. */
+							if ((pThis->m_CinemaFlags & (CINEMA_FLAG_PLAY_FALL_DEATH | CINEMA_FLAG_PLAY_WATER_DEATH)) || g_turok_death_was_fall)
+							{
+								if (pThis->m_CinemaFlags & CINEMA_FLAG_PLAY_RESURRECT) g_turok_death_was_fall = 0 ;
 								CScene__Construct(&pThis->m_Scene, CTurokMovement.CurrentCheckpoint) ;
+							}
 							else
 #endif
 							CScene__Construct(&pThis->m_Scene, CINEMA_WARP_ID) ;
