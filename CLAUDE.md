@@ -1521,6 +1521,48 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     transitions back to attack vs staying in an idle/birth ANIM loop (the anim exit-to-frame / m_CycleCompleted),
     or (c) an endianness bug in the respawn anim-type / AI type-flags leaving the AI stuck.
 
+- **★ 3 RESPAWN/GAME-OVER BUGS — RESOLVED (BUG 2 + BUG 3 fixed & verified; BUG 1 not a bug in repro) (2026-06-19).**
+  All three diagnosed headlessly (the actual death/respawn flow, not the pre-implementation guesses above). The
+  repro harness: `TUROK_FORCEYAW=<rad>` (steer the player off a cliff), `TUROK_SETCHECKPOINT=<id>` /
+  `TUROK_SETLIVES=<n>` / `TUROK_KILLSELF=1` (force respawn/game-over states), `TUROK_POSLOG`/`TUROK_MODELOG`/
+  enhanced `TUROK_DEATHLOG` (`wasFall`), `TUROK_KILLALL`/`TUROK_REGENLOG`/`TUROK_REGENSTATE` (enemy regen) — all
+  env-gated.
+  - **(BUG 2) FALL/WATER-DEATH RESPAWN — FIXED (commits a453228 + the camera.c flag, 6e5ca02).** A fall/water death
+    runs **THREE** `MODE_RESETLEVEL` passes (proven by trace): pass 1 = DEATH (`m_UseCinemaWarp==1`,
+    CinemaFlags=FALL_DEATH 0x4 → the cinema-warp branch, `m_CinemaWarp`=off-the-cliff); passes 2/3 = RESURRECT (0x8)
+    + FINAL (0x0), both `m_UseCinemaWarp==0` → the **else branch** `CScene__Construct(m_WarpID)`. The player's FINAL
+    position is set by passes 2/3, which use `m_WarpID` = the level-**ENTRY** warp (e.g. 201), NOT
+    `CTurokMovement.CurrentCheckpoint` (751) → respawn at the entry (which on lvl 1 is right by the cliff) → death
+    loop. The earlier 1-line fix only covered pass 1; the actual fix routes **all three passes** to CurrentCheckpoint
+    via a `g_turok_death_was_fall` flag (set in `CCamera__FadeToCinema` for FALL/WATER, consumed in BOTH the
+    cinema-warp branch AND the else branch at tengine.c ~4071/4082, cleared once no death/resurrect cinematic remains
+    pending). VERIFIED: with `m_WarpID=751` but `CurrentCheckpoint=0`, all 3 passes land at CurrentCheckpoint (fire
+    pit, grounded) not `m_WarpID`. The "ghost form" = the resurrect TELEPORT_APPEAR anim, now plays at the checkpoint.
+    **★ LESSON: a fall death is a 3-reset sequence; the FINAL respawn uses `m_WarpID` (level entry), not the
+    checkpoint — a fix must cover the resurrect/final passes (the else branch), not just the death pass.** GOTCHA:
+    `TUROK_FORCEWARP` set `m_WarpID==CurrentCheckpoint`, masking the bug headlessly — needed `TUROK_SETCHECKPOINT` to
+    make them differ.
+  - **(BUG 3) GAME-OVER → BLACK VOID — FIXED (commit db42c8f).** Confirmed: lose all lives → `m_GameOverTime<0` →
+    `SetupFadeTo(MODE_RESETGAME)` (tengine.c:1694) → MODE_RESETGAME sets `m_WarpID=LEGALSCREEN_WARP_ID` (3830/3863)
+    → `MODE_LEGALSCREEN` (frozen) = black void; even WITH TUROK_WARP it does a full heavy game-reinit. **Fix
+    (PLATFORM_PORT):** on game-over, clear game-over + restore lives (TMOVE_START_LIVES=2) + clear
+    g_turok_death_was_fall + restart at `CurrentCheckpoint` via the lighter **MODE_RESETLEVEL** (the proven-rendering
+    path), i.e. a clean "continue". VERIFIED headlessly (KILLSELF+SETLIVES=0): `[GAMEOVER] ... restart at checkpoint
+    N via MODE_RESETLEVEL`, never MODE_RESETGAME, the restarted level renders (12678 colors, not 1-color black). NOTE:
+    a true attract/title on game-over is a SEPARATE task (un-freeze the legal/intro frontend + intro frame-pacing);
+    the port does a checkpoint-continue until then.
+  - **(BUG 1) ENEMY RESPAWN LOOP — NOT REPRODUCED; regenerate works (repro tooling committed 60a23ca).** The regen
+    COUNT is correct (the `ORDERBYTES` double-swap suspicion is moot — aistruc.c:69 is `#ifdef WIN32` ENCODE-only,
+    not compiled; the runtime uses the scene.c-swapped value via `RANDOM(pEA->m_Regenerate+1)`). Only warp-8000's
+    type-1 enemy regenerates (m_Regenerate=1 → regenerates exactly once → 0). With the player NEAR, it re-engages
+    combat in ~4s (regen → agit=299 fighting + appear fades 6.6→0). The ~16s stall I first saw was the player
+    patrolling AWAY (distant enemies aren't AI-updated, so the AI_INTERANIMDELAY interactive timer — decremented
+    `1/20` per AI_Advance CALL, ai.c:1970 — can't tick down); that's **N64-faithful**, not a port bug. So the "loop
+    forever, never fight" symptom is NOT reproduced in any tested level/spot. **NEEDS USER SPECIFICS:** which
+    enemy/level, near or far, how long observed — then re-run with `TUROK_KILLALL=1 TUROK_REGENLOG=1
+    TUROK_REGENSTATE=1`. Candidate not-yet-checked: a different mechanism (AI_TYPE_RANDOMRESURRECTION) or an enemy
+    with a garbage regen count in an untested level.
+
 The port build infra (not game source): `Makefile.port`, `port/include/turok_port.h` (host compat shim),
 `lib/ultralib/` (vendored libultra headers), `tools/turok_rom.py`.
 
