@@ -1691,7 +1691,31 @@ void CEngineApp__DrawGAME(CEngineApp *pThis)
 
 		pThis->m_GameOverTime -= 1*frame_increment ;
 		if (pThis->m_GameOverTime < 0)
+#ifdef PLATFORM_PORT
+		{
+			/* PORT: the stock path SetupFadeTo(MODE_RESETGAME) re-enters the boot sequence, which loads
+			 * LEGALSCREEN_WARP_ID -> MODE_LEGALSCREEN. The port FREEZES the legal screen (frontend.c
+			 * CLegalScreen__Update early-returns) and never drives the attract/title flow, so game-over
+			 * lands on a BLACK VOID instead of the title screen. A working attract/title is a separate
+			 * frontend task (un-freeze + intro frame-pacing); until then, recover gracefully: clear
+			 * game-over, restore lives, and restart at the last CHECKPOINT via the lighter MODE_RESETLEVEL
+			 * (the same path the fall-death respawn uses, which renders correctly) -> a clean "continue". */
+			extern int g_turok_death_was_fall ;
+			pThis->m_bGameOver = FALSE ;
+			pThis->m_GameOverAlpha = 0 ;
+			pThis->m_GameOverMode = 0 ;
+			pThis->m_GameOverTime = 0 ;
+			g_turok_death_was_fall = 0 ;
+			CTurokMovement.Lives = 2 ;			/* TMOVE_START_LIVES (tmove.c:149) */
+			CTMove__NewLifeSetup(&CTurokMovement) ;
+			pThis->m_WarpID = CTurokMovement.CurrentCheckpoint ;
+			{ extern char *getenv(const char*); if(getenv("TUROK_MODELOG")){ extern int fprintf(void*,const char*,...); extern void *stderr;
+			    fprintf(stderr,"[GAMEOVER] all lives lost -> restart at checkpoint %d via MODE_RESETLEVEL\n", (int)CTurokMovement.CurrentCheckpoint); } }
+			CEngineApp__SetupFadeTo(pThis, MODE_RESETLEVEL) ;
+		}
+#else
 			CEngineApp__SetupFadeTo(pThis, MODE_RESETGAME);
+#endif
 
 		// prepare to draw
 		COnScreen__Init16BitDraw(&pThis->m_pDLP, pThis->m_GameOverAlpha) ;
@@ -3729,6 +3753,15 @@ void CEngineApp__Main(CEngineApp *pThis)
 				// Increase mode time
 				pThis->m_ModeTime += frame_increment ;
 
+#ifdef PLATFORM_PORT
+				/* TUROK_MODELOG: log every m_Mode transition (diagnose game-over -> black void). */
+				{ extern char *getenv(const char*); extern int atoi(const char*); static int ml=-2; static int last=-99;
+				  if(ml==-2){const char*e=getenv("TUROK_MODELOG");ml=(e&&atoi(e))?1:0;}
+				  if(ml && (int)pThis->m_Mode!=last){ extern int fprintf(void*,const char*,...); extern void *stderr;
+				    fprintf(stderr,"[MODELOG] m_Mode=%d (was %d) warpID=%d gameOver=%d\n",
+				      (int)pThis->m_Mode, last, (int)pThis->m_WarpID, (int)pThis->m_bGameOver); last=(int)pThis->m_Mode; } }
+#endif
+
 				switch (pThis->m_Mode)
 				{
 					// --------------------------- STARTUP ---------------------------
@@ -4874,6 +4907,14 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	{ extern char *getenv(const char*); extern int atoi(const char*); static int sc=-2; static int scv;
 	  if(sc==-2){const char*e=getenv("TUROK_SETCHECKPOINT");sc=e?1:0;if(e)scv=atoi(e);}
 	  if(sc) CTurokMovement.CurrentCheckpoint=scv; }
+	/* TUROK_SETLIVES: pin the lives count (test game-over: SETLIVES=0 -> next death = game over). */
+	{ extern char *getenv(const char*); extern int atoi(const char*); static int sl=-2; static int slv;
+	  if(sl==-2){const char*e=getenv("TUROK_SETLIVES");sl=e?1:0;if(e)slv=atoi(e);}
+	  if(sl) CTurokMovement.Lives=slv; }
+	/* TUROK_KILLSELF: zero the player's health from frame ~120 (deterministic death/game-over test). */
+	{ extern char *getenv(const char*); extern int atoi(const char*); static int ks=-2; static int kc=0;
+	  if(ks==-2){const char*e=getenv("TUROK_KILLSELF");ks=(e&&atoi(e))?1:0;}
+	  if(ks && ++kc>=120 && kc<200){ CGameObjectInstance *_p=CEngineApp__GetPlayer(pThis); if(_p) _p->m_AI.m_Health=0; } }
 #endif
 
 	// Update turok
