@@ -626,6 +626,33 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   no-op, so input never reached the player). `gfx_sdl2.cpp` maps keyboard+gamepad→N64 bits each frame.
   `TUROK_FAKEINPUT=1|2` injects forward / forward+turn for headless validation. Forward+turn move the player
   through the rendered level (verified) with no hang.
+- **★ PC FPS CONTROLS + FILE SAVE (2026-06-20, commits 6aa3fa1/9add349/ef5e185/69e4536; all PLATFORM_PORT).**
+  Modern KB+M scheme on top of the N64 pad seam. HELD mouse-look (no spring-back): the mouse feeds a port seam
+  `g_look_yaw`/`g_look_pitch` (input.c, always-linked) consumed by a `tengine.c CEngineApp__UpdateGAME` hook that
+  turns the body (`m_RotY`, holds) + accumulates a clamped held pitch on `m_RotXOffset` — NOT the spring-centered
+  N64 look-stick. Exclusive cursor (Alt-Tab releases via SDL focus events), 1280x1024 window (`TUROK_WIN_W/H`).
+  **★ THREE root-caused refinements (ef5e185):** (1) **"W toggled run/walk"** — the engine's DEFAULT config is
+  right-handed (`m_RHControl=TRUE`, options.c:205) where MOVEMENT is the **C-buttons** and the **D-PAD is the
+  native run/walk toggle** (CTTYPE_SINGLE, tcontrol.c:269); my WASD set both groups so every keypress fired the
+  toggle. Map WASD to the **C-buttons only**. The correct N64 action map for this config: Z=fire, R_TRIG=jump,
+  L_TRIG=map, A=next-/B=prev-weapon, Start=pause (the earlier labels were scrambled — N64_B is SelectWeaponPrev,
+  not jump). (2) **mouse pitch inverted** — default now forward=look-up (`TUROK_MOUSE_INVERT=1` flips). (3)
+  **scroll cycled weapons too fast / skipped** — the **render-only-frame bug class again**: weapon-select switches
+  whenever `SelectWeaponTimer==0` but that timer only grows via `frame_increment` (=0 on render-only frames at
+  FPS>TICK), so a held weapon button re-switches every render frame. Fix: gate the button switch on a logic tick
+  (`TUROK_IS_TICK = frame_increment!=0`, no-op on N64) AND route the wheel through a discrete `g_weapon_cycle`
+  seam consumed ONE notch per tick in `tmove.c` → exactly one weapon per notch, render-rate independent. E =
+  walk toggle (port `g_turok_walk_mode` → `TUROK_WALKCAP` halves speed; D-pad now clear so the native toggle is
+  never fired). **★ FILE SAVE (69e4536):** F5 quick-save / F9 quick-load. Writes the SAME `CPersistantData` blob
+  the N64 pak-save uses (packed by `CSave__PrepareData`) to a host file (PC: `$TUROK_SAVE` or `./turok_save.bin`;
+  3DS: `sdmc:/3ds/turok/`) with a magic+size header; quick-load reads it, applies via `CLoad__ExtractData`, and
+  restarts the level at the saved checkpoint — mirroring the pause-menu load (loadsave.c:695-710). Host-order on
+  both targets (x86 + 3DS ARM = LE → cross-compatible). New port files: `loadsave.c CSave__QuickSaveToFile`/
+  `CLoad__QuickLoadFromFile` (declares `getenv` directly — the engine `#define abs(n)` collides with `<stdlib.h>`),
+  request flags in input.c, the consume hook + headless self-test (`TUROK_QUICKSAVE_FRAME`/`TUROK_QUICKLOAD_FRAME`)
+  in tengine.c. Verified headless: egl+sdl2 build clean, round-trip (save@200→load@400 on a warp-0 patrol) writes a
+  256-byte file, restarts at the checkpoint, rc=0. **NEEDS INTERACTIVE CONFIRM** (mouse turn/look sign + scroll
+  direction can't be headless-tested). **NEXT: an in-game OPTIONS menu** to tune sensitivity/invert/walk + rebinds.
 - **★ ANGLE-WRAP HANG CLASS (Item 4) — fixed; all 8 level warps load+render, no hang.** Three iterative
   angle-normalization `while` loops spin ~1e17× (hang) on a garbage/huge angle from an unspawned AI off-N64.
   Replaced with O(1) `fmodf` wraps under PLATFORM_PORT: `graphu64.c NormalizeRotation` (turning toward an
