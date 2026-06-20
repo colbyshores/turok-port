@@ -30,6 +30,10 @@ static volatile signed char    g_stick_y = 0;
  * resolve the symbol. */
 int g_turok_walk_mode = 0;
 
+/* Per-frame HELD mouse-look deltas (radians), written by the SDL2 backend (PC) / hid (3DS), consumed +
+ * zeroed by the tengine.c mouse-look hook. Held (no spring back to center), gated PLATFORM_PORT. */
+float g_look_yaw = 0.0f, g_look_pitch = 0.0f;
+
 s32 inputInit(void) { return 0; }   /* host: the window manager pumps events; nothing to init here */
 
 /* Backend -> here: set the current N64 pad (button bits + stick, -80..80). */

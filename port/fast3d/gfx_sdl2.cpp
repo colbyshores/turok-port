@@ -85,6 +85,12 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
     window_width = set->width;
     window_height = set->height;
 
+    /* PC: default to a usable 1280x1024 window (the internal N64 res upscales into it) instead of a
+     * postage stamp on a 4K panel; TUROK_WIN_W / TUROK_WIN_H override. (Native widescreen = later TODO.) */
+    { const char *w = getenv("TUROK_WIN_W"), *h = getenv("TUROK_WIN_H");
+      window_width  = (w && atoi(w) > 0) ? atoi(w) : 1280;
+      window_height = (h && atoi(h) > 0) ? atoi(h) : 1024; }
+
 #if defined(__linux__)
     /* On a Wayland session SDL2 prefers the Wayland video driver even when DISPLAY (XWayland)
      * is set, and its GL window creation NULL-derefs inside SDL_CreateWindow on some drivers
@@ -343,10 +349,11 @@ static signed char axis_to_n64(int v) {            /* SDL axis -> N64 stick (-80
 
 /* PORT (PC FPS controls): mouse-look drives turn/pitch, WASD moves (A/D strafe), LMB fires, E toggles
  * run/walk. The walk flag is read by tmove.c (TUROK_WALKCAP). Sensitivity: TUROK_MOUSE_SENS (default 6). */
-extern "C" { extern int g_turok_walk_mode; }
+extern "C" { extern int g_turok_walk_mode; extern float g_look_yaw, g_look_pitch; }
 static float    g_mouse_dx = 0.0f, g_mouse_dy = 0.0f;   /* accumulated relative motion since last poll */
 static unsigned g_mouse_buttons = 0;                    /* SDL_BUTTON_* mask */
 static bool     g_relmouse_on = false;                  /* cursor captured for look */
+static int      g_scroll_accum = 0;                     /* mouse-wheel ticks pending -> weapon cycle (R/L) */
 static float mouse_sens(void) {
     static float s = -1.0f;
     if (s < 0.0f) { const char *e = getenv("TUROK_MOUSE_SENS"); s = e ? (float)atof(e) : 6.0f; if (s <= 0.0f) s = 6.0f; }
@@ -368,10 +375,11 @@ static void turok_sdl_update_input(void) {
     if (k[SDL_SCANCODE_A]) btn |= (N64_CL | N64_DL);   /* strafe left  */
     if (k[SDL_SCANCODE_D]) btn |= (N64_CR | N64_DR);   /* strafe right */
 
-    /* mouse-look -> turn (X) + pitch (Y, inverted), from motion accumulated since the last poll. */
-    { float s = mouse_sens();
-      sx += (int)(g_mouse_dx * s);
-      sy -= (int)(g_mouse_dy * s);
+    /* mouse-look -> HELD body-turn (yaw) + held pitch via the port seam (g_look_*), NOT the spring stick
+     * (which recenters on rest). Scaled to radians; TUROK_MOUSE_SENS tunes it. Mouse up = look up. */
+    { float s = mouse_sens() * 0.0005f;
+      g_look_yaw   += g_mouse_dx * s;
+      g_look_pitch += g_mouse_dy * s;
       g_mouse_dx = g_mouse_dy = 0.0f; }
 
     /* arrow keys: turn/look fallback for no-mouse play. */
@@ -380,10 +388,12 @@ static void turok_sdl_update_input(void) {
     if (k[SDL_SCANCODE_UP])    sy += 80;
     if (k[SDL_SCANCODE_DOWN])  sy -= 80;
 
-    /* actions */
-    if (g_mouse_buttons & SDL_BUTTON(SDL_BUTTON_LEFT))  btn |= N64_Z;   /* fire   */
-    if (g_mouse_buttons & SDL_BUTTON(SDL_BUTTON_RIGHT)) btn |= N64_A;   /* action */
-    if (k[SDL_SCANCODE_SPACE])  btn |= N64_B;                           /* jump        */
+    /* actions: LMB = fire, RMB = jump, mouse-wheel = cycle weapons (one R/L pulse per tick). */
+    if (g_mouse_buttons & SDL_BUTTON(SDL_BUTTON_LEFT))  btn |= N64_Z;   /* fire */
+    if (g_mouse_buttons & SDL_BUTTON(SDL_BUTTON_RIGHT)) btn |= N64_B;   /* jump */
+    if (g_scroll_accum > 0)      { btn |= N64_R; g_scroll_accum--; }    /* wheel up   = next weapon */
+    else if (g_scroll_accum < 0) { btn |= N64_L; g_scroll_accum++; }    /* wheel down = prev weapon */
+    if (k[SDL_SCANCODE_SPACE])  btn |= N64_B;                           /* jump (kbd)  */
     if (k[SDL_SCANCODE_LCTRL] || k[SDL_SCANCODE_RCTRL]) btn |= N64_Z;   /* fire (kbd)  */
     if (k[SDL_SCANCODE_LSHIFT]) btn |= N64_R;                           /* next weapon */
     if (k[SDL_SCANCODE_TAB])    btn |= N64_L;                           /* prev / map  */
@@ -431,19 +441,19 @@ static void gfx_sdl_handle_events(void) {
                     set_fullscreen(!fullscreen_state, true);
                 } else if (event.key.keysym.sym == SDLK_e && !event.key.repeat) {
                     g_turok_walk_mode = !g_turok_walk_mode;                       /* run/walk toggle */
-                } else if (event.key.keysym.sym == SDLK_ESCAPE) {
-                    SDL_SetRelativeMouseMode(SDL_FALSE); g_relmouse_on = false;   /* release the cursor */
                 }
                 break;
             case SDL_MOUSEMOTION:
                 if (g_relmouse_on) { g_mouse_dx += (float)event.motion.xrel; g_mouse_dy += (float)event.motion.yrel; }
                 break;
             case SDL_MOUSEBUTTONDOWN:
-                if (!g_relmouse_on) { SDL_SetRelativeMouseMode(SDL_TRUE); g_relmouse_on = true; }  /* click re-grabs */
                 g_mouse_buttons |= SDL_BUTTON(event.button.button);
                 break;
             case SDL_MOUSEBUTTONUP:
                 g_mouse_buttons &= ~SDL_BUTTON(event.button.button);
+                break;
+            case SDL_MOUSEWHEEL:
+                g_scroll_accum += event.wheel.y;                                 /* +up = next weapon, -down = prev */
                 break;
             case SDL_WINDOWEVENT:
                 if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
@@ -451,6 +461,10 @@ static void gfx_sdl_handle_events(void) {
                     if (!fullscreen_state) {
                         maximized_state = SDL_GetWindowFlags(wnd) & SDL_WINDOW_MAXIMIZED ? true : false;
                     }
+                } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                    SDL_SetRelativeMouseMode(SDL_FALSE); g_relmouse_on = false;   /* Alt-Tab away: release cursor to OS */
+                } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
+                    SDL_SetRelativeMouseMode(SDL_TRUE);  g_relmouse_on = true;    /* refocus: re-grab the cursor */
                 } else if (event.window.event == SDL_WINDOWEVENT_CLOSE &&
                            event.window.windowID == SDL_GetWindowID(wnd)) {
                     // We listen specifically for main window close because closing main window

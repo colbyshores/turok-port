@@ -4940,6 +4940,25 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 		CTMove__UpdateTurokInstance(pCTMove, pThis, pCTControl);
 
 #ifdef PLATFORM_PORT
+	/* PC/3DS mouse-look (HELD, not spring): the SDL2/hid backend feeds per-frame look deltas in radians
+	 * (g_look_yaw, g_look_pitch) instead of the spring-centered N64 look-stick (which recenters the camera
+	 * when the input rests — the classic "returns to center" complaint). Turn the BODY (m_RotY, holds) and
+	 * accumulate a HELD pitch ADDED on top of the stock spring m_RotXOffset (so the keyboard/gamepad spring-
+	 * look still works as a fallback). MUST run before the interp snapshot below so turn/pitch interpolate.
+	 * Live-player only (not paused/warping/dying). g_look_* live in input.c (always-linked). */
+	{ extern float g_look_yaw, g_look_pitch; static float held_pitch = 0.0f;
+	  CGameObjectInstance *_lp = CEngineApp__GetPlayer(pThis);
+	  if (_lp && pThis->m_bPause==FALSE && pThis->m_Warp==WARP_NOT_WARPING && pThis->m_Death==DEATH_NOT_DIEING) {
+	    if (g_look_yaw != 0.0f) _lp->m_RotY = turok_wrap_pi(_lp->m_RotY + g_look_yaw);
+	    held_pitch += g_look_pitch;
+	    if (held_pitch >  1.40f) held_pitch =  1.40f;   /* clamp ~ +/-80 deg */
+	    if (held_pitch < -1.40f) held_pitch = -1.40f;
+	    pThis->m_RotXOffset += held_pitch;
+	  }
+	  g_look_yaw = g_look_pitch = 0.0f; }
+#endif
+
+#ifdef PLATFORM_PORT
 	/* PORT render interpolation: snapshot the player's true pos/yaw on logic-tick frames, then render
 	 * the player at lerp(prev,cur,alpha) every frame so the camera (which follows the player) and the
 	 * 1st-person weapon move smoothly between the 30Hz logic ticks. The graphics task built below uses
