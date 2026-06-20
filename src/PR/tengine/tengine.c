@@ -4959,6 +4959,29 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 #endif
 
 #ifdef PLATFORM_PORT
+	/* PORT quick-save / quick-load (F5 / F9 in the SDL2 backend set the request flags in input.c). Consume
+	 * on the game thread, in active gameplay only. Quick-save writes the persist blob to a host file;
+	 * quick-load applies it and restarts the level at the saved checkpoint (see loadsave.c). */
+	{ extern int g_quicksave_req, g_quickload_req;
+	  extern int CSave__QuickSaveToFile(void); extern int CLoad__QuickLoadFromFile(void);
+	  /* headless self-test: fire quick-save/-load at a given gameplay-frame (default off). */
+	  { extern char *getenv(const char *); extern int atoi(const char *);
+	    static int _tf = 0, _sv = -1, _ld = -1;
+	    if (_sv == -1) { const char *e = getenv("TUROK_QUICKSAVE_FRAME"); _sv = e ? atoi(e) : 0;
+	                     const char *l = getenv("TUROK_QUICKLOAD_FRAME"); _ld = l ? atoi(l) : 0; }
+	    _tf++;
+	    if (_sv > 0 && _tf == _sv) g_quicksave_req = 1;
+	    if (_ld > 0 && _tf == _ld) g_quickload_req = 1; }
+	  if (g_quicksave_req) { g_quicksave_req = 0;
+	    if (CEngineApp__GetPlayer(pThis) && pThis->m_Warp == WARP_NOT_WARPING && pThis->m_Death == DEATH_NOT_DIEING)
+	      CSave__QuickSaveToFile(); }
+	  if (g_quickload_req) { g_quickload_req = 0;
+	    if (CEngineApp__GetPlayer(pThis) && pThis->m_Warp == WARP_NOT_WARPING)
+	      CLoad__QuickLoadFromFile(); }
+	}
+#endif
+
+#ifdef PLATFORM_PORT
 	/* PORT render interpolation: snapshot the player's true pos/yaw on logic-tick frames, then render
 	 * the player at lerp(prev,cur,alpha) every frame so the camera (which follows the player) and the
 	 * 1st-person weapon move smoothly between the 30Hz logic ticks. The graphics task built below uses

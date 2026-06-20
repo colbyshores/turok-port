@@ -355,7 +355,8 @@ static signed char axis_to_n64(int v) {            /* SDL axis -> N64 stick (-80
  * run/walk + burst-swim TOGGLE (CTTYPE_SINGLE). So WASD must map to the C-BUTTONS ONLY — touching any D-pad
  * bit fires the engine's run/walk toggle on every keypress (the "W keeps toggling run/walk" bug). The N64
  * action map in this config: Z_TRIG=fire, R_TRIG=jump, L_TRIG=map, A=next-weapon, B=prev-weapon, Start=pause. */
-extern "C" { extern int g_turok_walk_mode; extern float g_look_yaw, g_look_pitch; extern int g_weapon_cycle; }
+extern "C" { extern int g_turok_walk_mode; extern float g_look_yaw, g_look_pitch; extern int g_weapon_cycle;
+             extern int g_quicksave_req, g_quickload_req; }
 static int mouse_invert(void) {                          /* 0 = forward looks up (standard FPS); 1 = inverted */
     static int v = -2;
     if (v == -2) { const char *e = getenv("TUROK_MOUSE_INVERT"); v = e ? atoi(e) : 0; }
@@ -450,6 +451,10 @@ static void gfx_sdl_handle_events(void) {
                     set_fullscreen(!fullscreen_state, true);
                 } else if (event.key.keysym.sym == SDLK_e && !event.key.repeat) {
                     g_turok_walk_mode = !g_turok_walk_mode;                       /* run/walk toggle */
+                } else if (event.key.keysym.sym == SDLK_F5 && !event.key.repeat) {
+                    g_quicksave_req = 1;                                          /* quick-save (game thread) */
+                } else if (event.key.keysym.sym == SDLK_F9 && !event.key.repeat) {
+                    g_quickload_req = 1;                                          /* quick-load (game thread) */
                 }
                 break;
             case SDL_MOUSEMOTION:

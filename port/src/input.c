@@ -41,6 +41,10 @@ float g_look_yaw = 0.0f, g_look_pitch = 0.0f;
  * Defined here (always-linked) so the EGL/OSMesa headless builds resolve the symbol. */
 int g_weapon_cycle = 0;
 
+/* Quick-save / quick-load requests (F5 / F9 in the SDL2 backend), consumed + cleared by the tengine.c
+ * game-thread hook (CSave__QuickSaveToFile / CLoad__QuickLoadFromFile). Defined here (always-linked). */
+int g_quicksave_req = 0, g_quickload_req = 0;
+
 s32 inputInit(void) { return 0; }   /* host: the window manager pumps events; nothing to init here */
 
 /* Backend -> here: set the current N64 pad (button bits + stick, -80..80). */

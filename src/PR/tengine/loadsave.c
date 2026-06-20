@@ -2937,6 +2937,98 @@ void CLoad__ExtractData(void)
 	GetApp()->m_BossFlags			 				= persist->BossFlags ;
 }
 
+#ifdef PLATFORM_PORT
+/*--------------------------------------------------------------------------------------------------------
+ * PORT: file-based quick-save / quick-load. The N64 persists CPersistantData to the Controller Pak (PFS);
+ * on the host we write that SAME blob (inventory, keys, ammo, health, checkpoint, options) to a plain file.
+ * It's host-order on both targets (x86 and 3DS ARM are little-endian), guarded by a magic+size header. The
+ * captured state is exactly what the native pak-save stores (CSave__PrepareData), and quick-load applies it
+ * then restarts the level at the saved checkpoint — mirroring the pause-menu load (CLoad__Update, ~:695).
+ *------------------------------------------------------------------------------------------------------*/
+#include <stdio.h>
+extern char *getenv(const char *);		/* NOT <stdlib.h>: the engine #defines abs(n), which collides with
+										 * stdlib's abs() prototype (defs.h:218). Declare what we use directly. */
+
+#define TUROK_SAVE_MAGIC	0x54534131u		/* "TSA1" */
+
+static const char *turok_save_path(void)
+{
+#ifdef PLATFORM_3DS
+	return "sdmc:/3ds/turok/turok_save.bin";
+#else
+	const char *e = getenv("TUROK_SAVE");
+	return (e && *e) ? e : "turok_save.bin";
+#endif
+}
+
+/* Pack the live game state into the persist block and write it to the host save file. Returns 0 on success.
+ * Call on the game thread (touches CTurokMovement + the player). */
+int CSave__QuickSaveToFile(void)
+{
+	CPersistantData	*persist;
+	FILE			*f;
+	u32				hdr[2];
+
+	CSave__PrepareData();
+	persist = (CPersistantData *)CScene__GetPersistantDataStruct(&GetApp()->m_Scene);
+	if (!persist)
+		return -1;
+
+	f = fopen(turok_save_path(), "wb");
+	if (!f) {
+		fprintf(stderr, "[save] could not open '%s' for writing\n", turok_save_path());
+		return -1;
+	}
+	hdr[0] = TUROK_SAVE_MAGIC;
+	hdr[1] = (u32)sizeof(CPersistantData);
+	fwrite(hdr,     sizeof(hdr),             1, f);
+	fwrite(persist, sizeof(CPersistantData), 1, f);
+	fclose(f);
+	fprintf(stderr, "[save] quick-saved to '%s' (checkpoint %d, %u bytes)\n",
+			turok_save_path(), (int)CTurokMovement.CurrentCheckpoint, (unsigned)sizeof(CPersistantData));
+	return 0;
+}
+
+/* Read the host save file into the persist block, apply it, and restart the level at the saved checkpoint.
+ * Mirrors the native pause-menu load completion. Returns 0 on success (silent no-op if the file is absent;
+ * rejected on a magic/size mismatch). Call on the game thread. */
+int CLoad__QuickLoadFromFile(void)
+{
+	CPersistantData	*persist;
+	FILE			*f;
+	u32				hdr[2];
+
+	f = fopen(turok_save_path(), "rb");
+	if (!f)
+		return -1;					/* no save yet — silent */
+	if (fread(hdr, sizeof(hdr), 1, f) != 1 ||
+		hdr[0] != TUROK_SAVE_MAGIC || hdr[1] != (u32)sizeof(CPersistantData)) {
+		fclose(f);
+		fprintf(stderr, "[save] '%s' missing/incompatible header — not loaded\n", turok_save_path());
+		return -1;
+	}
+	persist = (CPersistantData *)CScene__GetPersistantDataStruct(&GetApp()->m_Scene);
+	if (!persist) { fclose(f); return -1; }
+	if (fread(persist, sizeof(CPersistantData), 1, f) != 1) {
+		fclose(f);
+		return -1;
+	}
+	fclose(f);
+
+	/* apply + restart the level at the checkpoint (same sequence as CLoad__Update, loadsave.c:695-710) */
+	CTMove__CTMove();
+	CLoad__ExtractData();
+	CEngineApp__ResetBossVars(GetApp());
+	GetApp()->m_WarpID			= CTurokMovement.CurrentCheckpoint;
+	GetApp()->m_UseCinemaWarp	= 0;
+	GetApp()->m_JustLoadedGame	= TRUE;
+	CEngineApp__SetupFadeTo(GetApp(), MODE_RESETLEVEL);
+	fprintf(stderr, "[save] quick-loaded from '%s' (checkpoint %d)\n",
+			turok_save_path(), (int)CTurokMovement.CurrentCheckpoint);
+	return 0;
+}
+#endif /* PLATFORM_PORT */
+
 
 
 
