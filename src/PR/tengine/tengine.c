@@ -349,9 +349,6 @@ float			g_turok_anim_step = 1.0f;
  * and aliased into a frozen-looking shimmer. This counter advances only on logic ticks (see the tick
  * gate in UpdateGAME), so geometry.c drives texture animation at the authored 30Hz regardless of FPS. */
 int			g_turok_tex_anim_frame = 0;
-/* PORT: set in CCamera__FadeToCinema when a FALL/WATER death occurs (the death pos is off the cliff /
- * underwater). Consumed at the resurrect respawn to reroute to CurrentCheckpoint instead of m_CinemaWarp. */
-int			g_turok_death_was_fall = 0;
 #endif
 float			enemy_speed_scaler = 1.0;				// these vars are
 float			particle_speed_scaler = 1.0;			// also setup
@@ -4054,17 +4051,6 @@ void CEngineApp__Main(CEngineApp *pThis)
 								CPickup__DisplayKeysRemaining() ;
 							}
 							pThis->m_UseCinemaWarp = FALSE ;
-#ifdef PLATFORM_PORT
-							/* PORT: a fall/water death's m_CinemaWarp is the unsafe death position (off the cliff /
-							 * underwater) -> respawning there falls/drowns again. Respawn at the last CHECKPOINT
-							 * (CurrentCheckpoint = the save-region warp) so the player lands on solid ground. */
-							if (g_turok_death_was_fall)
-							{
-								g_turok_death_was_fall = 0 ;
-								CScene__Construct(&pThis->m_Scene, CTurokMovement.CurrentCheckpoint) ;
-							}
-							else
-#endif
 							CScene__Construct(&pThis->m_Scene, CINEMA_WARP_ID) ;
 						}
 						else
