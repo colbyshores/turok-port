@@ -45,6 +45,10 @@ int romdataInit(void)
      * path works unchanged — but it's the RETAIL v1.2 content, not the v49 dev cartdata.dat
      * (the two share a root header but their data is ~99% different). */
     { const char *rom = getenv("TUROK_ROM"); FILE *rf;
+#ifdef PLATFORM_3DS
+      /* 3DS: no env vars — default to the retail ROM on the SD card (Path B). */
+      if (!rom || !*rom) rom = "sdmc:/3ds/turok/baserom.us.v12.z64";
+#endif
       if (rom && *rom) {
         rf = fopen(rom, "rb");
         if (!rf) { fprintf(stderr, "[romdata] FATAL: TUROK_ROM=%s not found\n", rom); return -1; }
