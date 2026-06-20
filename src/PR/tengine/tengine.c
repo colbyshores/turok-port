@@ -4095,16 +4095,13 @@ void CEngineApp__Main(CEngineApp *pThis)
 								CPickup__DisplayKeysRemaining() ;
 							}
 							pThis->m_UseCinemaWarp = FALSE ;
-#ifdef PLATFORM_PORT
-							/* PORT: the DEATH pass of a fall/water death — m_CinemaWarp is the off-the-cliff death
-							 * pos, so the death + resurrect cinematics would otherwise play off the cliff. Land at the
-							 * last CHECKPOINT instead. g_turok_death_was_fall is set at the fall/water death and spans the
-							 * whole 3-pass death->resurrect->final reset sequence; it is cleared in the else branch once
-							 * the sequence finishes. Normal / key-pickup cinema warps (flag clear) are unaffected. */
-							if (g_turok_death_was_fall)
-								CScene__Construct(&pThis->m_Scene, CTurokMovement.CurrentCheckpoint) ;
-							else
-#endif
+							/* PORT: the DEATH pass keeps the STOCK CINEMA_WARP_ID (= m_CinemaWarp, the off-cliff fall
+							 * position) so the fall-death cinematic plays AT THE CLIFF and Turok falls (paired with the
+							 * tmove.c fall-death descent re-enable). Only the RESURRECT + FINAL passes (the else branch
+							 * below) reroute to the checkpoint, so the player ENDS at the checkpoint. g_turok_death_was_fall
+							 * stays set here (it spans the sequence; the else branch clears it). (a453228 ALSO rerouted
+							 * THIS pass to the checkpoint -> the cinematic teleported to the checkpoint and Turok hung
+							 * suspended mid-air at the wrong spot; reverted.) */
 							CScene__Construct(&pThis->m_Scene, CINEMA_WARP_ID) ;
 						}
 						else

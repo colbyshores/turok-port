@@ -745,14 +745,20 @@ void CTMove__UpdateTurokInstance(CTMove *pThis, CEngineApp *pApp, CTControl *pCT
 			pIns->ah.m_vVelocity.y = -15*SCALING_FACTOR;
 			CAnimInstanceHdr__Collision3(&pIns->ah, pIns->ah.ih.m_vPos, &ci_playerdead);
 #else
-			/* PORT: the dead/cinema "drop to ground" physics crashes — the M5 collision parse is
-			 * incomplete, so some region's corner pointers are host-range GARBAGE (they pass the
-			 * TUROK_BADPTR/N64-range guard in CGameRegion__GetGroundNormal but deref unmapped memory).
-			 * This fires on EVERY key pickup / death cinematic (CCamera__InCinemaMode). Skip the
-			 * downward velocity AND the fall-collision — applying velocity without the (gated) collision
-			 * would drop the frozen player through the floor into a garbage region and crash the next
-			 * collision query anyway. Player holds its pose, which is fine while the cinematic camera is
-			 * on the pickup/death. Restore once the collision corners are parsed/relocated (M5). */
+			/* PORT: the dead/cinema "drop to ground" physics crashed on KEY-PICKUP cinematics — the M5
+			 * collision parse is incomplete so some region corner pointers are host-range GARBAGE (they
+			 * pass the TUROK_BADPTR/N64-range guard in CGameRegion__GetGroundNormal but deref unmapped
+			 * memory). BUT the FALL-DEATH cinematic sets GroundBehavior=INTERSECT_BEHAVIOR_IGNORE on all
+			 * ci_player* (cinecam.c:414-419) which gates the ground-corner deref off (unicol.c:1039-1044),
+			 * and waterFlag==PLAYER_NOT_NEAR_WATER here so there is no water-region deref either — so its
+			 * Collision3 is crash-safe. Run it ONLY for the fall-death cinematic so Turok actually DESCENDS
+			 * (else he hangs suspended in the AI_ANIM_DEATH_HIGH_FALL pose); keep the skip for the
+			 * crash-prone key-pickup cinematics. (Whole guard becomes dead code once M5 relocates corners.) */
+			if (GetApp()->m_Camera.m_Mode == CAMERA_CINEMA_TUROK_FALL_DEATH_MODE)
+			{
+				pIns->ah.m_vVelocity.y = -6*SCALING_FACTOR*15;   /* match cinecam.c fall velocity */
+				CAnimInstanceHdr__Collision3(&pIns->ah, pIns->ah.ih.m_vPos, &ci_playerdead);
+			}
 #endif
 			pThis->pLastCI = &ci_playerdead;
 		}

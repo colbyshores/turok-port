@@ -71,4 +71,5 @@ exec env DISPLAY="$DISPLAY" \
     TUROK_HUD="${HUD:-1}" \
     TUROK_VTXBAD=1 \
     TUROK_FXLEAK=1 \
+    TUROK_WATCHDOG="${WATCHDOG:-1}" \
     "$OUT/turok"
