@@ -1876,12 +1876,13 @@ void AI_Advance(CGameObjectInstance *pMe)
 	/* TUROK_REGENSTATE: trace a regenerated enemy's combat state over time (does it fight or stay passive?). */
 	{ extern char *getenv(const char*); extern DWORD game_frame_number; static int rsn=0;
 	  if(getenv("TUROK_REGENSTATE") && (AI_GetDyn(pMe)->m_dwStatusFlags & AI_REGENERATE)
-	     && (game_frame_number%30)==0 && rsn<50){ rsn++; extern int fprintf(void*,const char*,...); extern void *stderr;
-	    fprintf(stderr,"[REGENST] f=%u type=%d agit=%d hp=%d vis=%d gone=%d sf=0x%x sf2=0x%x appear=%.1f\n",
+	     && (game_frame_number%15)==0 && rsn<300){ rsn++; extern int fprintf(void*,const char*,...); extern void *stderr;
+	    fprintf(stderr,"[REGENST] f=%u type=%d agit=%d hp=%d vis=%d gone=%d sf=0x%x sf2=0x%x appear=%.1f itimer=%.2f t1=%.2f\n",
 	      (unsigned)game_frame_number,(int)CGameObjectInstance__TypeFlag(pMe),(int)AI_GetDyn(pMe)->m_Agitation,
 	      (int)AI_GetDyn(pMe)->m_Health,(int)((AI_GetDyn(pMe)->m_dwStatusFlags2&AI_VISIBLE)!=0),
 	      (int)CGameObjectInstance__IsGone(pMe),(unsigned)AI_GetDyn(pMe)->m_dwStatusFlags,
-	      (unsigned)AI_GetDyn(pMe)->m_dwStatusFlags2,(double)AI_GetDyn(pMe)->m_cRegenerateAppearance); } }
+	      (unsigned)AI_GetDyn(pMe)->m_dwStatusFlags2,(double)AI_GetDyn(pMe)->m_cRegenerateAppearance,
+	      (double)AI_GetDyn(pMe)->m_InteractiveTimer,(double)AI_GetDyn(pMe)->m_Time1); } }
 #endif
 
 	// first time running ai ?
@@ -2053,6 +2054,17 @@ void AI_Advance(CGameObjectInstance *pMe)
 		else
 		{
 			AI_GetDyn(pMe)->m_dwStatusFlags2 &= ~AI_REGENERATEAPPEARANCEDELAY;
+#ifdef PLATFORM_PORT
+			/* PORT (FPS>TICK regen-appear loop fix): nudge the appearance counter off its EXACT initial
+			 * value so the "appear just started" check above (m_cRegenerateAppearance == APPEARANCE_LENGTH*7/8)
+			 * cannot re-fire. The appear-fade decrement below is frame_increment-gated (= 0 on render-only
+			 * frames), so when this 1.5s delay clears ON a render-only frame the counter stays EXACTLY at the
+			 * initial -> the check re-arms the delay (m_Time1=1.5) and the regenerated enemy loops the
+			 * appearance forever, never re-engaging combat. Only manifests at FPS>TICK (render-only frames
+			 * exist); at FPS==TICK the decrement always fires so == is true only on the genuine first frame. */
+			if (AI_GetDyn(pMe)->m_cRegenerateAppearance == APPEARANCE_LENGTH*7/8)
+				AI_GetDyn(pMe)->m_cRegenerateAppearance -= 0.01f ;
+#endif
 			AI_DoParticle(&pMe->ah.ih, PARTICLE_TYPE_REGENERATION_APPEARANCE, AI_GetPos(pMe));
 			AI_DoSound(&pMe->ah.ih, SOUND_HIGH_PRIEST_TELEPORT, 1, 0);
 		}
