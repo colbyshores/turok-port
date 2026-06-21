@@ -278,12 +278,19 @@ s32 osPfsReadWriteFile(OSPfs *pfs, s32 fn, u8 m, int o, int sz, u8 *d)
 s32 osPfsIsPlug(OSMesgQueue *mq, u8 *p)              { (void)mq; if(p)*p=0; return 0; }
 
 /* ---- timing / system ---------------------------------------------------- */
+#ifndef PLATFORM_3DS
+/* PC: provide the N64 OSTime clock. On 3DS this name COLLIDES with libctru's own osGetTime, which libctru
+ * calls INTERNALLY during __appInit (service-response timeouts) — overriding it with this (different
+ * units/epoch) made those waits never complete = a silent pre-main HANG. So on 3DS we DON'T define it;
+ * libctru's osGetTime serves both libctru and the game (the game uses it only for coarse/relative timing,
+ * and the cooperative frame pump drives real frame timing via clock_gettime, not osGetTime). */
 OSTime osGetTime(void)
 {
     struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
     /* N64 counter is ~46.875 MHz; scale host ns to that domain */
     return (OSTime)ts.tv_sec * 46875000ULL + (OSTime)ts.tv_nsec * 46875ULL / 1000000ULL;
 }
+#endif
 void osInitialize(void)            { }
 OSIntMask osSetIntMask(OSIntMask m){ return m; }
 void osSyncPrintf(const char *fmt, ...) { (void)fmt; }

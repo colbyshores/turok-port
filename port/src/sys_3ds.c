@@ -14,17 +14,25 @@
 #include <3ds.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 
 /* 2 MB; overrides libctru's WEAK 32 KB default. */
 unsigned int __stacksize__ = 2 * 1024 * 1024;
 
+#define TUROK_BOOTLOG_DIR  "sdmc:/3ds/turok"
+#define TUROK_BOOTLOG_PATH "sdmc:/3ds/turok/boot.log"
+
 void plat3dsBootLog(const char *msg)
 {
+    static int started = 0;
     FILE *f;
+    if (!msg) return;
     svcOutputDebugString(msg, (int)strlen(msg));   /* Luma3DS / Mandarine debug console */
-    f = fopen("sdmc:/3ds/turok/boot.log", "a");
-    if (f) { fputs(msg, f); fputc('\n', f); fclose(f); }   /* append+flush+close every line */
+    if (!started) mkdir(TUROK_BOOTLOG_DIR, 0777);  /* best-effort (the ROM lives there too) */
+    f = fopen(TUROK_BOOTLOG_PATH, started ? "a" : "w");
+    if (f) { fputs(msg, f); fputc('\n', f); fflush(f); fclose(f); started = 1; }  /* per-line: survives a crash */
 }
+
 
 /* "Did anything rasterize?" signal — count non-black pixels on the top-left framebuffer (mirror of
  * the PC TUROK_CAPTURE_FRAME). Cheap, no file written; logs the count. */

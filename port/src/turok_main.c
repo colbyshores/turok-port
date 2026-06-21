@@ -101,6 +101,14 @@ static void turok_watchdog_start(void) {
 }
 #endif  /* !PLATFORM_3DS (watchdog) */
 
+/* 3DS boot-milestone trace to sdmc:/3ds/turok/boot.log (the on-device debugging channel; a no-op on PC). */
+#ifdef PLATFORM_3DS
+extern void plat3dsBootLog(const char *);
+#define BL(s) plat3dsBootLog(s)
+#else
+#define BL(s) ((void)0)
+#endif
+
 int main(int argc, char **argv)
 {
     const char *mf = getenv("TUROK_MAX_FRAMES");
@@ -117,6 +125,7 @@ int main(int argc, char **argv)
       turok3dsSetStderr(plat3dsRealStderr()); }
 #endif
     setvbuf(stderr, NULL, _IONBF, 0);
+    BL("main: start");
     { extern void turokConfigLoad(void); turokConfigLoad(); }   /* load turok.cfg before gfx/input init */
     turok_watchdog_start();
     if (mf) g_max_frames = strtol(mf, NULL, 10);
@@ -126,10 +135,14 @@ int main(int argc, char **argv)
     fprintf(stderr, "[turok] M2 host boot — max_frames=%ld capture_frame=%ld\n",
             g_max_frames, g_capture_frame);
 
-    if (romdataInit() != 0)
+    BL("main: -> romdataInit");
+    if (romdataInit() != 0) {
+        BL("main: romdataInit FAILED (no ROM on sdmc:/3ds/turok/?)");
         return 1;
-
-    turokGfxInit(320, 240);      /* OSMesa + Fast3D (headless ground truth) */
+    }
+    BL("main: romdataInit ok -> turokGfxInit");
+    turokGfxInit(320, 240);      /* Fast3D + Citro3D (3DS) */
+    BL("main: turokGfxInit done");
 
     if (setjmp(g_escape) == 0) {
         /* boot() = CEngineApp__Boot (OS/app init). We then SKIP idle() — on the N64 the
@@ -138,9 +151,13 @@ int main(int argc, char **argv)
          * thread) is all no-op/bypassed here. Call mainproc directly; the cooperative frame
          * pump in osRecvMesg drives CEngineApp__Main's loop. */
         fprintf(stderr, "[turok] -> boot()\n");
+        BL("main: -> boot()");
         boot();
+        BL("main: boot() done -> audioInit");
         audioInit();          /* open the host audio device on the main thread, then ... */
+        BL("main: audioInit done -> audioThreadStart");
         audioThreadStart();   /* ... start the dedicated audio thread (post OS/app init) */
+        BL("main: audioThreadStart done -> mainproc");
         fprintf(stderr, "[turok] -> mainproc() (idle bypassed)\n");
         mainproc(NULL);  /* CEngineApp__Main — game loop (escapes via turokVideoSwap longjmp) */
         fprintf(stderr, "[turok] mainproc returned (unexpected)\n");

@@ -84,8 +84,11 @@ GU_CFLAGS   := $(CBASE) $(GU_INC)
 TSND_CFLAGS := $(CBASE) $(TSND_INC)
 F3D_CFLAGS  := $(CXXBASE) $(F3D_INC)
 
+# NOTE: NO --allow-multiple-definition. The only libultra/libctru symbol collision was osGetTime (now
+# gated out of os_shim.c on 3DS), and that flag silently let Turok's osGetTime override libctru's → the
+# pre-main boot HANG. Without the flag, any future collision is a hard error, not a silent override.
 LDFLAGS := $(ARCH) -specs=$(DEVKITARM)/arm-none-eabi/lib/3dsx.specs \
-           -Wl,--gc-sections -Wl,--allow-multiple-definition -Wl,-Map,$(OUTPUT).map
+           -Wl,--gc-sections -Wl,-Map,$(OUTPUT).map
 LIBS    := -L$(LIBCTRU)/lib -L$(PORTLIBS)/lib -lcitro3d -lctru -lz -lm
 
 # --- sources -----------------------------------------------------------------
