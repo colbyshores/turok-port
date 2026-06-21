@@ -730,7 +730,39 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   `boot.log` on the SD shows where it faults. **ARM byte-alignment fixes** (ARMv6K faults on unaligned
   LDM/LDRD/VLDR — the big-endian asset parsers are the suspects) are crash-driven from there (same methodology
   as the PC port), + heap/dspfirm tuning.
-- **★★ 3DS BOOT HANG — pinpointed via gdb to libctru `srvInit` (2026-06-21). THE GDB METHODOLOGY (reusable):**
+- **★★★ 3DS BOOT HANG — CORRECTED + DEEPLY root-caused (2026-06-21, commit `dafde8d`). The "srvInit" entry just
+  below is SUPERSEDED: `srvInit` does NOT hang.** A fresh gdb-on-Mandarine pass on the current build proved the
+  boot chain runs `srvInit` to completion (`svcConnectToPort` returns, `srvRegisterClient`'s `svcSendSyncRequest`
+  returns) and reaches **`aptInit`**, where it hangs. Pinned further with breakpoints on `aptInit`'s internals:
+  `APT_GetLockHandle` + `APT_Initialize` complete, then `threadCreate` for the APT event-handler thread is
+  entered, its stack `memalign` SUCCEEDS, and **`svcCreateThread` never returns + no new guest thread spawns**. A
+  **throwaway test thread created BEFORE `aptInit`** (via a diagnostic `__appInit`) hangs identically → **`svcCreateThread`
+  hangs for ANY thread in Turok's process under Mandarine**, independent of APT. **Perfect Dark (same libctru,
+  same Mandarine) makes the identical call and boots** (`[New Thread 2]` → `hidInit` → `main`), so it is
+  **Turok-specific**. Confirmed WITHOUT gdb (no `boot.log` ⇒ hung pre-`main`) and reproduced with the **JIT off**.
+  **RULED OUT (each empirically tested, none fixed it):** heap exhaustion — libctru's default `__system_allocateHeaps`
+  grabs ~100% of the N3DS application FCRAM (main 75.8 MB + linear 32 MB + 16 MB image = ~124 MB = the whole
+  region), but **capping it to leave 32 MB headroom did NOT fix the hang**; **BSS size** (16 MB → 9.6 MB by
+  dropping the 6.49 MB `_staticSegmentRomStart`, no change); the **JIT**; the thread **`core_id`** (−2 and −1);
+  the **`-fno-short-enums`** enum-ABI mismatch vs libctru's packed enums (the linker warns "use of enum values
+  across objects may fail", but building without it did NOT fix it); and **New-3DS vs OG-3DS** mode. So it is a
+  **Mandarine `svcCreateThread` HLE limitation** triggered by some Turok process trait, not an obvious config/memory
+  bug. **KEPT (3DS-only, PC unaffected, both in `sys_3ds.c`):** (1) a `__system_allocateHeaps` **override** that
+  leaves a 32 MB FCRAM safety margin + caps the linear heap + calls `mappableInit` — PD-faithful, a correct
+  *latent-bug* fix (the default's 100%-grab would starve later threads/shared-mem) even though it is NOT the boot
+  fix; (2) a **gated diagnostic `__appInit`** (`-DTUROK_DIAG_APPINIT`, OFF by default) with a test-thread probe +
+  `svcOutputDebugString` traces + clean gdb-breakpoint boundaries, for the next step. **★ NEXT = needs REAL-3DS-HARDWARE
+  (Luma) confirmation — only the user can run it:** if `turok.3dsx` boots on real HW, the hang is a Mandarine HLE
+  limitation (change the dev loop / try a newer emulator build); if it hangs identically on HW, it's a real bug and
+  HW debugging continues from the `svcCreateThread` point (rebuild with `-DTUROK_DIAG_APPINIT` for traces). The
+  remaining un-eliminated Turok-only trait is the **large/odd binary image** itself (16 MB memsz, 201 linked TUs) —
+  a candidate for the minimal-repro approach (strip to a near-empty 3dsx on Turok's exact Makefile and see if IT
+  can `svcCreateThread`). **★ HARNESS that works (reusable): `/tmp/boot_probe.sh <gdb-cmds> <elf> <3dsx>`** —
+  kills `AppRun.wrapped`/`.mount_mandar`, launches Mandarine + polls `ss -ltn | grep :24689`, runs `gdb-multiarch
+  -batch` (timeout-bounded; a hung `continue` ⇒ rc=124, last printed breakpoint = the hang boundary), kills
+  Mandarine. No-gdb boot check: `use_gdbstub=false`, stage the ROM at `~/.local/share/mandarine-emu/sdmc/3ds/turok/`,
+  run, look for `boot.log` (only written post-`__appInit`/sdmc-mount).
+- **★★ [SUPERSEDED by the entry above — `srvInit` actually completes] 3DS BOOT HANG — pinpointed via gdb to libctru `srvInit` (2026-06-21). THE GDB METHODOLOGY (reusable):**
   the build BOOTS but hangs before reaching the game's `main`. Mandarine's gdbstub DOES work (despite the first
   impression) — the breakthrough was process hygiene + a robust harness. **★ PROCESS GOTCHA (cost hours): the
   Mandarine AppImage forks a child named `AppRun.wrapped` under `/tmp/.mount_mandar*/` — `pkill -i mandarine`
