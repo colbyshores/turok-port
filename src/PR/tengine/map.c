@@ -84,9 +84,22 @@ void DoRevealMap(CGameRegion *pRegion)
 
 	pRegion->m_wFlags |= REGFLAG_REGIONENTERED | REGFLAG_RECURSE;
 
+#ifdef PLATFORM_PORT
+	/* m_vCorner is a float CVector3 in the byte-parsed corner buffer; a direct .x/.z read emits vldr
+	 * (ARM11 fault on a non-4-aligned corner). Copy the three corners into aligned locals first. */
+	{
+	CVector3 _c0, _c1, _c2;
+	turok_memcpy_unaligned(&_c0, &pRegion->m_pCorners[0]->m_vCorner, sizeof _c0);
+	turok_memcpy_unaligned(&_c1, &pRegion->m_pCorners[1]->m_vCorner, sizeof _c1);
+	turok_memcpy_unaligned(&_c2, &pRegion->m_pCorners[2]->m_vCorner, sizeof _c2);
+	if (		((SQR(_c0.x - GetApp()->m_XPos) + SQR(_c0.z - GetApp()->m_ZPos)) < SQR(REVEAL_DIST))
+			|| ((SQR(_c1.x - GetApp()->m_XPos) + SQR(_c1.z - GetApp()->m_ZPos)) < SQR(REVEAL_DIST))
+			|| ((SQR(_c2.x - GetApp()->m_XPos) + SQR(_c2.z - GetApp()->m_ZPos)) < SQR(REVEAL_DIST)) )
+#else
 	if (		((SQR(pRegion->m_pCorners[0]->m_vCorner.x - GetApp()->m_XPos) + SQR(pRegion->m_pCorners[0]->m_vCorner.z - GetApp()->m_ZPos)) < SQR(REVEAL_DIST))
 			|| ((SQR(pRegion->m_pCorners[1]->m_vCorner.x - GetApp()->m_XPos) + SQR(pRegion->m_pCorners[1]->m_vCorner.z - GetApp()->m_ZPos)) < SQR(REVEAL_DIST))
 			|| ((SQR(pRegion->m_pCorners[2]->m_vCorner.x - GetApp()->m_XPos) + SQR(pRegion->m_pCorners[2]->m_vCorner.z - GetApp()->m_ZPos)) < SQR(REVEAL_DIST)) )
+#endif
 	{
 		if (pRegion->m_pNeighbors[0])
 			if (!(pRegion->m_pNeighbors[0]->m_wFlags & REGFLAG_RECURSE))
@@ -103,6 +116,9 @@ void DoRevealMap(CGameRegion *pRegion)
 				if (!(pRegion->m_pNeighbors[2]->m_wFlags & REGFLAG_DOOR) || (pRegion->m_pNeighbors[2]->m_wFlags & REGFLAG_OPENDOOR))
 					DoRevealMap(pRegion->m_pNeighbors[2]);
 	}
+#ifdef PLATFORM_PORT
+	}	/* close the _c0/_c1/_c2 aligned-corner scope */
+#endif
 #endif
 }
 
@@ -437,6 +453,9 @@ void DoDrawMap(Gfx **ppDLP)
 							i;
 	DWORD					clip[3], *pClip;
 	CVector3				*pvCorner, *pvCorner2;
+#ifdef PLATFORM_PORT
+	CVector3				_alignedCorner, _alignedCorner2;	/* aligned copies of byte-parsed corner-buffer vectors (ARM11 vldr) */
+#endif
 	Vtx					*vtxs ;
 	CMtxF					mfMap, mfInvMap, mfNorth;
 	static Mtx			mMap[2], mIdent[2];
@@ -565,7 +584,16 @@ void DoDrawMap(Gfx **ppDLP)
 	{
 		pBlock = &blocks[cBlock];
 
+#ifdef PLATFORM_PORT
+		/* m_BoundsRect floats live in the byte-parsed (CROMRegionBlock) collision buffer; reading them
+		 * directly emits vldr -> ARM11 data abort on a non-4-aligned block. Copy to an aligned local. */
+		{
+		CBoundsRect _blockBounds;
+		turok_memcpy_unaligned(&_blockBounds, &pBlock->m_BoundsRect, sizeof _blockBounds);
+		if (CBoundsRect__IsOverlapping(&_blockBounds, &clipRect))
+#else
 		if (CBoundsRect__IsOverlapping(&pBlock->m_BoundsRect, &clipRect))
+#endif
 		{
 			for (i=0; i<pBlock->m_nRegions; i++)
 			{
@@ -579,6 +607,13 @@ void DoDrawMap(Gfx **ppDLP)
 					for (cCorner=0; cCorner<3; cCorner++)
 					{
 						pvCorner = &pRegion->m_pCorners[cCorner]->m_vCorner;
+#ifdef PLATFORM_PORT
+						/* m_vCorner is a float CVector3 in the byte-parsed corner buffer; reading
+						 * .x/.y/.z directly emits vldr (ARM11 fault on a non-4-aligned corner). Copy
+						 * into an aligned local once and use it for every component read below. */
+						turok_memcpy_unaligned(&_alignedCorner, pvCorner, sizeof _alignedCorner);
+						pvCorner = &_alignedCorner;
+#endif
 						pClip = &clip[cCorner];
 
 						if (pvCorner->x < clipRect.m_MinX)
@@ -647,6 +682,15 @@ void DoDrawMap(Gfx **ppDLP)
 									{
 										pvCorner = &pRegion->m_pCorners[cEdge]->m_vCorner;
 										pvCorner2 = &pRegion->m_pCorners[cNextEdge]->m_vCorner;
+#ifdef PLATFORM_PORT
+										/* aligned copies of the two byte-parsed corner-buffer vectors
+										 * so every float read below (incl. inside ClipLine2D and the
+										 * COLOR_VERTEX macro) hits a 4-aligned local, not the buffer. */
+										turok_memcpy_unaligned(&_alignedCorner,  pvCorner,  sizeof _alignedCorner);
+										turok_memcpy_unaligned(&_alignedCorner2, pvCorner2, sizeof _alignedCorner2);
+										pvCorner  = &_alignedCorner;
+										pvCorner2 = &_alignedCorner2;
+#endif
 
 
 										// exact clip
@@ -706,6 +750,9 @@ void DoDrawMap(Gfx **ppDLP)
 		{
 			cRegion += pBlock->m_nRegions;
 		}
+#ifdef PLATFORM_PORT
+		}	/* close the _blockBounds scope opened above */
+#endif
 	}
 	ASSERT(cRegion == CUnindexedSet__GetBlockCount(&usRegions));
 

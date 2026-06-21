@@ -637,8 +637,22 @@ CVector3 CGameRegion__GetGroundNormal(CGameRegion *pThis)
 		//ASSERT((DWORD) pThis->m_pCorners[1] > 0x80000000);
 		//ASSERT((DWORD) pThis->m_pCorners[2] > 0x80000000);
 
+#ifdef PLATFORM_PORT
+		/* PORT (ARM align): m_pCorners[i] points into the byte-parsed CROMCorner cart buffer, so
+		 * m_vCorner (CVector3, 12B) is a possibly-misaligned aggregate — a direct read fuses to ldm,
+		 * which faults on ARM11 for a non-4-aligned base. Copy each corner out to an aligned local. */
+		{
+			CVector3 _c0, _c1, _c2;
+			turok_memcpy_unaligned(&_c0, &pThis->m_pCorners[0]->m_vCorner, sizeof _c0);
+			turok_memcpy_unaligned(&_c1, &pThis->m_pCorners[1]->m_vCorner, sizeof _c1);
+			turok_memcpy_unaligned(&_c2, &pThis->m_pCorners[2]->m_vCorner, sizeof _c2);
+			CVector3__Subtract(&vLeft, &_c1, &_c0);
+			CVector3__Subtract(&vRight, &_c2, &_c1);
+		}
+#else
 		CVector3__Subtract(&vLeft, &pThis->m_pCorners[1]->m_vCorner, &pThis->m_pCorners[0]->m_vCorner);
 		CVector3__Subtract(&vRight, &pThis->m_pCorners[2]->m_vCorner, &pThis->m_pCorners[1]->m_vCorner);
+#endif
 
 		CVector3__Cross(&vNormalCache, &vLeft, &vRight);
 	}
@@ -3141,8 +3155,12 @@ void CGameObjectInstance__CalculateOrientationMatrix(CGameObjectInstance *pThis,
 	 * (e.g. AI_OBJECT_DEVICE_* platforms/elevators) did not draw. Swap component-wise (the
 	 * CVector3 aggregate ORDERBYTES is a no-op); local copies avoid any double-swap. */
 	CVector3 bmin, bmax;
-	bmin.x = ORDERBYTES(pBounds->m_vMin.x); bmin.y = ORDERBYTES(pBounds->m_vMin.y); bmin.z = ORDERBYTES(pBounds->m_vMin.z);
-	bmax.x = ORDERBYTES(pBounds->m_vMax.x); bmax.y = ORDERBYTES(pBounds->m_vMax.y); bmax.z = ORDERBYTES(pBounds->m_vMax.z);
+	/* ARM align: pBounds is a byte-parsed cart block, so its floats are possibly-misaligned;
+	 * GCC fuses adjacent reads into ldrd which faults on ARM11. Copy the whole CROMBounds out
+	 * to an aligned local via the noinline byte copy first, then ORDERBYTES from there. */
+	CROMBounds _bnd; turok_memcpy_unaligned(&_bnd, pBounds, sizeof _bnd);
+	bmin.x = ORDERBYTES(_bnd.m_vMin.x); bmin.y = ORDERBYTES(_bnd.m_vMin.y); bmin.z = ORDERBYTES(_bnd.m_vMin.z);
+	bmax.x = ORDERBYTES(_bnd.m_vMax.x); bmax.y = ORDERBYTES(_bnd.m_vMax.y); bmax.z = ORDERBYTES(_bnd.m_vMax.z);
 #else
 	CVector3 bmin = pBounds->m_vMin, bmax = pBounds->m_vMax;
 #endif

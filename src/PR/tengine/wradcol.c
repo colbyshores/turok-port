@@ -67,10 +67,22 @@ void CWallRadiusCollision2__Recurse(CGameRegion *pCurrentRegion)
 		p_wc->pvCornerA = &pCurrentRegion->m_pCorners[cEdge]->m_vCorner;
 		p_wc->pvCornerB = &pCurrentRegion->m_pCorners[(cEdge == 2) ? 0 : (cEdge + 1)]->m_vCorner;
 
-		if (		((p_wc->pvCornerA->x <= p_wc->Bounds.m_MinX) && (p_wc->pvCornerB->x <= p_wc->Bounds.m_MinX))
-				|| ((p_wc->pvCornerA->x >= p_wc->Bounds.m_MaxX) && (p_wc->pvCornerB->x >= p_wc->Bounds.m_MaxX))
-				|| ((p_wc->pvCornerA->z <= p_wc->Bounds.m_MinZ) && (p_wc->pvCornerB->z <= p_wc->Bounds.m_MinZ))
-				|| ((p_wc->pvCornerA->z >= p_wc->Bounds.m_MaxZ) && (p_wc->pvCornerB->z >= p_wc->Bounds.m_MaxZ)) )
+		/* ARM11: pvCornerA/pvCornerB point INTO the streamed collision buffer (m_pCorners[i] ->
+		 * GetBasePtr block) so their CVector3 floats are misaligned -> vldr faults. Read each
+		 * component through an integer load. */
+		{
+		/* aligned copies of the two corner vertices (the buffer ones are misaligned) */
+		CVector3 _vca, _vcb;
+		float cax, caz, cbx, cbz;
+		turok_memcpy_unaligned(&_vca, p_wc->pvCornerA, sizeof _vca);
+		turok_memcpy_unaligned(&_vcb, p_wc->pvCornerB, sizeof _vcb);
+		cax = _vca.x; caz = _vca.z;
+		cbx = _vcb.x; cbz = _vcb.z;
+
+		if (		((cax <= p_wc->Bounds.m_MinX) && (cbx <= p_wc->Bounds.m_MinX))
+				|| ((cax >= p_wc->Bounds.m_MaxX) && (cbx >= p_wc->Bounds.m_MaxX))
+				|| ((caz <= p_wc->Bounds.m_MinZ) && (cbz <= p_wc->Bounds.m_MinZ))
+				|| ((caz >= p_wc->Bounds.m_MaxZ) && (cbz >= p_wc->Bounds.m_MaxZ)) )
 		{
 			// edge is outside of bounds
 			continue;
@@ -85,11 +97,11 @@ void CWallRadiusCollision2__Recurse(CGameRegion *pCurrentRegion)
 		{
 			// collide
 
-			p_wc->vEdgeNormal.x = p_wc->pvCornerB->z - p_wc->pvCornerA->z;
-			p_wc->vEdgeNormal.z = p_wc->pvCornerA->x - p_wc->pvCornerB->x;
+			p_wc->vEdgeNormal.x = cbz - caz;
+			p_wc->vEdgeNormal.z = cax - cbx;
 
-			p_wc->vEdgeDelta.x = p_wc->pCollide->pInst->ih.m_vPos.x - p_wc->pvCornerA->x;
-			p_wc->vEdgeDelta.z = p_wc->pCollide->pInst->ih.m_vPos.z - p_wc->pvCornerA->z;
+			p_wc->vEdgeDelta.x = p_wc->pCollide->pInst->ih.m_vPos.x - cax;
+			p_wc->vEdgeDelta.z = p_wc->pCollide->pInst->ih.m_vPos.z - caz;
 			
 			// only test edges that instance is on the proper side of
 			p_wc->SideDot = p_wc->vEdgeNormal.x*p_wc->vEdgeDelta.x + p_wc->vEdgeNormal.z*p_wc->vEdgeDelta.z;
@@ -98,8 +110,8 @@ void CWallRadiusCollision2__Recurse(CGameRegion *pCurrentRegion)
 				p_wc->vNormal.x = -p_wc->pCollide->vDelta.z;
 				p_wc->vNormal.z = p_wc->pCollide->vDelta.x;
 
-				p_wc->vMoveDelta.x = p_wc->pvCornerB->x - p_wc->pvCornerA->x;
-				p_wc->vMoveDelta.z = p_wc->pvCornerB->z - p_wc->pvCornerA->z;
+				p_wc->vMoveDelta.x = cbx - cax;
+				p_wc->vMoveDelta.z = cbz - caz;
 
 				p_wc->NormalDotMovementDelta = p_wc->vNormal.x*p_wc->vMoveDelta.x + p_wc->vNormal.z*p_wc->vMoveDelta.z;
 				if (p_wc->NormalDotMovementDelta < 0.0)
@@ -137,8 +149,8 @@ void CWallRadiusCollision2__Recurse(CGameRegion *pCurrentRegion)
 						p_wc->Mag = p_wc->Radius/p_wc->Mag;
 
 						// project point away from edge
-						p_wc->vPoint.x = p_wc->pvCornerA->x + p_wc->vEdgeNormal.x*p_wc->Mag;
-						p_wc->vPoint.z = p_wc->pvCornerA->z + p_wc->vEdgeNormal.z*p_wc->Mag;
+						p_wc->vPoint.x = cax + p_wc->vEdgeNormal.x*p_wc->Mag;
+						p_wc->vPoint.z = caz + p_wc->vEdgeNormal.z*p_wc->Mag;
 
 						p_wc->vPointDelta.x = p_wc->pCollide->vDesired.x - p_wc->vPoint.x;
 						p_wc->vPointDelta.z = p_wc->pCollide->vDesired.z - p_wc->vPoint.z;
@@ -147,8 +159,8 @@ void CWallRadiusCollision2__Recurse(CGameRegion *pCurrentRegion)
 
 						p_wc->t = p_wc->NormalDotPointDelta/p_wc->NormalDotMovementDelta;
 						if (		(p_wc->t >= 0.0) && (p_wc->t <= 1.0)
-								&&	!CCollide__IsSlideCylinder(p_wc->pCollide, p_wc->pvCornerA, p_wc->Radius)
-								&&	!CCollide__IsSlideCylinder(p_wc->pCollide, p_wc->pvCornerB, p_wc->Radius) )
+								&&	!CCollide__IsSlideCylinder(p_wc->pCollide, &_vca, p_wc->Radius)
+								&&	!CCollide__IsSlideCylinder(p_wc->pCollide, &_vcb, p_wc->Radius) )
 						{
 							p_wc->Intersected |= CCollide__IntersectPlane(p_wc->pCollide,
 																						 &p_wc->vEdgeNormal, &p_wc->vPoint,
@@ -174,6 +186,7 @@ void CWallRadiusCollision2__Recurse(CGameRegion *pCurrentRegion)
 				}
 			}
 		}
+		}	/* close corner-read block */
 	}
 }
 

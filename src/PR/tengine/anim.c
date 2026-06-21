@@ -481,9 +481,20 @@ void CGameObjectInstance__DecompressAnim(CGameObjectInstance *pThis, CCacheEntry
 				{
 					pPosFrame = &posFrames[cFrame];
 
+#ifdef PLATFORM_PORT
+					/* PORT/ARM: pTransOffset is a byte-parsed asset buffer (unaligned); read its
+					 * float fields via integer ldr (turok_rd_f32) so ARM11 doesn't fault on vldr. */
+					{
+						float _scale = turok_rd_f32(&pTransOffset->m_Scale);
+						pPosFrame->m_vPos.x = INT162FLOAT(rawBuffers[0][cFrame], _scale) + turok_rd_f32(&pTransOffset->m_vOffset.x);
+						pPosFrame->m_vPos.y = INT162FLOAT(rawBuffers[1][cFrame], _scale) + turok_rd_f32(&pTransOffset->m_vOffset.y);
+						pPosFrame->m_vPos.z = INT162FLOAT(rawBuffers[2][cFrame], _scale) + turok_rd_f32(&pTransOffset->m_vOffset.z);
+					}
+#else
 					pPosFrame->m_vPos.x = INT162FLOAT(rawBuffers[0][cFrame], pTransOffset->m_Scale) + pTransOffset->m_vOffset.x;
 					pPosFrame->m_vPos.y = INT162FLOAT(rawBuffers[1][cFrame], pTransOffset->m_Scale) + pTransOffset->m_vOffset.y;
 					pPosFrame->m_vPos.z = INT162FLOAT(rawBuffers[2][cFrame], pTransOffset->m_Scale) + pTransOffset->m_vOffset.z;
+#endif
 				}
 			}
 			else

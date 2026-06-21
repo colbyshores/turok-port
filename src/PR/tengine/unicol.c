@@ -713,6 +713,12 @@ BOOL CCollide__IntersectCylinder(CCollide *pThis,
 					magSqRight, radSq,
 					sub,
 					t;
+	/* ARM11: pvCenter is frequently a region-corner pointer INTO the streamed collision buffer
+	 * (misaligned, from wradcol's IntersectCylinder calls) -> every deref of it (vldr / the
+	 * SetSlideCylinder struct copy) faults. Copy it once into an aligned local and use that. */
+	CVector3		_vc;
+	turok_memcpy_unaligned(&_vc, pvCenter, sizeof _vc);
+	pvCenter = &_vc;
 
 	if (CCollide__IsSlideCylinder(pThis, pvCenter, Radius))
 		return FALSE;
@@ -983,9 +989,10 @@ CGameRegion* CCollide__CanEnter(CCollide *pThis, CGameRegion *pCurrent, int nDes
 
 				// change to intersection?
 
-				if (		(compareHeight > pDesired->m_pCorners[0]->m_vCorner.y)
-						&&	(compareHeight > pDesired->m_pCorners[1]->m_vCorner.y)
-						&& (compareHeight > pDesired->m_pCorners[2]->m_vCorner.y) )
+				/* ARM11: corners live in the streamed collision buffer (misaligned) -> vldr faults */
+				if (		(compareHeight > turok_rd_f32(&pDesired->m_pCorners[0]->m_vCorner.y))
+						&&	(compareHeight > turok_rd_f32(&pDesired->m_pCorners[1]->m_vCorner.y))
+						&& (compareHeight > turok_rd_f32(&pDesired->m_pCorners[2]->m_vCorner.y)) )
 				{
 					return pDesired;
 				}

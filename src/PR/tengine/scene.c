@@ -504,7 +504,9 @@ void CScene__WarpPointsReceived(CScene *pThis, CCacheEntry **ppceTarget)
 #endif
 
 			// must copy data because pceWarpPoints may not be around later
-			pThis->m_WarpPoint = warpPoints[choice];
+			/* PORT/ARM: warpPoints is a byte-parsed cart buffer; a direct struct copy fuses to
+			 * ldm/vldr (faults on a non-4-aligned warp point). Copy out byte-wise. */
+			turok_memcpy_unaligned(&pThis->m_WarpPoint, &warpPoints[choice], sizeof(pThis->m_WarpPoint));
 #ifdef PLATFORM_PORT
 			/* warpPoints[] is big-endian cart data. Swap the fields consumed in NATIVE order here: m_vPos
 			 * (the instance decode's ORDERBYTES on the CVector3 aggregate is a NO-OP, so it must be native

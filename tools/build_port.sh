@@ -41,6 +41,7 @@ OPT="-O1"; SAN=""; WRAP=""; EXTRA_OBJ=""
 case "$MODE" in
   debug) OPT="-O0 -fno-omit-frame-pointer" ;;
   asan)  OPT="-O0 -fno-omit-frame-pointer"; SAN="-fsanitize=address" ;;
+  ubsan) OPT="-O1 -fno-omit-frame-pointer"; SAN="-fsanitize=alignment" ;;  # ARM11 alignment pre-flight (recover-mode; lists all sites)
 esac
 
 GAME_D="-DPLATFORM_PORT=1 -D_LANGUAGE_C=1 -D_MIPS_SZLONG=32 -DF3DEX_GBI -DN_MICRO -D_FINALROM -DNDEBUG -DSHIP_IT"

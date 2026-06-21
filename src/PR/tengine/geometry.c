@@ -1821,9 +1821,13 @@ void CGeometry__MorphInc(CGeometry *pThis, int nNode, float Increment)
 	// only one morph per frame
 	if (pInfo->m_MorphFrameNumber != frame_number)
 	{
-		pInfo->m_cMorph += Increment;
+		/* PORT: m_cMorph is a float in the byte-parsed geometry-info block; a direct
+		 * read-modify-write emits vldr/vstr which fault on a non-4-aligned buffer on ARM11.
+		 * Route through the unaligned-safe accessor (integer ldr) + a noinline byte store. */
+		float _cMorph = turok_rd_f32(&pInfo->m_cMorph) + Increment;
+		turok_memcpy_unaligned(&pInfo->m_cMorph, &_cMorph, sizeof _cMorph);
 
-		CGeometry__Morph(pThis, nNode, pInfo->m_cMorph);
+		CGeometry__Morph(pThis, nNode, _cMorph);
 	}
 
 
@@ -1891,7 +1895,9 @@ void CGeometry__Morph(CGeometry *pThis, int nNode, float Frame)
 				while (Frame >= (nParts - 2))
 					Frame -= nParts - 2;
 
-				pInfo->m_cMorph = Frame;
+				/* PORT: float store into the byte-parsed geometry-info block — vstr faults on a
+				 * non-4-aligned buffer on ARM11; write via a noinline byte copy from an aligned local. */
+				turok_memcpy_unaligned(&pInfo->m_cMorph, &Frame, sizeof Frame);
 
 				fraction = Frame - (int) Frame;
 				c2 = (int) (fraction*256);

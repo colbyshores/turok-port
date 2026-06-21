@@ -20,14 +20,20 @@
 //----------------------------------------------------------------------------
 void CLine__Construct(CLine *pThis, CVector3 *pvPt1, CVector3 *pvPt2)
 {
+	/* ARM11: pvPt1/pvPt2 are frequently region-corner pointers INTO the streamed collision
+	 * buffer (misaligned) -> the *pvPt struct copy fuses to ldm and the delta reads emit vldr,
+	 * both of which fault. Copy through aligned locals / integer loads. */
+	float _p1x = turok_rd_f32(&pvPt1->x), _p1y = turok_rd_f32(&pvPt1->y), _p1z = turok_rd_f32(&pvPt1->z);
+	float _p2x = turok_rd_f32(&pvPt2->x), _p2y = turok_rd_f32(&pvPt2->y), _p2z = turok_rd_f32(&pvPt2->z);
+
 	// Setup end points
-	pThis->m_vPt[0] = *pvPt1 ;
-	pThis->m_vPt[1] = *pvPt2 ;
+	turok_memcpy_unaligned(&pThis->m_vPt[0], pvPt1, sizeof pThis->m_vPt[0]) ;
+	turok_memcpy_unaligned(&pThis->m_vPt[1], pvPt2, sizeof pThis->m_vPt[1]) ;
 
 	// Setup deltas
-	pThis->m_vDelta.x = pvPt2->x - pvPt1->x ;
-	pThis->m_vDelta.y = pvPt2->y - pvPt1->y ;
-	pThis->m_vDelta.z = pvPt2->z - pvPt1->z ;
+	pThis->m_vDelta.x = _p2x - _p1x ;
+	pThis->m_vDelta.y = _p2y - _p1y ;
+	pThis->m_vDelta.z = _p2z - _p1z ;
 
 	// Setup normal
 	pThis->m_vNormal.x = pThis->m_vDelta.z ;

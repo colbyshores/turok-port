@@ -281,6 +281,13 @@ void	*i3D_mallocPool (t_MemoryPool *pool, int size)
 			//---	Setup new used entry
 			pointer->prev = NULL ;
 			pointer->next = pool->used_head ;
+#if defined(PLATFORM_3DS)
+			// ARM11 (ARMv6K) STRD/LDRD fault on any non-8-aligned address. t_Memory
+			// nodes are 16-byte (8-aligned), so GCC -O2 fuses the next(+4)/addr(+8)
+			// field stores into a single STRD [pointer+4] -> address is 8k+4 ->
+			// data abort on hardware. Break the fusion with a compiler barrier.
+			__asm__ __volatile__("" ::: "memory");
+#endif
 			pointer->addr = (t_Memory *)((int)pointer + sizeof (t_Memory)) ;
 			pointer->size = size ;
 

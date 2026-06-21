@@ -229,7 +229,14 @@ WORD InputBitsM1(BYTE n)
 
     while (n--) {
         if (BitBuffBits == 0) {
+            /* PORT/ARM: InputPtr advances by 2 bytes but a ULONG is read here, so the address is
+             * 2-mod-4 every other iteration. A single `ldr` is unaligned-tolerant on ARMv6K, but
+             * route it through the integer accessor to be explicit (and keep the UBSan run clean). */
+#ifdef PLATFORM_PORT
+            BitBuffM1 = turok_rd_u32(InputPtr);
+#else
             BitBuffM1 = *((ULONG *)InputPtr);
+#endif
             InputPtr += 2;
             BitBuffBits = 16;
         }

@@ -2296,7 +2296,9 @@ void CParticle__EndLife(CParticle *pThis)
 
 	nParticleType = pEffect->m_pImpact->m_ImpactParticleType[nImpactType];
 	nEventType    = pEffect->m_pImpact->m_ImpactEventType   [nImpactType];
-	EventNumber   = pEffect->m_pImpact->m_ImpactEventNumber [nImpactType];
+	/* PORT: m_ImpactEventNumber is a FLOAT in the byte-parsed impacts cart buffer; a direct read
+	 * emits vldr which FAULTS on ARM11 when the buffer/field is not 4-aligned. Read via integer ldr. */
+	EventNumber   = turok_rd_f32(&pEffect->m_pImpact->m_ImpactEventNumber [nImpactType]);
 	nSoundType    = pEffect->m_pImpact->m_ImpactSoundType   [nImpactType];
 
 	if (nParticleType != (WORD) -1)
@@ -2332,7 +2334,8 @@ void CParticle__EveryFrame(CParticle *pThis)
 
 	nParticleType = pEffect->m_pImpact->m_ImpactParticleType[nImpactType];
 	nEventType    = pEffect->m_pImpact->m_ImpactEventType   [nImpactType];
-	EventNumber   = pEffect->m_pImpact->m_ImpactEventNumber [nImpactType];
+	/* PORT: float field of the byte-parsed impacts cart buffer -> integer read (ARM11 vldr fault). */
+	EventNumber   = turok_rd_f32(&pEffect->m_pImpact->m_ImpactEventNumber [nImpactType]);
 	nSoundType    = pEffect->m_pImpact->m_ImpactSoundType   [nImpactType];
 
 	if (nParticleType != (WORD) -1)
@@ -2381,7 +2384,8 @@ void CParticle__InstanceCollision(CParticle *pThis)
 
 	nParticleType = pEffect->m_pImpact->m_ImpactParticleType[nMaterial];
 	nEventType    = pEffect->m_pImpact->m_ImpactEventType   [nMaterial];
-	EventNumber   = pEffect->m_pImpact->m_ImpactEventNumber [nMaterial];
+	/* PORT: float field of the byte-parsed impacts cart buffer -> integer read (ARM11 vldr fault). */
+	EventNumber   = turok_rd_f32(&pEffect->m_pImpact->m_ImpactEventNumber [nMaterial]);
 	nSoundType    = pEffect->m_pImpact->m_ImpactSoundType   [nMaterial];
 
 	if (CInstanceHdr__IsDevice(pIns))

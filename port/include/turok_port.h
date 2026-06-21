@@ -13,6 +13,11 @@
 
 #ifdef PLATFORM_PORT
 
+/* Unaligned-access accessors (turok_rd_u16/s16/u32/s32/f32, turok_memcpy_unaligned) for the
+ * ARM11 port — route every float/struct read of a byte-parsed asset buffer through an integer
+ * load into an aligned local. Codegen-neutral on x86, ARM-safe (verified). See turok_align.h. */
+#include "turok_align.h"
+
 /* Symbol collision with libc: the game defines its own 5-arg qsort(base,num,wid,comp,SWAP),
  * which interposes (as an executable global) on libc's 4-arg qsort that OSMesa/Mesa call
  * internally — Mesa then invokes the missing `swap` arg as a function pointer (garbage/NULL)

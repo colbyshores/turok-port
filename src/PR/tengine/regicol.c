@@ -139,9 +139,10 @@ void CCollide__RegionCollision(CCollide *pThis)
 					normalDotDelta = CVector3__Dot(&vCeilingNormal, &pThis->vDelta);
 					if (normalDotDelta < 0.0)
 					{
-						vCeilingCorner.x = (*ppCurrentRegion)->m_pCorners[0]->m_vCorner.x;
-						
-						vCeilingCorner.y = (*ppCurrentRegion)->m_pCorners[0]->m_Ceiling;
+						/* ARM11: corner[0] is in the streamed collision buffer (misaligned) */
+						vCeilingCorner.x = turok_rd_f32(&(*ppCurrentRegion)->m_pCorners[0]->m_vCorner.x);
+
+						vCeilingCorner.y = turok_rd_f32(&(*ppCurrentRegion)->m_pCorners[0]->m_Ceiling);
 						if (pThis->pCI->dwFlags & COLLISIONFLAG_USEHEIGHT)
 						{
 							vCeilingCorner.y -= pThis->pInst->ih.m_pEA->m_CollisionHeight;
@@ -151,7 +152,7 @@ void CCollide__RegionCollision(CCollide *pThis)
 								vCeilingCorner.y += DUCK_HEIGHT_OFFSET;
 						}
 
-						vCeilingCorner.z = (*ppCurrentRegion)->m_pCorners[0]->m_vCorner.z;
+						vCeilingCorner.z = turok_rd_f32(&(*ppCurrentRegion)->m_pCorners[0]->m_vCorner.z);
 
 						CVector3__Subtract(&vCornerDelta,
 												 &vCeilingCorner,
@@ -211,17 +212,23 @@ void CCollide__RegionCollision(CCollide *pThis)
 				pvCornerA = &(*ppCurrentRegion)->m_pCorners[cEdge]->m_vCorner;
 				pvCornerB = &(*ppCurrentRegion)->m_pCorners[(cEdge == 2) ? 0 : (cEdge + 1)]->m_vCorner;
 
-				edgeNormalX = pvCornerB->z - pvCornerA->z;
-				edgeNormalZ = pvCornerA->x - pvCornerB->x;
+				/* ARM11: corners live in the streamed collision buffer (misaligned) -> vldr faults.
+				 * Read each float through an integer load. */
+				{
+				float _cax = turok_rd_f32(&pvCornerA->x), _caz = turok_rd_f32(&pvCornerA->z);
+				float _cbx = turok_rd_f32(&pvCornerB->x), _cbz = turok_rd_f32(&pvCornerB->z);
+
+				edgeNormalX = _cbz - _caz;
+				edgeNormalZ = _cax - _cbx;
 
 				normalDotDelta = edgeNormalX*pThis->vDelta.x + edgeNormalZ*pThis->vDelta.z;
-				
+
 				// back cull edge
 				if (normalDotDelta < 0.0)
 				{
 					// find intersection with edge
-					t = (	edgeNormalX*(pvCornerA->x - pvCurrentPos->x)
-							+ edgeNormalZ*(pvCornerA->z - pvCurrentPos->z) )
+					t = (	edgeNormalX*(_cax - pvCurrentPos->x)
+							+ edgeNormalZ*(_caz - pvCurrentPos->z) )
 						 / normalDotDelta;
 
 					if (t < edgeMinT)
@@ -241,6 +248,7 @@ void CCollide__RegionCollision(CCollide *pThis)
 						}
 					}
 				}
+				}	/* close corner-read block */
 			}
 
 //			if (		(waterT <= groundT)
