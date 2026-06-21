@@ -406,13 +406,13 @@ INT32 initCFX(CROMSoundElement *pElement, int cfxnum, int cfxhandle, CVector3 *v
 #endif
 
 	ospri = osGetThreadPri(NULL);
-	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK);
+	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK); audioSynthLock();
 
 	if(pElement->m_Probability != 100)
 	{
 		if(CheckProbability(pElement->m_Probability) == FALSE)
 		{
-			osSetThreadPri(NULL, ospri);
+			audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 			return -1;
 		}
 	}
@@ -422,7 +422,7 @@ INT32 initCFX(CROMSoundElement *pElement, int cfxnum, int cfxhandle, CVector3 *v
 
 	if (NextVoice == -1)
 	{
-		osSetThreadPri(NULL, ospri);
+		audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 		return -1;
 	}
 
@@ -458,7 +458,7 @@ INT32 initCFX(CROMSoundElement *pElement, int cfxnum, int cfxhandle, CVector3 *v
 			pChannel->theSFX.Priority = 0;
 			AW.ChannelLock = -1;
 
-			osSetThreadPri(NULL, ospri);
+			audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 			return -1;
 		}
 		else
@@ -485,7 +485,7 @@ INT32 initCFX(CROMSoundElement *pElement, int cfxnum, int cfxhandle, CVector3 *v
 	sndptr->RadioVolume = pElement->m_RadioVolume;
    pChannel->ChannelFlags = pElement->m_wFlags;
 
-	osSetThreadPri(NULL, ospri);
+	audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 	return pChannel->VirtualHandle;
 }
 

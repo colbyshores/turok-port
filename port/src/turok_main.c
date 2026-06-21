@@ -67,14 +67,18 @@ static void turok_watchdog_start(void) {}   /* 3DS: no pthread/backtrace; on-dev
 /* TUROK_WATCHDOG=1: catch infinite-loop freezes (no crash dump) — gdb-attach is blocked by ptrace_scope.
  * A watchdog thread backtraces the MAIN thread if g_frame stops advancing for ~4s (= a spin in a sub-call). */
 static pthread_t s_wd_main;
+/* SIGUSR1 = backtrace the MAIN thread (the stalled one) then exit. SIGUSR2 = backtrace the AUDIO thread
+ * (it commonly HOLDS the synth lock the main thread is blocked on, so the real loop is over there) then
+ * RETURN (don't exit — let the main report + exit). */
 static void wd_sig(int s) {
-    static const char msg[] = "\n[WATCHDOG] main thread STUCK in an infinite loop — backtrace:\n";
+    const char *hdr = (s == SIGUSR2)
+        ? "\n[WATCHDOG] AUDIO thread backtrace (it likely holds the synth lock):\n"
+        : "\n[WATCHDOG] main thread STUCK in an infinite loop — backtrace:\n";
     void *bt[80]; int n;
-    (void)s;
-    write(2, msg, sizeof(msg) - 1);
+    write(2, hdr, strlen(hdr));
     n = backtrace(bt, 80);
     backtrace_symbols_fd(bt, n, 2);
-    _exit(42);
+    if (s != SIGUSR2) _exit(42);
 }
 static void *wd_thread(void *a) {
     long last = -1; int stuck = 0;
@@ -87,7 +91,17 @@ static void *wd_thread(void *a) {
          * several seconds on some machines), during which g_frame stays 0 — that is NOT a lock-up. Only
          * monitor once frames have started advancing; an in-game freeze leaves g_frame > 0 and frozen. */
         if (cur <= 0) { stuck = 0; last = cur; continue; }
-        if (cur == last) { if (++stuck >= 6) { pthread_kill(s_wd_main, SIGUSR1); return NULL; } }
+        if (cur == last) {
+            if (++stuck >= 6) {
+                /* backtrace the AUDIO thread first (it usually holds the synth lock), then MAIN + exit. */
+                extern void audioThreadSignal(int sig);
+                struct timespec p; p.tv_sec = 0; p.tv_nsec = 300000000L;  /* 300ms for the audio report */
+                audioThreadSignal(SIGUSR2);
+                nanosleep(&p, NULL);
+                pthread_kill(s_wd_main, SIGUSR1);
+                return NULL;
+            }
+        }
         else { stuck = 0; last = cur; }
     }
 }
@@ -96,8 +110,9 @@ static void turok_watchdog_start(void) {
     if (!getenv("TUROK_WATCHDOG")) return;
     s_wd_main = pthread_self();
     signal(SIGUSR1, wd_sig);
+    signal(SIGUSR2, wd_sig);
     pthread_create(&t, NULL, wd_thread, NULL);
-    fprintf(stderr, "[WATCHDOG] armed (backtraces the main thread after ~4s of no frame progress)\n");
+    fprintf(stderr, "[WATCHDOG] armed (backtraces the main + audio threads after ~6s of no frame progress)\n");
 }
 #endif  /* !PLATFORM_3DS (watchdog) */
 

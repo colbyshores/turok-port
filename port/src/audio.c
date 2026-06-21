@@ -189,6 +189,11 @@ void audioSynthLock(void)    { if (s_active) pthread_mutex_lock(&s_synthLock); }
 void audioSynthUnlock(void)  { if (s_active) pthread_mutex_unlock(&s_synthLock); }
 int  audioThreadActive(void) { return s_active; }
 
+/* Deliver a signal to the audio thread (used by the watchdog to backtrace it on a freeze: when the
+ * main thread is stuck on audioSynthLock, the audio thread is the one holding it + looping). */
+#include <signal.h>
+void audioThreadSignal(int sig) { if (s_active) pthread_kill(s_thr, sig); }
+
 /* The single seam later stages swap. S1: a 440Hz tone / silence -> audioSetNextBuffer.
  * S3+: replace the body with amgrFrame() (the naudio synth writes PCM and calls
  * osAiSetNextBuffer -> audioSetNextBuffer itself); the loop below is unchanged. */

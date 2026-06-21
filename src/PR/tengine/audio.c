@@ -14,6 +14,21 @@
 #include "snddefs.h"
 #include "tmove.h"
 
+#ifdef PLATFORM_PORT
+/* PORT: the N64 serialised these audio-event-queue critical sections by raising to PRIORITY_AUDIOLOCK
+ * (osSetThreadPri), a NO-OP in the cooperative port. Each PRIORITY_AUDIOLOCK acquire / ospri restore now
+ * also takes/releases the recursive synthLock (port/src/audio.c) — the real serialiser vs the dedicated
+ * audio thread. Without it the per-frame SFX updates race the synth and splice the libaudio event list into
+ * a CYCLE -> the audio thread spins in the list walk holding the lock -> the game thread blocks forever on
+ * audioSynthLock (the watchdog "main thread STUCK ... audioSynthLock"). c6e12dc fixed 3 of ~12 sections; this
+ * covers the rest. Balanced because every AUDIOLOCK acquire is matched by an ospri restore on every path. */
+extern void audioSynthLock(void);
+extern void audioSynthUnlock(void);
+#else
+#define audioSynthLock()   ((void)0)
+#define audioSynthUnlock() ((void)0)
+#endif
+
 #define AUDIO_DEBUG	   		1
 #define MAX_CHANNEL_SAVER		5
 #define ms *(((s32) ((f32) OUTPUT_RATE/1000))&~0x7)
@@ -130,7 +145,7 @@ void initAudio(void)
 	OSPri					ospri;
 
 	ospri = osGetThreadPri(NULL);	// set priority higher to avoid
-	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK);
+	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK); audioSynthLock();
 
 	InitSoundGlobals(DEFAULT_RADIUS);
 
@@ -317,7 +332,7 @@ void initAudio(void)
 	StartChannel(0);
 #endif
 
-	osSetThreadPri(NULL, ospri);
+	audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 }
 
 
@@ -389,7 +404,7 @@ INT32 PlayEnvironmentSound(CROMSoundElement *pElement,
 #endif
 
 	ospri = osGetThreadPri(NULL);	// synchronize with audio thread
-	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK);
+	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK); audioSynthLock();
 
 	Channel = FindEnvSound(pInstance);
 	if(Channel == -1)
@@ -399,7 +414,7 @@ INT32 PlayEnvironmentSound(CROMSoundElement *pElement,
 
 		if ( (Channel == -1) || (Channel == DUMMY_CHANNEL) )
 		{
-			osSetThreadPri(NULL, ospri);
+			audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 			return -1;
 		}
 
@@ -425,7 +440,7 @@ INT32 PlayEnvironmentSound(CROMSoundElement *pElement,
 			pChannel->PhysicalHandle = -1;
 			pChannel->theSFX.Priority = 0;
 			AW.ChannelLock = -1;
-			osSetThreadPri(NULL, ospri);
+			audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 			return -1;
 		}
 
@@ -510,7 +525,7 @@ INT32 PlayEnvironmentSound(CROMSoundElement *pElement,
 		sndptr->StartTime = AW.sfx_timer;
 	}
 
-	osSetThreadPri(NULL, ospri);
+	audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 	return AW.VoiceChannels[Channel].VirtualHandle;
 }
 
@@ -550,7 +565,7 @@ INT16 playElement(INT32 VirtualHandle, CVector3 *vPos, int flags)
 	}
 
 	ospri = osGetThreadPri(NULL);
-	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK);
+	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK); audioSynthLock();
 
 //	sndplayer = &AW.SndPlayerList;
 	Sndp = AW.VoiceChannels[Channel].SndPlayer;
@@ -584,7 +599,7 @@ INT16 playElement(INT32 VirtualHandle, CVector3 *vPos, int flags)
 				AW.VoiceChannels[Channel].ChannelFlags  |= CH_FLAG_STARTED ;
 				AW.ChannelLock = -1;
 
-				osSetThreadPri(NULL, ospri);
+				audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 				return 0;
 			}
 	}
@@ -592,7 +607,7 @@ INT16 playElement(INT32 VirtualHandle, CVector3 *vPos, int flags)
 	if(SetChannel(Channel)!= AL_STOPPED)
 	{
 		AW.ChannelLock = -1;
-		osSetThreadPri(NULL, ospri);
+		audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 		return 0;
 	}
 
@@ -612,7 +627,7 @@ INT16 playElement(INT32 VirtualHandle, CVector3 *vPos, int flags)
 	}
 
 	AW.ChannelLock = -1;
-	osSetThreadPri(NULL, ospri);
+	audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 	return 0;
 }
 
@@ -825,7 +840,7 @@ void EnqueSFX(int Channel, INT32 VirtualHandle, CVector3 *vPos)
 	// check if there is any room in the que
 
 	ospri = osGetThreadPri(NULL);
-	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK);
+	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK); audioSynthLock();
 
 	//
 	// Move an entry from the available queue to the wait queue
@@ -860,7 +875,7 @@ void EnqueSFX(int Channel, INT32 VirtualHandle, CVector3 *vPos)
 	AW.VoiceChannels[DUMMY_CHANNEL].VirtualHandle = -1;
 	AW.VoiceChannels[DUMMY_CHANNEL].PhysicalHandle = -1;
 
-	osSetThreadPri(NULL, ospri);
+	audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 
 }
 
@@ -981,7 +996,7 @@ INT16 modifySFX(INT32 VirtualHandle)
 
 
 	ospri = osGetThreadPri(NULL);
-	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK);
+	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK); audioSynthLock();
 
 	sndplayer = &AW.SndPlayerList;
 	// this should work, will have to check this later
@@ -995,7 +1010,7 @@ INT16 modifySFX(INT32 VirtualHandle)
 
 	if (SetChannel(Channel) == AL_STOPPED)
 	{
-		osSetThreadPri(NULL, ospri);
+		audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 		return 0;
 	}
 
@@ -1007,7 +1022,7 @@ INT16 modifySFX(INT32 VirtualHandle)
 #endif
    alSndpSetPan(Sndp, sndptr->Pan);
    alSndpSetVol(Sndp, sndptr->Vol*__GlobalSFXscalar);
-	osSetThreadPri(NULL, ospri);
+	audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 	return 0;
 }
 
@@ -1022,7 +1037,7 @@ void killSoundType(int nType)
 
 
 	ospri = osGetThreadPri(NULL);
-	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK);
+	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK); audioSynthLock();
 
 	sndplayer = &AW.SndPlayerList;
 	for (i=0; i < MAX_VOICES_ALL; i++)
@@ -1038,7 +1053,7 @@ void killSoundType(int nType)
 		}
 	}
 
-	osSetThreadPri(NULL, ospri);
+	audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 }
 
 
@@ -1064,7 +1079,7 @@ void killCFX(INT32 VirtualHandle)
 		return;
 
 	ospri = osGetThreadPri(NULL);
-	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK);
+	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK); audioSynthLock();
 
 	//
 	// We need to check through the waiting queue for this SFX and remove it
@@ -1130,7 +1145,7 @@ void killCFX(INT32 VirtualHandle)
 //		}
 	}
 
-	osSetThreadPri(NULL, ospri);
+	audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 }
 
 
@@ -1151,7 +1166,7 @@ void killAllSFX(void)
 
 	OSPri				ospri;
 	ospri = osGetThreadPri(NULL);
-	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK);
+	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK); audioSynthLock();
 
 	//rmonPrintf("Killall...\n");
 
@@ -1172,7 +1187,7 @@ void killAllSFX(void)
 		pChannel++;
 	}
 
-	osSetThreadPri(NULL, ospri);
+	audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 
 }
 
@@ -1250,7 +1265,7 @@ void UpdateSoundVector(int CFXhandle, CVector3 *NewPos)
 
 	OSPri				ospri;
 	ospri = osGetThreadPri(NULL);
-	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK);
+	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK); audioSynthLock();
 
 
 	pChannel = &AW.VoiceChannels[0];
@@ -1263,7 +1278,7 @@ void UpdateSoundVector(int CFXhandle, CVector3 *NewPos)
 			pChannel++;
 	}
 
-	osSetThreadPri(NULL, ospri);
+	audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 }
 
 void UpdateSoundPitch(int CFXhandle, FLOAT NewPitch)
@@ -1277,7 +1292,7 @@ void UpdateSoundPitch(int CFXhandle, FLOAT NewPitch)
 
 	OSPri				ospri;
 	ospri = osGetThreadPri(NULL);
-	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK);
+	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK); audioSynthLock();
 
 
 	pChannel = &AW.VoiceChannels[0];
@@ -1293,7 +1308,7 @@ void UpdateSoundPitch(int CFXhandle, FLOAT NewPitch)
 			pChannel++;
 	}
 
-	osSetThreadPri(NULL, ospri);
+	audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 }
 
 void UpdateSoundVolume(int CFXhandle, INT16 NewVolume)
@@ -1304,7 +1319,7 @@ void UpdateSoundVolume(int CFXhandle, INT16 NewVolume)
 
 	OSPri				ospri;
 	ospri = osGetThreadPri(NULL);
-	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK);
+	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK); audioSynthLock();
 
 
 	pChannel = &AW.VoiceChannels[0];
@@ -1320,7 +1335,7 @@ void UpdateSoundVolume(int CFXhandle, INT16 NewVolume)
 			pChannel++;
 	}
 
-	osSetThreadPri(NULL, ospri);
+	audioSynthUnlock(); osSetThreadPri(NULL, ospri);
 }
 
 #if 0
