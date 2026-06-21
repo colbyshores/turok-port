@@ -394,6 +394,52 @@ its own init and prints nothing):
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
+- **★★ ARM11 (3DS) BYTE-ALIGNMENT SWEEP — found+eliminated, verified on the real ARM binary (2026-06-21,
+  commit `fee2e4e`, 10-agent Workflow + objdump/UBSan).** N64 assets are big-endian blobs streamed into byte
+  buffers then cast to typed structs and read field-by-field. x86 tolerates the misaligned loads; **ARM11
+  (ARMv6K) FAULTS** on the strict forms modern devkitARM GCC emits: **`vldr`** (float), **`ldrd`/`strd`** (8-byte),
+  **`ldm`/`stm`** (GCC's fusion of a ≥12-byte struct copy). A single integer **`ldr`/`ldrh` is unaligned-tolerant**
+  (SCTLR.U=1, 3DS default), so a u32/u16 read of a misaligned buffer does NOT fault — **the fault surface is
+  exactly a FLOAT/struct read whose base traces to a byte-parsed asset buffer.** (This is why UBSan-on-x86
+  under-reports: x86 buffers land 4-aligned at runtime and the faulting forms only exist in ARM codegen.)
+  **★ THE AUTHORITATIVE TOOL is `arm-none-eabi-objdump -d build_3ds/turok.elf --disassemble=<fn>`** grepped for
+  the strict forms with a non-stack base; UBSan (`tools/build_port.sh ubsan`, `-fsanitize=alignment`) is the x86
+  cross-check (its FLOAT findings map to `vldr`). **`port/include/turok_align.h`** (new, force-included via
+  turok_port.h) provides the fix accessors — `turok_rd_f32/u32/u16/s16/s32` (route a buffer read through an
+  integer `ldr` into an aligned local; ARM-verified to emit `ldr`, never `vldr`) + a **noinline**
+  `turok_memcpy_unaligned` (byte loop GCC can't re-fuse to `ldm`). **Codegen-neutral on x86** (compile to a plain
+  `mov`), so a single fix is correct on PC+3DS — verified by **pixel-IDENTICAL** PC capture vs baseline.
+  - **★ SYSTEMIC (would abort at boot): `memory.c i3D_mallocPool`** — GCC fused the `next`(+4)/`addr`(+8) field
+    stores into one `strd` at a 4-mod-8 address → a **data abort on EVERY pool allocation** on ARM11. Broke the
+    fusion with a compiler barrier (`PLATFORM_3DS`-gated). This one alone would have made the 3DS build
+    unrunnable the instant it reached `main`.
+  - **Asset/collision parsers** (float-only via accessor; integer reads left as safe `ldr`; struct copies via
+    `turok_memcpy_unaligned`; all `PLATFORM_PORT`/`3DS`-gated, **ORDERBYTES byte-swap preserved**):
+    `romstruc.c` (GetGroundNormal corner CVector3 `ldm`, CalculateOrientationMatrix CROMBounds `ldrd`),
+    `scene.c` (WarpPointsReceived warp-point struct copy `ldm`), `geometry.c` (m_cMorph float RMW),
+    `anim.c` (DecompressAnim m_Scale/m_vOffset), `particle.c` (impact m_ImpactEventNumber, 3 sites), and the
+    **collision family** `unicol.c`/`regicol.c`/`wallcoll.c`/`wradcol.c`/`map.c` (region-corner CVector3 reads
+    from the streamed collision buffer — the dominant per-frame buffer-float source), plus the `unpack.c:232`
+    RNC ULONG read (a safe `ldr`, wrapped anyway for a clean UBSan run).
+  - **KEY INSIGHT (low-churn rule): `ORDERBYTES` already protects most CROM\* reads** — its union-bswap forces an
+    integer `ldr`+`rev` (never `vldr`), so the big named decoders (TakeFromROMObjectInstance, Simple/Static)
+    needed NO change; their "strict" instrs are writes to the aligned pool-allocated `pThis`. Only GCC's
+    **aggregate-copy fusion** (`ldm`/`ldrd`/`strd`) and the **raw float reads NOT wrapped in ORDERBYTES** drop
+    below the 4/8 threshold from a buffer — those are the real bugs.
+  - **Audio path confirmed alignment-clean** (one agent rate-limited; I audited it): `turokBnkfNew`/
+    `turokCSeqHeaderSwap`/`turokAudioLoadBankFromROM` read banks/headers as integers/offsets only; `alCSeqNew`
+    (untracked `cseq.c`) reads the seq buffer only as `u32` (trackOffset/division → `ldr`) and writes floats to
+    the aligned ALCSeq object.
+  - **Verified:** clean 3DS relink; objdump confirms zero buffer-base `vldr`/`ldrd`/`ldm` remain in every fixed
+    function (remaining strict instrs are stack spills or aligned static/heap bases); PC **UBSan run = ZERO
+    misaligned findings**; render byte-IDENTICAL to baseline (warp 0 + 6000); patrol+audio+music rc=0, 0
+    `[CAMTRACK]`/`[CANARY]` anomalies across warps 0/2000/3000/6000/8000. **LESSON: on ARM11 the fault surface is
+    float/struct reads from byte-parsed buffers — find them by disassembling the ACTUAL ARM elf for `vldr`/`ldrd`/
+    `ldm` with a non-stack base, not by UBSan-on-x86 (which can't see ARM codegen) nor by fixing every misaligned
+    integer read (those are safe `ldr`). And watch the allocator: a fused `strd` on a 4-mod-8 node field aborts
+    every malloc.** (This is necessary groundwork for 3DS hardware; it does NOT fix the separate pre-`main`
+    libctru `srvInit` boot hang, which is still user-gated via Mandarine.)
+
 - **`src/PR/tengine/pp.h`** — widened the RNC-types guard from `#ifdef WIN32` to
   `#if defined(WIN32) || defined(PLATFORM_PORT)` so the runtime RNC decompressor (`unpack.c`/`huffman.c`,
   method-2 = Huffman) builds on the host. (We need it to decode the cart's RNC assets.)
