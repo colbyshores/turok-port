@@ -683,8 +683,32 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   (`~/Desktop/citra/mandarine.AppImage`) with `baserom.us.v12.z64` on the virtual SD at `sdmc:/3ds/turok/`;
   `boot.log` on the SD shows where it faults. **ARM byte-alignment fixes** (ARMv6K faults on unaligned
   LDM/LDRD/VLDR — the big-endian asset parsers are the suspects) are crash-driven from there (same methodology
-  as the PC port), + heap/dspfirm tuning. Mandarine can't be booted headless from this sandbox (GUI AppImage,
-  needs a display + SD setup), so M2+ needs the user's interactive run.
+  as the PC port), + heap/dspfirm tuning.
+- **★★ 3DS BOOT HANG — pinpointed via gdb to libctru `srvInit` (2026-06-21). THE GDB METHODOLOGY (reusable):**
+  the build BOOTS but hangs before reaching the game's `main`. Mandarine's gdbstub DOES work (despite the first
+  impression) — the breakthrough was process hygiene + a robust harness. **★ PROCESS GOTCHA (cost hours): the
+  Mandarine AppImage forks a child named `AppRun.wrapped` under `/tmp/.mount_mandar*/` — `pkill -i mandarine`
+  NEVER matches it, so launches STACK UP (5+ instances all holding the single gdbstub port 24689), making every
+  gdb run flaky/stale. Kill with `pkill -9 -f "AppRun.wrapped"; pkill -9 -f "\.mount_mandar"`.** Other harness
+  rules: (a) a backgrounded Mandarine dies (SIGHUP) when the Bash call returns — run Mandarine + gdb in ONE
+  blocking call; (b) POLL for the port (`ss -ltn | grep :24689`) before connecting, not a fixed sleep; (c) the
+  gdbstub does NOT support async interrupt of a running `continue` (SIGINT won't break a hang) — use BREAKPOINTS
+  + `stepi`, not interrupt; (d) enable via `~/.config/mandarine-emu/qt-config.ini` `use_gdbstub=true` AND
+  `use_gdbstub\default=false` (the `\default=true` flag makes Mandarine ignore the value) — it logs
+  `Debug.GDBStub: Waiting for gdb to connect`; (e) Mandarine's log file flushes only on graceful close, and it
+  does NOT surface `svcOutputDebugString` — the SD `boot.log` (per-line fflush) is the only code-trace channel,
+  but it needs sdmc (mounted late in `__appInit`), so use gdb for anything pre-sdmc. **THE FINDING:** breakpoints
+  on the boot chain trace `_start → initSystem → __libctru_init (__system_initSyscalls, __system_allocateHeaps)
+  → __appInit (appInit.c:14, REACHED) → srvInit (REACHED + executing — stepped through osGetKernelVersion at
+  srv.c:29-32)`. `__appInit`'s disasm is `bl srvInit; bl aptInit; bl hidInit; bl fsInit; bl archiveMountSdmc`;
+  the `aptInit` breakpoint is NEVER hit → **srvInit does not return → the hang is the srv: service connection
+  inside libctru `srvInit`** (a blocking `svc` — svcConnectToPort/IPC — Mandarine isn't answering for Turok,
+  though it does for banjo+PD). RULED OUT (all via the now-working gdb / earlier tests): BSS size (tested
+  15.9→3.26 MB, below PD's 2.1 MB), `__stacksize__`, symbol overrides, the heap split, `-fno-short-enums`, the
+  C++ ctors (init_array not reached). **NEXT:** one clean gdb run setting a breakpoint after srvInit's
+  `svcConnectToPort` to confirm the exact blocking syscall, then diff Turok's srv:/environment setup against PD
+  (`../perfect_dark`) + sm64-port (`../sm64-port`, the user-provided complete N64→3DS Citro3D reference) — both
+  use the same libctru and boot, so the difference is the loader environment / a Turok-specific binary trait.
 - **★ ANGLE-WRAP HANG CLASS (Item 4) — fixed; all 8 level warps load+render, no hang.** Three iterative
   angle-normalization `while` loops spin ~1e17× (hang) on a garbage/huge angle from an unspawned AI off-N64.
   Replaced with O(1) `fmodf` wraps under PLATFORM_PORT: `graphu64.c NormalizeRotation` (turning toward an

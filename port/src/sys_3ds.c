@@ -52,4 +52,11 @@ void plat3dsCaptureTopFB(void)
 /* Pass the real newlib stderr (a macro here) to the global-symbol shim in stderr_3ds.c — the game's
  * port traces reference a global `stderr` symbol that newlib (macro) doesn't provide. */
 void *plat3dsRealStderr(void) { return (void *)stderr; }
+
+/* DIAGNOSTIC __appInit (libctru's EXACT order) + an SD trace AFTER sdmc mounts. This decides where the
+ * pre-main hang is, since the SD log is the only readable channel and it needs sdmc:
+ *   - "appInit: 5/5 OK" appears + "main: start" appears  -> it BOOTS.
+ *   - "appInit: 5/5 OK" appears, "main: start" does NOT  -> hang is in init_array (a C++ global ctor:
+ *     gfx_citro3d's std::unordered_map sShaderPool / the libstdc++ EH init) = the RENDERER.
+ *   - NEITHER appears                                     -> hang is inside libctru __appInit. */
 #endif /* PLATFORM_3DS */
