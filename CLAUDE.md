@@ -937,6 +937,26 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     division) — swap it at load; the event stream past it is byte-oriented and endian-neutral. And a leaked DEV tree
     may ship a subsystem stubbed OFF (here music `LoadSeq return FALSE`) — re-enable + endian-fix it, don't assume the
     leak's default state is the shipped one.**
+  - **★★ AUDIO-THREAD DEADLOCK (the c6e12dc fix was INCOMPLETE) — COMPLETED (2026-06-21, commit 1aad5fe).** User
+    hit a freeze; the watchdog showed the MAIN thread STUCK in `audioSynthLock`(pthread_mutex_lock) inside
+    `CEngineApp__UpdateGAME` = the audio thread was holding `s_synthLock` and spinning forever. Root: the N64
+    serialises **~12** audio-event-queue critical sections (the per-frame SFX channel updates `alSndpSetVol/
+    SetPitch/Play/Stop`, alloc/dealloc, CSP — in `audio.c` + `audiocfx.c`) by raising to `PRIORITY_AUDIOLOCK`
+    via `osSetThreadPri`, a NO-OP in the cooperative port. **c6e12dc only converted 3** (DoSoundEffect,
+    SetAudioVolume, SetupSeq); the other ~9 stayed unlocked → the game thread's per-frame SFX mutations raced the
+    dedicated audio thread and spliced the libaudio event list into a CYCLE → the audio thread spins in the list
+    walk holding `s_synthLock` → the game thread blocks on `audioSynthLock` forever. **Fix: every
+    `osSetThreadPri(NULL, PRIORITY_AUDIOLOCK)` acquire now also `audioSynthLock()`, every `osSetThreadPri(NULL,
+    ospri)` restore `audioSynthUnlock()`** — the recursive synthLock is the port's faithful replacement for the
+    N64 priority lock at ALL 12 sections. Balanced (each acquire matched by an ospri restore on every path;
+    recursive mutex handles the nested PlayEnvironmentSound→SetCFX* case); `audioSynthLock/Unlock` are no-ops
+    off-PLATFORM_PORT. **GOTCHA: `frontend.c:999` ALSO uses `PRIORITY_AUDIOLOCK` but for a frame-buffer DMA, NOT
+    an audio-queue mutation — left UNWRAPPED (correct).** The watchdog now also backtraces the AUDIO thread
+    (SIGUSR2 via `audioThreadSignal`) before exiting — the main-thread backtrace only ever shows it blocked on
+    the lock, so the real loop is in the audio thread. Verified: heavy-audio stress (warps 0/3000/6000/8000,
+    music + continuous fire, 30s real-time each, watchdog armed) all rc=0, NO deadlock, audio captured.
+    **LESSON: when porting an N64 audio engine, EVERY `osSetThreadPri(PRIORITY_AUDIOLOCK)` critical section is a
+    serialisation point vs the (now-real) audio thread — convert them ALL to the synthLock, not a sampling.**
   - **★★ AUDIO-THREAD RACE = the "locks up, no crash dump" FREEZE — FIXED (2026-06-18, commit c6e12dc, on master).**
     User: "the game has been locking up quite a bit.. just locking up no crash dump" + "music is playing but sdl2
     crashed". Root cause: the synth runs on the dedicated audio thread (`port/audio.c`) holding the recursive
