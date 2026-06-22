@@ -1041,8 +1041,19 @@ void CCamera__DisplayListSetup(CCamera *pThis, Gfx **ppDLP)
 	}
 	else
 	{
+#ifdef PLATFORM_3DS
+		/* PORT: the PICA renders the top screen rotated 270°, so the N64 viewport/scissor X axis maps to
+		 * physical-VERTICAL and Y to physical-HORIZONTAL (gfx_citro3d applyViewport). The warp zoom is a
+		 * screen-space scale applied through that viewport, so the portal stretch — authored on the N64-Y
+		 * (vertical) axis — comes out HORIZONTAL on the rotated panel. Swap the warp scale axes so the
+		 * stretch renders vertical (matching PC/N64). Symmetric at the zoom endpoint (no-op there); the
+		 * mid-animation asymmetric stretch is what this corrects. Scissor stays consistent (same scales). */
+		pThis->m_PixelXScale = 1 * pThis->m_WarpYScale ;
+		pThis->m_PixelYScale = 1 * pThis->m_WarpXScale ;
+#else
 		pThis->m_PixelXScale = 1 * pThis->m_WarpXScale ;
 		pThis->m_PixelYScale = 1 * pThis->m_WarpYScale ;
+#endif
 
 		ScaleX = ((float)SCREEN_WD * 2 * pThis->m_PixelXScale) ;
 		ScaleY = ((float)SCREEN_HT * 2 * pThis->m_PixelYScale) ;
