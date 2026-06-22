@@ -2532,6 +2532,12 @@ static void replayRange(const C3D_Mtx *eyeTf, int start, int end) {
             curMono = cmd->is2d;
             C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, sUniTransform, curMono ? &sMonoTf : (C3D_Mtx *)eyeTf);
         }
+        // ★ A draw that WANTS a texture (tex0>0) but whose texture is INVALID (upload OOM-skipped /
+        // not yet loaded → sTexValid[tex0]==false) would otherwise leave the PREVIOUS draw's texture
+        // bound on unit 0 and SAMPLE it — the TEV chain reads stale texels. For the torch flame's
+        // PSEUDOCOLOR combiner this collapses to a solid yellow prim block (the "yellow squares
+        // around torches" bug). The N64 intent for a missing texture is no-show: SKIP the draw.
+        if (cmd->tex0 > 0 && !sTexValid[cmd->tex0] && !cmd->fbBind) continue;
         applyViewport(cmd);
         applyCmdState(cmd);
         C3D_DrawArrays(GPU_TRIANGLES, cmd->vboOffset, cmd->vertCount);
