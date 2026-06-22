@@ -172,8 +172,8 @@ extern "C" void plat3dsBootLog(const char *msg); // sys_3ds.c — boot/diagnosti
 // band; near pops out, far recedes). NOTE: SHEAR_W=0.012 (the earlier value) wrongly put convergence at
 // ~51u, FLATTENING the play band — that is why it "looked the same". Keep SHEAR_Z POSITIVE (a negative
 // value inverts depth -> near recedes = pseudoscopic). Tune on HW via turok.cfg stereo_z/stereo_w.
-#define STEREO_SHEAR_Z 0.05f
-#define STEREO_SHEAR_W 0.003f
+#define STEREO_SHEAR_Z 0.10f
+#define STEREO_SHEAR_W 0.006f
 static float sShearZ = STEREO_SHEAR_Z;   // runtime copies (turok.cfg override; swept on HW, no rebuild)
 static float sShearW = STEREO_SHEAR_W;
 
