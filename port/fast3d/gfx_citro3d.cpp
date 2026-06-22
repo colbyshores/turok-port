@@ -165,8 +165,15 @@ extern "C" void plat3dsBootLog(const char *msg); // sys_3ds.c — boot/diagnosti
 // leaving only the near-plane HUD with depth. (sm64_3ds uses the same shear with a non-zero
 // w-term = 1/iodW.) Convergence depth: z/w = -SHEAR_W/SHEAR_Z. Mandarine reads the slider as 0
 // (mono), so these are tunable ONLY on real hardware — exposed via turok.cfg stereo_z/stereo_w.
-#define STEREO_SHEAR_Z 0.04f
-#define STEREO_SHEAR_W 0.012f   // ★ was 0.00f — the fix for flat level geometry (~51u convergence)
+// ★ Matched to Forsaken's off-axis stereo SHAPE (disparity strongest at near, falling toward far).
+// SHEAR_Z = depth/pop strength; SHEAR_W = the constant convergence term. Convergence (zero-disparity)
+// depth = where SHEAR_Z*NDCz = -SHEAR_W, i.e. NDCz = -SHEAR_W/SHEAR_Z. For Turok's near=16/far=1024,
+// NDCz = 0.0159 - 16.25/depth, so W/Z=0.06 -> NDCz=-0.06 -> convergence ~190u (out past the look-at
+// band; near pops out, far recedes). NOTE: SHEAR_W=0.012 (the earlier value) wrongly put convergence at
+// ~51u, FLATTENING the play band — that is why it "looked the same". Keep SHEAR_Z POSITIVE (a negative
+// value inverts depth -> near recedes = pseudoscopic). Tune on HW via turok.cfg stereo_z/stereo_w.
+#define STEREO_SHEAR_Z 0.05f
+#define STEREO_SHEAR_W 0.003f
 static float sShearZ = STEREO_SHEAR_Z;   // runtime copies (turok.cfg override; swept on HW, no rebuild)
 static float sShearW = STEREO_SHEAR_W;
 
