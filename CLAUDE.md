@@ -730,7 +730,36 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   `boot.log` on the SD shows where it faults. **ARM byte-alignment fixes** (ARMv6K faults on unaligned
   LDM/LDRD/VLDR — the big-endian asset parsers are the suspects) are crash-driven from there (same methodology
   as the PC port), + heap/dspfirm tuning.
-- **★★★ 3DS BOOT HANG — CORRECTED + DEEPLY root-caused (2026-06-21, commit `dafde8d`). The "srvInit" entry just
+- **★★★★ 3DS PRE-MAIN BOOT HANG — SOLVED (2026-06-21, commit `e1a6b47`). ROOT CAUSE = Turok's custom `memset`
+  overriding newlib's.** `src/PR/tengine/memory.c` defines its own `memset` (for the N64 bare-metal build, under
+  `#ifndef WIN32`) — a correct byte-loop, but when statically linked on 3DS it **SHADOWS newlib's `memset`**, and
+  **libctru's own code calls `memset`** (notably `threadCreate`, which zeroes the new thread's stack/TLS). libctru's
+  `aptInit` creates the APT event-handler thread (the 2nd thread) via `threadCreate → svcCreateThread`; with Turok's
+  `memset` shadowing newlib's, that thread creation **HANGS**, so `aptInit` never returns and the game never reaches
+  `main`. **FIX:** gate Turok's `memset` out on `PLATFORM_3DS` so newlib's optimised, ABI-correct `memset` is used
+  (PC keeps Turok's — its system threading uses glibc's internal `memset`, so the override is harmless there; PC
+  build+run verified unaffected). **VERIFIED on Mandarine via gdb: full Turok now hits `[New Thread 2]` → `hidInit`
+  (aptInit done) → `main` → `turokConfigLoad` → `romdataInit` (ROM/cartdata load) → `turokGfxInit` (Citro3D init).**
+  **★ HOW IT WAS FOUND (the method that cracked it): MINIMAL-REPRO BISECTION.** Build a near-empty `main.c` 3dsx with
+  Turok's EXACT flags/specs/libs and gdb-probe whether it reaches `main`. Findings (all via gdb on clean Mandarine —
+  the no-gdb `boot.log` method is UNRELIABLE because repeated Mandarine launches WEDGE it, so a "hang" there can be a
+  wedge, not the binary): vanilla minimal BOOTS; +Turok-flags (`-mtp=soft -fno-short-enums` etc.) BOOTS; +16 MB BSS
+  BOOTS; +2 MB `__stacksize__` BOOTS; +the `__system_allocateHeaps` override BOOTS — so it's NOT flags/size/stack/heap.
+  Full Turok hangs even at 9.6 MB BSS → it's CONTENT, not size. Then: a **symbol-intersection of Turok's objects vs
+  newlib `libc.a`** (NOT just libctru.a — that was the earlier blind spot) found the ONLY override: **`memset`**. The
+  gdb pin (hung right at `threadCreate`'s `memset` call) matched. **LESSON: when a static port HANGS pre-`main` in
+  libctru and every config/size variant of a minimal repro boots, check whether the game overrides a libc/newlib
+  function libctru calls (`memset`/`memcpy`/`malloc`/locks) — intersect the game's defined symbols against BOTH
+  libctru.a AND libc.a. A legacy bare-metal game commonly ships its own `memset`/`memcpy`; on a hosted libc those
+  MUST NOT shadow the system ones, or libctru's internal calls hit the game's version pre-`main`.** **NEXT = the
+  in-`main` game boot** (asset load + the crash-driven ARM byte-alignment work) continues from `turokGfxInit`. The
+  `__system_allocateHeaps` headroom override (commit `dafde8d`, verified safe via the minimal repro) + the gated
+  diagnostic `__appInit` are KEPT. **★ REUSABLE HARNESS: `/tmp/boot_probe.sh <gdb-cmds> <elf> <3dsx>`** (kills
+  `AppRun.wrapped`/`.mount_mandar`, launches Mandarine + polls `:24689`, runs `gdb-multiarch -batch` timeout-bounded —
+  hung `continue` ⇒ rc 124, last printed breakpoint = the hang boundary). Give Mandarine a ~40 s cooldown between
+  runs or it wedges. The minimal-repro builds live in `/tmp/min*.c`.
+- **★★★ [SUPERSEDED by the SOLVED entry above — the cause was Turok's `memset` override, found via minimal-repro
+  bisection] 3DS BOOT HANG — CORRECTED + DEEPLY root-caused (2026-06-21, commit `dafde8d`). The "srvInit" entry just
   below is SUPERSEDED: `srvInit` does NOT hang.** A fresh gdb-on-Mandarine pass on the current build proved the
   boot chain runs `srvInit` to completion (`svcConnectToPort` returns, `srvRegisterClient`'s `svcSendSyncRequest`
   returns) and reaches **`aptInit`**, where it hangs. Pinned further with breakpoints on `aptInit`'s internals:
