@@ -1041,8 +1041,19 @@ void CCamera__DisplayListSetup(CCamera *pThis, Gfx **ppDLP)
 	}
 	else
 	{
+#ifdef PLATFORM_3DS
+		/* PORT (Bug B): the warp zoom is UNIFORM (m_WarpXScale==m_WarpYScale; FINAL 4.0/4.0, radii 4.0) and
+		 * the N64 realizes it via an OVERSIZED viewport. The PICA can't render through a viewport larger than
+		 * the panel — applyViewport clamps it asymmetrically and the 270° rotation turns that into a HORIZONTAL
+		 * stretch. So keep the 3DS viewport/scissor NORMAL (PixelScale=1) and publish the zoom to the Citro3D
+		 * backend, which applies it in CLIP SPACE (buildTransform) = a uniform, upright zoom. 1.0 when idle. */
+		pThis->m_PixelXScale = 1.0f ;
+		pThis->m_PixelYScale = 1.0f ;
+		g_turok_warp_zoom = pThis->m_WarpXScale ;
+#else
 		pThis->m_PixelXScale = 1 * pThis->m_WarpXScale ;
 		pThis->m_PixelYScale = 1 * pThis->m_WarpYScale ;
+#endif
 
 		ScaleX = ((float)SCREEN_WD * 2 * pThis->m_PixelXScale) ;
 		ScaleY = ((float)SCREEN_HT * 2 * pThis->m_PixelYScale) ;

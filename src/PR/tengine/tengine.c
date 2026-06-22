@@ -2473,6 +2473,7 @@ void CEngineApp__DoWarp(CEngineApp *pThis,
 {
 	CGameObjectInstance *pPlayer;
 
+	TUROK_TRACE("A: DoWarp enter");
 	if (pThis->m_Warp == WARP_NOT_WARPING)
 	{
 		if (StoreWarpReturn)
@@ -4129,7 +4130,9 @@ void CEngineApp__Main(CEngineApp *pThis)
 							}
 							else
 #endif
+							{ TUROK_TRACE("A: RESETLEVEL -> Construct(m_WarpID) [teleporter reload]");
 							CScene__Construct(&pThis->m_Scene, pThis->m_WarpID) ;
+							TUROK_TRACE("A: RESETLEVEL Construct(m_WarpID) returned"); }
 
 							// so doesn't ask if you wanna save again
 							CTurokMovement.JustEnteredSaveRegion = FALSE ;
@@ -4140,6 +4143,7 @@ void CEngineApp__Main(CEngineApp *pThis)
 
 						// Call after CScene__Construct!!
 						CCamera__Construct(&pThis->m_Camera) ;
+						TUROK_TRACE("A: reset block done (camera constructed, weapon reloaded)");
 
 						// Construct fx system - swooshes etc
 						CFxSystem__Construct(&pThis->m_FxSystem) ;
@@ -4763,8 +4767,10 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	 * camera all keep working with a valid region. Detected once per frame here, before the draw runs the
 	 * player's collision. (The Collision3 entry guard still covers the same-frame window before this.) */
 	{ CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
-	  if (_pl && PORT_REGION_BAD(_pl->ah.ih.m_pCurrentRegion))
-	    _pl->ah.ih.m_pCurrentRegion = CScene__NearestRegion(&pThis->m_Scene, &_pl->ah.ih.m_vPos); }
+	  if (_pl && PORT_REGION_BAD(_pl->ah.ih.m_pCurrentRegion)) {
+	    TUROK_TRACE("A: per-frame re-acquire (region bad) -> NearestRegion");
+	    _pl->ah.ih.m_pCurrentRegion = CScene__NearestRegion(&pThis->m_Scene, &_pl->ah.ih.m_vPos);
+	    TUROK_TRACE("A: per-frame re-acquire done"); } }
 #endif
 
 #ifdef PLATFORM_PORT

@@ -57,5 +57,20 @@ static __inline__ float turok_wrap_pi(float a) {
     return a;
 }
 
+/* ── 3DS hang/crash trace ─────────────────────────────────────────────────────────────────
+ * TUROK_TRACE("...") writes one line to sdmc:/3ds/turok/boot.log (per-line fflush) when
+ * `debug 1` is set in turok.cfg (gated inside plat3dsBootLog by g_cfg_debug). The LAST line
+ * before a freeze/crash = where it hung. No-op on PC and when debug is off. Use it to bracket
+ * a suspect span (e.g. the teleporter warp -> level reset -> region re-acquire chain). */
+#ifdef PLATFORM_3DS
+extern void plat3dsBootLog(const char *);
+#define TUROK_TRACE(s) plat3dsBootLog(s)
+/* Bug B: the camera warp zoom, published to the Citro3D backend (gfx_citro3d buildTransform applies it in
+ * clip space instead of the N64 oversized viewport the PICA can't render). 1.0 = not warping. */
+extern float g_turok_warp_zoom;
+#else
+#define TUROK_TRACE(s) ((void)0)
+#endif
+
 #endif /* PLATFORM_PORT */
 #endif /* _TUROK_PORT_H */

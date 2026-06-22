@@ -2230,7 +2230,16 @@ static void gfx_citro3d_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size
 // ---------------------------------------------------------------------------
 
 // Build the combined transform. eyeSign: 0 = mono, -1 = left, +1 = right.
-static void buildTransform(C3D_Mtx *m, float eyeSign, float level) {
+// ── Warp zoom (Bug B) ────────────────────────────────────────────────────────────────────
+// The teleporter "stretch" is the N64 camera warp zoom (a UNIFORM scale, FINAL_X==FINAL_Y==4.0,
+// both radii 4.0). The N64 realizes it with an oversized VIEWPORT; the PICA can't render through a
+// viewport larger than the panel, so applyViewport clamps it ASYMMETRICALLY (only the far edges) and
+// the rotation turns that into the reported horizontal stretch. Fix: camera.c keeps the 3DS viewport
+// NORMAL and publishes the zoom here; buildTransform applies it in CLIP SPACE (scaling the rotated
+// output x/y rows = a uniform zoom about the panel centre, rotation-correct). 1.0 = not warping.
+extern "C" { float g_turok_warp_zoom = 1.0f; }
+
+static void buildTransform(C3D_Mtx *m, float eyeSign, float level, float zoom) {
     // outpos.x = inpos.y           (270° panel rotation)
     // outpos.y = -inpos.x + shear  (physical-horizontal after rotation)
     // outpos.z = inpos.z           ★ PASS-THROUGH: gfx_pc now emits the final pre-perspective z=(z_orig-w)/2
@@ -2253,6 +2262,12 @@ static void buildTransform(C3D_Mtx *m, float eyeSign, float level) {
                                          m->r[1].w = -oxf + eyeSign * sShearW * level;
     m->r[2].x = 0.f;   m->r[2].y = 0.f;  m->r[2].z = 1.f;  m->r[2].w = 0.f;
     m->r[3].x = 0.f;   m->r[3].y = 0.f;  m->r[3].z = 0.f;  m->r[3].w = 1.f;
+    // Uniform warp zoom in clip space: scale the output x/y rows so the geometry zooms about the panel
+    // centre (ndc.xy *= zoom after /w). Replaces the N64 oversized-viewport zoom the PICA can't do.
+    if (zoom != 1.0f) {
+        m->r[0].x *= zoom; m->r[0].y *= zoom; m->r[0].z *= zoom; m->r[0].w *= zoom;
+        m->r[1].x *= zoom; m->r[1].y *= zoom; m->r[1].z *= zoom; m->r[1].w *= zoom;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2971,7 +2986,7 @@ static void gfx_citro3d_end_frame(void) {
     C3D_Mtx tf;
     float level = gfx3dsStereoLevel();
     bool stereo = gfx3dsStereoActive() && level > 0.0f;
-    buildTransform(&sMonoTf, 0.f, level);   // ★ no-shear transform for the HUD-flatten (eyeSign=0)
+    buildTransform(&sMonoTf, 0.f, level, 1.0f);   // ★ no-shear transform for the HUD-flatten (eyeSign=0); HUD never warp-zooms
 
     // Single-pass stereo: the geometry VBO is uploaded once; only the per-eye `transform`
     // changes. replayCommands folds it into each draw's full MVP (× MP_full for GPU-MVP
@@ -2999,7 +3014,7 @@ static void gfx_citro3d_end_frame(void) {
     if (doCapture) sPrevSceneCapPending = false;   // consume only when we actually capture (else keep for next indirect frame)
 
     // Left / main eye
-    buildTransform(&tf, stereo ? -1.f : 0.f, level);
+    buildTransform(&tf, stereo ? -1.f : 0.f, level, g_turok_warp_zoom);
 #ifdef BK_TRACE
     /* Present-path discriminator (trace builds only): clear MAGENTA instead of
      * black. Screen shows magenta -> target->transfer->display works and the
@@ -3021,7 +3036,7 @@ static void gfx_citro3d_end_frame(void) {
     if (stereo) {
         C3D_RenderTarget *right = (C3D_RenderTarget *)gfx3dsTopTarget(1);
         if (right) {
-            buildTransform(&tf, 1.f, level);
+            buildTransform(&tf, 1.f, level, g_turok_warp_zoom);
             if (useIndirect) {
                 renderEyeIndirect(right, &tf, copyIdx, false);   // re-renders the shared sGameFbTex per eye (no re-capture)
             } else {

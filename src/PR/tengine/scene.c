@@ -90,6 +90,7 @@ void		CScene__SetInstanceFlagByIndex(CScene *pThis, int nInstance, BOOL Set) ;
 
 void CScene__Construct(CScene *pThis, int nWarpID)
 {
+	TUROK_TRACE("A: CScene__Construct enter");
 	TRACE1("CScene construction -- Warp ID:%d\r\n", nWarpID);
 
 	pThis->m_nWarpID = nWarpID;
@@ -147,6 +148,7 @@ void CScene__Construct(CScene *pThis, int nWarpID)
 
 	// Reset misc
 	pThis->m_cSendStaticEventsFrame = 0 ;
+	TUROK_TRACE("A: CScene__Construct done (cartridge-index requested, load chain running)");
 }
 
 void CScene__Destruct(CScene *pThis)
@@ -4479,6 +4481,7 @@ CGameRegion* CScene__NearestRegion(CScene *pThis, CVector3 *pvPos)
 	CIndexedSet		isCollision ;
 	CUnindexedSet	usRegions ;
 
+	TUROK_TRACE("A: NearestRegion enter");
 	// Collision data should already be in RAM when this is called
 	ASSERT(pThis->m_pceCollision) ;
 
@@ -4527,6 +4530,7 @@ CGameRegion* CScene__NearestRegion(CScene *pThis, CVector3 *pvPos)
 	CUnindexedSet__Destruct(&usRegions) ;
 	CIndexedSet__Destruct(&isCollision) ;
 
+	TUROK_TRACE("A: NearestRegion exit");
 	return pDesired ;
 }
 
