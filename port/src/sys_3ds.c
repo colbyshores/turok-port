@@ -111,6 +111,11 @@ void plat3dsBootLog(const char *msg)
 {
     static int started = 0;
     FILE *f;
+    /* Diagnostics OFF by default — a clean play build writes no boot.log / debug spam. Re-enable the
+     * boot + trace logging with turok.cfg `debug 1`. (g_cfg_debug defaults 0; the few BL() lines before
+     * turokConfigLoad runs are simply skipped, which is fine.) */
+    extern int g_cfg_debug;
+    if (!g_cfg_debug) return;
     if (!msg) return;
     svcOutputDebugString(msg, (int)strlen(msg));   /* Luma3DS / Mandarine debug console */
     if (!started) mkdir(TUROK_BOOTLOG_DIR, 0777);  /* best-effort (the ROM lives there too) */

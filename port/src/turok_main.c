@@ -55,15 +55,6 @@ void turokVideoSwap(void *frameBuf)
     g_frame++;
     if (g_frame <= 8 || (g_frame % 60) == 0)
         fprintf(stderr, "[turok] frame %ld\n", g_frame);
-#ifdef PLATFORM_3DS
-    /* RW-loop render-liveness trace -> boot.log: if these appear, mainproc IS looping + presenting. */
-    if (g_frame == 1 || g_frame == 5 || (g_frame % 120) == 0) {
-        extern void plat3dsBootLog(const char *);
-        char b[48];
-        snprintf(b, sizeof b, "mainproc: presented frame %ld", g_frame);
-        plat3dsBootLog(b);
-    }
-#endif
     /* NOTE: capture is done in turokGfxEndFrame (keyed to REAL render frames), NOT here —
      * turokVideoSwap is also called by the osRecvMesg frame-pump on non-render ticks. */
     if (g_max_frames && g_frame >= g_max_frames)
