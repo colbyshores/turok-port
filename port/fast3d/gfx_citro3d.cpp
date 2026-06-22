@@ -251,6 +251,8 @@ typedef struct {
     int16_t  vpX, vpY, vpW, vpH;
     int16_t  scX, scY, scW, scH; bool scissorOn;
     bool     clearDepth;       // this cmd is a mid-frame depth-buffer reset (gun-on-top)
+    bool     is2d;             // ★ 2D HUD/sprite (orthographic, vertex w==1) — replayed with NO stereo
+                               // shear so it sits at the same screen pos in both eyes (flat, no ghosting)
     // §7.1 3b — framebuffer effects (scope/lens). fbOp=1 ⇒ this cmd is the copy_framebuffer STREAM-SPLIT
     // marker: end_frame splits the recorded stream here (scene → game-fb, then lens → eye). fbBind
     // (non-NULL) ⇒ this draw samples that FB tex as tex0 (FIX A: the lens samples sGameFbTex directly,
@@ -2184,6 +2186,10 @@ static void gfx_citro3d_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size
     cmd->scissorOn = stScissorOn;
     cmd->clearDepth = false;
     cmd->fbOp = 0;
+    // ★ 2D HUD/sprite detection: gfx_draw_rectangle emits ortho verts with w==1.0 exactly; 3D world
+    // geometry's perspective w spans ~16..1024 and is never 1.0. buf_vbo[3] is vertex-0's clip w
+    // (pos is the first 4 floats). Flagged draws are replayed WITHOUT the stereo shear (see replayRange).
+    cmd->is2d = (buf_vbo[3] > 0.99f && buf_vbo[3] < 1.01f);
     cmd->fbBind = sPendingFbBind;   // §7.1 3b: persists across the effect's many line-draws until a
                                     // normal select_texture (or another select_texture_fb) changes it
 #if PD_DEBUG3DS
@@ -2494,11 +2500,19 @@ static void fbBlit(C3D_Tex *src, int orient, float u0, float u1, float v0, float
 // render targets as a pure FORWARD chain of C3D_FrameDrawOn switches (NO FrameSplit, never returning to a
 // prior target) — the only reliable mid-frame pattern on C3D (§7.1 3b twitch fix; cf. Forsaken's 3-target,
 // 0-split discipline). fbOp==1 (copy_framebuffer) is just a STREAM-SPLIT MARKER here and is skipped.
+// ★ The no-stereo-shear ("mono") transform — panel rotation + PICA depth remap, eyeSign=0 (no shear).
+// Built once per frame in end_frame; replayRange swaps to it for 2D HUD draws so they have ZERO eye
+// disparity (flat/readable) even under strong world stereo. Same in both eyes by construction.
+static C3D_Mtx sMonoTf;
+
 static void replayRange(const C3D_Mtx *eyeTf, int start, int end) {
     // gfx_pc does the full MVP on the CPU and emits clip-space pos; the vshader applies
     // only the per-eye `transform` (panel rotation × PICA depth remap × stereo). It is
-    // constant for this range (incl. the clearDepth quads), so upload it once.
+    // constant for this range (incl. the clearDepth quads), so upload it once — then swap to
+    // sMonoTf for any 2D HUD draw and back, re-uploading only on a transition (the HUD is
+    // contiguous at frame end, so this is ~1-2 uniform writes, not per-draw).
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, sUniTransform, (C3D_Mtx *)eyeTf);
+    bool curMono = false;
     sCurFogOn = false;    // FOG: force the first fogged draw of this pass to (re)bind (each eye/range resets)
     for (int i = start; i < end; i++) {
         const DrawCmd *cmd = &sCmds[i];
@@ -2513,6 +2527,10 @@ static void replayRange(const C3D_Mtx *eyeTf, int start, int end) {
             C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_DEPTH);
             C3D_DrawArrays(GPU_TRIANGLES, cmd->vboOffset, cmd->vertCount);
             continue;
+        }
+        if (cmd->is2d != curMono) {               // ★ flatten the HUD: mono transform for 2D, eye transform for 3D
+            curMono = cmd->is2d;
+            C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, sUniTransform, curMono ? &sMonoTf : (C3D_Mtx *)eyeTf);
         }
         applyViewport(cmd);
         applyCmdState(cmd);
@@ -2947,6 +2965,7 @@ static void gfx_citro3d_end_frame(void) {
     C3D_Mtx tf;
     float level = gfx3dsStereoLevel();
     bool stereo = gfx3dsStereoActive() && level > 0.0f;
+    buildTransform(&sMonoTf, 0.f, level);   // ★ no-shear transform for the HUD-flatten (eyeSign=0)
 
     // Single-pass stereo: the geometry VBO is uploaded once; only the per-eye `transform`
     // changes. replayCommands folds it into each draw's full MVP (× MP_full for GPU-MVP
