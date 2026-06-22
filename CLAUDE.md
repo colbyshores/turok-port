@@ -389,6 +389,50 @@ its own init and prints nothing):
   fix (usually a missing `ORDERBYTES` on a big-endian asset value) → rebuild → repeat. Each cycle advances the
   boot one crash further.
 
+### 11.1 ★ THE RALPH WIGGUM LOOP — autonomous 3DS boot bring-up (launch → trace → fix → repeat)
+
+> *"I'm helping!"* — a deliberately dumb, persistent loop: keep launching, read where it died, fix that one
+> thing, launch again. Each turn advances the boot exactly one hang/crash further. Run it AUTONOMOUSLY until
+> the game reaches its loop / renders a frame / plays audio — don't stop to ask between iterations.
+
+**The loop (one iteration):**
+1. **Build** the change: `make -f Makefile.3ds` → `build_3ds/turok.3dsx` (the 3DS make is NOT NFS-stale like the
+   PC one; it's fine. After a PC-shared file also `tools/build_port.sh` to confirm PC still builds.)
+2. **Health-check Mandarine** (it WEDGES after ~5-10 rapid launches — the #1 time-sink): `pkill -9 -f
+   'AppRun.wrapped'; pkill -9 -f '\.mount_mandar'` (the AppImage child is `AppRun.wrapped`, NOT matched by
+   `pkill mandarine`), then a **~40 s cooldown** before relaunch. NEVER `rm -rf /tmp/.mount_mandar*` while one is
+   live — it corrupts the AppImage mount and Mandarine then exits-on-launch (empty log) until a long recovery.
+3. **Launch + trace.** Two channels, pick per need:
+   - **boot.log (FAST, default):** gdbstub OFF (`~/.config/mandarine-emu/qt-config.ini use_gdbstub=false`),
+     `DISPLAY=:1 ~/Desktop/citra/mandarine.AppImage build_3ds/turok.3dsx`, wait ~30 s, read
+     `~/.local/share/mandarine-emu/sdmc/3ds/turok/boot.log`. **The LAST line = where it hung/crashed** (written by
+     `plat3dsBootLog`, aka the `BL("…")` macro in turok_main.c, per-line fflush). To narrow, add more `BL("…")`
+     trace points around the suspect span and rebuild. (Stage the ROM at `…/sdmc/3ds/turok/baserom.us.v12.z64`.)
+   - **gdb (RELIABLE pin, slower):** gdbstub ON; harness `/tmp/boot_probe.sh <gdb-cmds> <elf> <3dsx>` (polls
+     `:24689`, runs `gdb-multiarch -batch` timeout-bounded — a hung `continue` ⇒ rc 124, last printed breakpoint
+     = the hang boundary; `[New Thread N]` = a thread was created). Use when boot.log is too coarse or Mandarine's
+     no-gdb path is being flaky.
+4. **Diagnose + fix the ONE thing**, then go to 1. The recurring 3DS hang/crash classes (fix-and-advance):
+   - **hosted-libc shadow** — the game ships its own `memset`/`memcpy`/etc. (memory.c) that statically SHADOWS
+     newlib's, and libctru calls it pre-`main` → hang. Gate the override out on `PLATFORM_3DS`. (THE pre-main fix,
+     commit `e1a6b47`. Detect by intersecting game symbols vs BOTH `libctru.a` AND `libc.a`.)
+   - **emulator-unsupported blocking call** — e.g. `ndspInit()` BLOCKS in Mandarine without `dspfirm.cdc` instead
+     of returning an error → gate it behind a flag / skip (commit `27f2932`, `audio_3ds` cfg).
+   - **ARM byte-alignment fault** (ARMv6K) — a `vldr`/`ldrd`/`ldm` on a misaligned byte-parsed buffer → the
+     `turok_align.h` accessors (see the alignment sweep). A data-abort shows in the Luma crash dump / a gdb SIGSEGV.
+   - **N64 null-tolerance / endianness** — same classes the PC boot hit; fix the same way (guards / `ORDERBYTES`).
+5. **Audio verification (the "pipe the audio" tooling).** The classic-ABI synth+mixer is PC-validated; to hear/
+   measure SFX+music, capture the game's synthesized PCM to a WAV and analyze it (no speakers needed):
+   `TUROK_FPS=30 TUROK_FAKEINPUT=5 TUROK_AUDIO_WAV=/tmp/a.wav TUROK_MUSIC=1 <pc-build>` + frames = seconds×30
+   (the headless audio recipe), then inspect peak / %-active / dominant frequency. On the **3DS** path, audio is
+   gated off until `ndspInit` works (the DSP-firmware item); once on, capture Mandarine's PulseAudio out
+   (`parec`/`pacat`) to a WAV and analyze the same way. Use audio as a liveness signal too (silence vs. a tone vs.
+   real SFX tells you how far the synth got).
+
+**Stop conditions:** the game reaches `mainproc`/its frame loop, renders a non-black frame (capture the
+Mandarine top-FB via `plat3dsCaptureTopFB` / a screenshot), or a genuine product decision / a wedged emulator
+that needs a human (e.g. dumping `dspfirm.cdc`, a Mandarine restart). Otherwise: keep looping.
+
 ## 10. Port edits to game source (keep this log honest)
 
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
