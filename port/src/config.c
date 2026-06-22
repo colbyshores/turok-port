@@ -21,6 +21,7 @@ int   g_cfg_walk_default = 0;        /* 0 = run, 1 = walk  */
 int   g_cfg_win_w        = 1280;     /* TUROK_WIN_W */
 int   g_cfg_win_h        = 1024;     /* TUROK_WIN_H */
 int   g_cfg_audio_3ds    = 0;        /* 3DS: 1 = call ndspInit (needs dspfirm.cdc); 0 = skip (boots silent) */
+int   g_cfg_warp         = -1;       /* 3DS bring-up: warp-to-level id (0,1000..8000); -1 = normal legal-screen boot */
 
 static const char *cfg_path(void)
 {
@@ -52,6 +53,7 @@ void turokConfigLoad(void)
         else if (!strcmp(key, "window_width"))      g_cfg_win_w        = (int)val;
         else if (!strcmp(key, "window_height"))     g_cfg_win_h        = (int)val;
         else if (!strcmp(key, "audio_3ds"))         g_cfg_audio_3ds    = (int)val ? 1 : 0;
+        else if (!strcmp(key, "warp"))              g_cfg_warp         = (int)val;
     }
     fclose(f);
 

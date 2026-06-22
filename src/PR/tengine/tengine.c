@@ -3903,10 +3903,19 @@ void CEngineApp__Main(CEngineApp *pThis)
 						{
 							extern char *getenv(const char *);
 							const char *w = getenv("TUROK_WARP");
+							int id = -1;
 							if (w && *w)
 							{
-								int id = 0; const char *p = w;
-								while (*p >= '0' && *p <= '9') id = id * 10 + (*p++ - '0');
+								int v = 0; const char *p = w;
+								while (*p >= '0' && *p <= '9') v = v * 10 + (*p++ - '0');
+								id = v;
+							}
+#ifdef PLATFORM_3DS
+							/* 3DS has no env vars (getenv -> NULL); take the warp from turok.cfg `warp <id>`. */
+							else { extern int g_cfg_warp; if (g_cfg_warp >= 0) id = g_cfg_warp; }
+#endif
+							if (id >= 0)
+							{
 								pThis->m_WarpBase = id;
 								pThis->m_WarpID   = id;
 								pThis->m_Mode     = MODE_RESETLEVEL;
