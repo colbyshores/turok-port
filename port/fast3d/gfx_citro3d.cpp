@@ -2655,13 +2655,13 @@ static void gfx_citro3d_init(void) {
     // the compromise tier). New-3DS keeps the bake. [Provisional — OG untested without hardware.]
     { bool n3 = false; APT_CheckNew3DS(&n3); if (!n3) sAutoBake = 0; }
 
-#if PD_BAKE_THREAD
-    bakeThreadStart();   // async facade-bake worker (N3DS only — self-gates OG; bakethread.txt also gates it)
-#endif
-    /* turok.cfg `bake 0` => disable facade baking entirely (raw facades, no bake hitch). Default 1 =
-     * baking on; with PD_BAKE_THREAD it runs on the spare core so it shouldn't stall the main frame.
-     * (The worker thread, if started, just idles when sAutoBake is 0.) */
+    /* turok.cfg `bake` toggle. DEFAULT 0 (off) for Turok: its organic outdoor art rarely hits the
+     * PICA tiled-UV precision case the bake fixes (unlike PD's tiled corridors; cf. sm64-port, which
+     * bakes nothing). `bake 1` re-enables the async facade bake on the spare core. */
     { extern int g_cfg_bake; if (!g_cfg_bake) sAutoBake = 0; }
+#if PD_BAKE_THREAD
+    if (sAutoBake) bakeThreadStart();   // only spin up the worker (+ its linearAlloc scratch) when baking is on
+#endif
     setupPipeline();
 }
 
