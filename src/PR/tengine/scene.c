@@ -2845,6 +2845,12 @@ int CScene__DoSoundEffect(CScene *pThis,
 	 * mutating; initCFX/PlayEnvironmentSound copy field values), and never stores the pointer, so a
 	 * stack copy is safe + avoids corrupting the shared (and possibly re-streamed) cart block. */
 	{ extern int turok_audio_ready; if (!turok_audio_ready) return -1; }
+#ifdef PLATFORM_3DS
+	/* 3DS: audio output is off by default (ndsp skipped); the SFX dispatch (DoSoundElement) then derefs a
+	 * NULL sound element on host (unmapped Read @ +0xC/+0xE), crashing the level. Gate it on the same
+	 * audio_3ds flag — default 0 => no SFX dispatch => silent + stable. Re-enable with `audio_3ds 1`. */
+	{ extern int g_cfg_audio_3ds; if (!g_cfg_audio_3ds) return -1; }
+#endif
 #endif
 
 	if (!cache_is_valid)

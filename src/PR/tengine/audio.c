@@ -1863,7 +1863,16 @@ BOOL LoadSeq(int nTune)
 	 * ALCMidiHdr (turokCSeqHeaderSwap) before alCSeqNew parses it — without that swap the track offsets
 	 * are wild pointers and alCSeqNew SIGSEGVs. Validated rc=0 + continuous music on warps
 	 * 0/3000/6000/8000 (MusicID 0/14/5/8). TUROK_MUSIC=0 disables. */
+#ifdef PLATFORM_3DS
+	/* 3DS: the CSP music player reads a WILD track pointer mid-playback (unmapped Read16 @ ~0xEA000014 in
+	 * __CSPHandleMIDIMsg, csplayer.c — an ARM-codegen/alignment issue in the untracked event parser) and
+	 * crashes the level after a variable number of frames. Audio OUTPUT is off by default anyway (ndsp
+	 * skipped, see audio_3ds.c), so gate music on the SAME audio_3ds flag: default 0 => no music => no CSP
+	 * => the level is stable. Re-enable with turok.cfg `audio_3ds 1` once the csplayer ARM parse is fixed. */
+	{ extern int g_cfg_audio_3ds; if (!g_cfg_audio_3ds) return FALSE; }
+#else
 	{ static int m=-1; if(m<0){const char*e=getenv("TUROK_MUSIC"); m=(e&&!atoi(e))?0:1;} if(!m) return FALSE; }
+#endif
 #else
 //	if (!cache_is_valid)
 		return FALSE;
