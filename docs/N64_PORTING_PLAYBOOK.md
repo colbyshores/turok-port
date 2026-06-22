@@ -360,6 +360,44 @@ Audio is its own world. The DSP is portable; the friction is the ABI, the addres
   **stubbed OFF** (e.g. a `LoadSeq` that just `return FALSE`s) — re-enable the load path; don't assume the leak's
   default state is what shipped.
 
+## 14. The GPU pipeline: Fast3D transforms on the CPU — keep it there
+
+The single biggest architectural fact about a Fast3D-based port (`gfx_pc.cpp`, the SM64→Banjo→PD→Turok lineage):
+**the vertex transform happens on the CPU, not the GPU.** Fast3D *interprets* the N64 RSP display list, and the
+real RSP did the MVP transform in fixed-function microcode and emitted screen/clip-space verts for the RDP. `gfx_pc`
+faithfully emulates that — it does the **full MVP on the CPU** and hands the backend **already-projected clip-space**
+geometry. The GPU vertex shader is almost a pass-through (on 3DS it adds only the panel rotation + PICA depth remap).
+This is the opposite of a native-engine port (e.g. **Forsaken**, whose Citro3D renderer uploads model-space verts +
+MVP uniforms and lets the **GPU** transform). The difference dictates several decisions:
+
+- **★★ Do NOT "move the MVP to the GPU."** It looks like a free win (offload math to the GPU vertex shader), but it
+  is a **regression** for a Fast3D port: the interpreter already computed the transform on the CPU, so a GPU-MVP path
+  either redundantly re-transforms or forces you to ship un-projected verts the rest of the pipeline doesn't expect.
+  **Empirically: Perfect Dark took a measurable performance HIT when GPU-MVP was enabled** — the CPU-transform path
+  is faster for these ports. The CPU pass is unavoidable (it's what Fast3D *is*); adding a GPU transform on top only
+  costs. (Forsaken can afford GPU-MVP precisely because it has *no* CPU transform to begin with.)
+- **★ Single-pass stereo: shear the clip space, don't re-project.** Because the projection is already baked into the
+  verts on the CPU, you **cannot change the projection per eye** without re-running the whole CPU interpreter (≈2× the
+  dominant cost). So PD/Turok apply stereo as a **post-projection clip-space shear** — record the draw stream once,
+  then replay it for the second eye with a small per-eye `transform` that adds `eyeSign·(SHEAR_Z·z + SHEAR_W·w)` to the
+  horizontal clip coord (after the perspective divide that's a depth-proportional disparity = parallax). The heavy CPU
+  pass is **shared** between eyes; only a cheap shear differs. A native renderer (Forsaken) does the *geometrically
+  correct* thing instead — an **off-axis projection shift per eye** (re-upload proj, GPU re-transforms) — which is fine
+  for it because the GPU does the transform anyway. **Neither is "drift": each method fits its pipeline.** The shear is
+  a slight approximation (it ignores the per-eye scale change of a true off-axis frustum), but at the 3DS's tiny IOD it
+  is visually indistinguishable and **the only cheap option for Fast3D.** Porting the off-axis method into a Fast3D
+  engine would double the CPU cost; the proof is Forsaken's *own* non-Fast3D fallback backend (picaGL), which has no
+  record-replay and therefore **disables stereo entirely** ("no display-list replay = half framerate").
+- **Record-once / replay-per-eye is the enabling trick.** The backend records the CPU-transformed draw stream
+  (`sCmds`/VBO uploaded once) and replays it; mono = one replay, stereo = two with different shear. This is also why
+  the per-eye cost is *draw submission*, not geometry — so the real stereo optimization is **deduping per-draw GPU
+  state in the replay** (only re-issue depth/blend/TEV/viewport/scissor/texbind when it changes), which speeds up the
+  mono frame too. (See `docs/3DS_PERFORMANCE.md` for the full per-frame optimization list.)
+- **Lesson:** when a "speed up the GPU" idea appears for a Fast3D port, first ask *where the transform happens*. The
+  CPU already did it — most "use the GPU more" ideas just add a second copy of work. The genuine GPU-side wins are
+  about **what you submit** (state-change batching, texture format/bandwidth, draw count via game-side culling), not
+  about re-deriving geometry the interpreter already produced.
+
 ---
 
 *Distilled 2026-06-18 from the Turok: Dinosaur Hunter port (incl. the full classic-ABI audio pipeline: threaded

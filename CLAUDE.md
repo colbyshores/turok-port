@@ -2016,3 +2016,28 @@ user to confirm mouse turn/look SIGN + scroll direction (can't be headless-teste
 `turok.3dsx` in Mandarine (ROM at `sdmc:/3ds/turok/baserom.us.v12.z64`) → `boot.log` shows where it faults →
 ARM byte-alignment + boot fixes are crash-driven from there. **Next autonomous (unblocked):** the M5
 collision-streaming root fix; the in-game options menu UI (after input-feel confirm).*
+
+*Status: **★ 3DS RUNTIME + PERF PASS (2026-06-22).** The 3DS build now boots+plays in Mandarine (level 1, HUD,
+weapon, controls). 3DS runtime fixes this session, ALL gated behind `PLATFORM_3DS` (PC ground-truth build
+byte-for-byte unchanged): (1) **frame-pacing judder** = the documented 30Hz-logic/~30Hz-present BEAT — fixed
+with a precise `svcGetSystemTick` clock + `svcSleepThread` cap (newlib `clock_gettime`/`nanosleep` are
+unreliable on 3DS) + tunable `turok.cfg` `fps`/`tick` (3DS default = beat-free locked 30); commit `03d85a2`.
+(2) **area-entry "stop-the-world" stutter** = synchronous PD-style facade texture BAKING on the main thread
+(Turok never pre-warms bakes like PD); enabled the vendored bake worker on the spare core (`PD_BAKE_THREAD=1`,
+commit `37dbf8d`) then **defaulted baking OFF** (`bake 0`; Turok's organic art rarely needs the PICA tiled-UV
+bake — cf. sm64-port; commit `2114386`). Confirmed NOT SD-streaming (`romPiRead` memcpy's the RAM-resident
+cartdata blob) and NOT SD-logging (`plat3dsBootLog` gated on `g_cfg_debug`). The 8MB cart-pool experiment was
+tried + REVERTED (didn't help — first-touch decompress, not LRU thrash). **★ A 9-dimension multi-agent PERF
+AUDIT vs Perfect Dark → [`docs/3DS_PERFORMANCE.md`](docs/3DS_PERFORMANCE.md)** (the prioritized optimization
+TODO). Diagnosis: the renderer is the SAME vendored PD code, so the deficit is (a) one saturated ARM11 core
+(the spare core 2 is idle; the N64's triple-buffered DL overlap is thrown away by the synchronous dispatch),
+(b) per-element overheads that scale with Turok's bigger scenes (redundant per-draw GPU state, `f64` math from
+the leaked source's unsuffixed `double` literals, un-tick-gated `DoAI`/`Advance`, `RGBA8` textures, always-on
+hot-path debug). **★★ CRITICAL: do NOT benchmark these on Mandarine — it doesn't model ARM11 cost; get an
+on-device PROF capture first.** **★ STEREO/GPU-MVP ARCHITECTURE finding → [playbook §14](docs/N64_PORTING_PLAYBOOK.md):**
+Fast3D does the MVP on the CPU and hands the GPU pre-projected clip-space verts, so single-pass stereo is a
+clip-space SHEAR (reuse the one CPU pass for both eyes), NOT Forsaken's GPU-MVP off-axis projection-shift —
+and **enabling GPU-MVP measurably HURT Perfect Dark**, confirming CPU-transform is correct for these ports.
+Don't port Forsaken's stereo method here. **Next:** wire the PROF profiler + land the low-risk quick wins
+(per-draw state dedup, strip hot-path debug, `-fno-math-errno -ffp-contract=fast -freciprocal-math`, RGBA5551
+textures), then measure on real hardware before the render-thread split.*
