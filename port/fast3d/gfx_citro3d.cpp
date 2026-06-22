@@ -157,10 +157,18 @@ extern "C" void plat3dsBootLog(const char *msg); // sys_3ds.c — boot/diagnosti
 #define BAKE_SRC_MAX    128   // only keep/bake small source textures (the tiled facades)
 #define TEX_POOL_USABLE (TEX_POOL_SIZE - BAKE_RESERVE) // gfx_pc allocates only below this
 
-// Stereo shear strength (depth-proportional, scaled by the 3D slider). Tuned on
-// hardware; Mandarine can't show stereo separation. See CLAUDE.md §4.3.
+// Stereo shear (per-eye, scaled by the 3D slider). The per-eye horizontal disparity is
+// SHEAR_Z*(z/w) + SHEAR_W. SHEAR_Z is the depth-proportional term; SHEAR_W is the CONSTANT
+// convergence term that survives the perspective divide and moves the zero-disparity (screen)
+// plane OFF the far plane onto mid-scene — without it (W=0) the whole level converges at the
+// far plane and, because z/w is 1/z-compressed, collapses to ~0 disparity = FLAT geometry,
+// leaving only the near-plane HUD with depth. (sm64_3ds uses the same shear with a non-zero
+// w-term = 1/iodW.) Convergence depth: z/w = -SHEAR_W/SHEAR_Z. Mandarine reads the slider as 0
+// (mono), so these are tunable ONLY on real hardware — exposed via turok.cfg stereo_z/stereo_w.
 #define STEREO_SHEAR_Z 0.04f
-#define STEREO_SHEAR_W 0.00f
+#define STEREO_SHEAR_W 0.012f   // ★ was 0.00f — the fix for flat level geometry (~51u convergence)
+static float sShearZ = STEREO_SHEAR_Z;   // runtime copies (turok.cfg override; swept on HW, no rebuild)
+static float sShearW = STEREO_SHEAR_W;
 
 // Top screen target is the portrait framebuffer: 240 wide x 400 tall.
 #define TOP_W 240
@@ -2228,8 +2236,8 @@ static void buildTransform(C3D_Mtx *m, float eyeSign, float level) {
     const float syf = 2.0f / (kGY1 - kGY0), oyf =  1.0f - syf * kGY1;
     Mtx_Zeros(m);
     m->r[0].x = 0.f;   m->r[0].y = syf;  m->r[0].z = 0.f;  m->r[0].w = oyf;
-    m->r[1].x = -sxf;  m->r[1].y = 0.f;  m->r[1].z = eyeSign * STEREO_SHEAR_Z * level;
-                                         m->r[1].w = -oxf + eyeSign * STEREO_SHEAR_W * level;
+    m->r[1].x = -sxf;  m->r[1].y = 0.f;  m->r[1].z = eyeSign * sShearZ * level;
+                                         m->r[1].w = -oxf + eyeSign * sShearW * level;
     m->r[2].x = 0.f;   m->r[2].y = 0.f;  m->r[2].z = 1.f;  m->r[2].w = 0.f;
     m->r[3].x = 0.f;   m->r[3].y = 0.f;  m->r[3].z = 0.f;  m->r[3].w = 1.f;
 }
@@ -2659,6 +2667,11 @@ static void gfx_citro3d_init(void) {
      * PICA tiled-UV precision case the bake fixes (unlike PD's tiled corridors; cf. sm64-port, which
      * bakes nothing). `bake 1` re-enables the async facade bake on the spare core. */
     { extern int g_cfg_bake; if (!g_cfg_bake) sAutoBake = 0; }
+    /* turok.cfg stereo_z / stereo_w — on-device tuning of the 3D shear without a rebuild
+     * (stereo is only visible on real hardware; -1 = use the compiled defaults). */
+    { extern float g_cfg_stereo_z, g_cfg_stereo_w;
+      if (g_cfg_stereo_z >= 0.f) sShearZ = g_cfg_stereo_z;
+      if (g_cfg_stereo_w >= 0.f) sShearW = g_cfg_stereo_w; }
 #if PD_BAKE_THREAD
     if (sAutoBake) bakeThreadStart();   // only spin up the worker (+ its linearAlloc scratch) when baking is on
 #endif
