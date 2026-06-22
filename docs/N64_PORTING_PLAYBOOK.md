@@ -419,6 +419,16 @@ transform stage is **separable**, and that's what splits the two port types:
   the per-eye cost is *draw submission*, not geometry — so the real stereo optimization is **deduping per-draw GPU
   state in the replay** (only re-issue depth/blend/TEV/viewport/scissor/texbind when it changes), which speeds up the
   mono frame too. (See `docs/3DS_PERFORMANCE.md` for the full per-frame optimization list.)
+- **Even moving the WHOLE per-vertex pipeline to the GPU ("full hardware T&L") doesn't free a Fast3D port.** Two
+  things stay on the CPU regardless: the per-frame **DL walk** (opcode dispatch, segment resolution, state tracking,
+  the combiner→TEV key build, texture cache) and the per-vertex **VBO pack** (N64 tile-UV / shade / prim / fog
+  expansion — RDP state, not model-space, so it *can't* move to the GPU) — together ≥50% of the interpreter's cost.
+  And on PICA specifically there's a hard blocker: no `GL_DEPTH_CLAMP`/geometry-shader means the **near-clip is a CPU
+  clip-space op with no hardware home**, so clip-space can never fully leave the CPU. Perfect Dark built the full
+  pipeline and measured a wash; the scope is multi-week with an unfalsifiable-in-emulator payoff. The CPU levers that
+  actually work are **threading** (offload the *whole* walk to a spare core — byte-identical, no fidelity risk) and
+  **retained-mode / DL caching** (skip re-walking static geometry), NOT pushing T&L to the GPU. (Full Turok scoping:
+  `docs/3DS_PERFORMANCE.md`.)
 - **Lesson:** when a "speed up the GPU" idea appears for a Fast3D port, first ask *where the transform happens*. The
   CPU already did it — most "use the GPU more" ideas just add a second copy of work. The genuine GPU-side wins are
   about **what you submit** (state-change batching, texture format/bandwidth, draw count via game-side culling), not

@@ -219,13 +219,54 @@ The renderer is the *same vendored PD code*, so the deficit is **not** the backe
 - **`-ffast-math` is banned** — it deletes the NaN freeze-guards the port relies on.
 - **Single-pass stereo is already correct and efficient** — see the architecture note below; nothing to do.
 - **GPU-MVP (move the CPU vertex transform to the PICA shader) — investigated, NOT worth it.** Partially detachable
-  (position is attribute-independent; `NoN` removes the CPU near-clip), but the CPU-computed clip-space is entangled
-  with four stages (trivial-reject, back-face cull, the 3DS Sutherland-Hodgman near-clip, per-vertex fog) + the
-  single-pass stereo shear. **Decisive proof: Perfect Dark built it on a `3ds-gpu-mvp` branch and measured a WASH
-  (~9.0 vs ~9.2 ms) that doesn't free CPU cycles** (the MVP gets *duplicated* CPU+GPU; naive/skinning variants
-  regressed). The multiply is only ~15-40% of one per-vertex stage and the rest of the walk stays on the CPU. The
-  better lever for the idle core is **B1 (render-thread split)** — it offloads the whole walk, not just the multiply.
-  Gate on M1 (PROF) first. *(Full feasibility analysis: the `turok-gpu-mvp-feasibility` workflow, 2026-06-22.)*
+  (position is attribute-independent — lighting/uv already bake into the vertex on the CPU), but the CPU-computed
+  clip-space is entangled with four stages (trivial-reject, back-face cull, the **3DS-added** Sutherland-Hodgman
+  near-clip, per-vertex fog) + the single-pass stereo shear. **Decisive proof: Perfect Dark built it on a
+  `3ds-gpu-mvp` branch and measured a WASH (~9.0 vs ~9.2 ms) that doesn't free CPU cycles** (the MVP gets *duplicated*
+  CPU+GPU; naive/skinning variants regressed). The multiply is only ~15-40% of one per-vertex stage and the rest of
+  the walk stays on the CPU. The better lever for the idle core is **B1 (render-thread split)** — it offloads the
+  whole walk, not just the multiply. Gate on M1 (PROF) first. *(Full feasibility analysis: the
+  `turok-gpu-mvp-feasibility` workflow, 2026-06-22; the full-rework scope is below.)*
+
+---
+
+## Full hardware-T&L rework — scoped (don't pursue as a perf play)
+
+The bigger sibling of GPU-MVP: move the **entire** per-vertex pipeline (transform + lighting + texgen + fog +
+cull + near-clip) onto the PICA so the CPU stops computing clip-space. Scoped in depth (`turok-full-hw-tnl-scope`
+workflow, 2026-06-22). **Verdict: a ~6-stage, 4-8 person-week rework whose ceiling is a WASH — do not pursue it as
+a performance play.** Two facts kill it, plus a Turok-specific blocker:
+
+1. **It removes per-vertex *math*, not the *DL walk* — or even the per-vertex *pack*.** Every frame the CPU still
+   re-walks ~50 opcodes (G_VTX unpack, segment resolution, G_MTX decode + 2× 4×4 mul, the combiner→TEV key build,
+   texture cache, G_DL recursion) **plus the per-vertex VBO pack** (UV tile-shift, shade/prim/env/fog float
+   expansion) — and that pack is *comparable in cost to the transform and cannot move to the GPU* (it's N64 RDP
+   tile state, not model-space UV). So "full" T&L still leaves **≥50% of `gfx_pc` on the CPU**.
+2. **★ The NoN near-clip has no PICA home (the project-unique blocker).** The PICA has no `GL_DEPTH_CLAMP` and no
+   geometry shader, so the 3DS port *added* a CPU Sutherland-Hodgman near-clipper (`gfx_pc.cpp` ~1522-1588). That's
+   intrinsically a clip-space op — if `gfx_sp_vertex` stops emitting clip-space, there's nothing to clip. Every
+   escape (keep it on CPU / see-through-wall holes / z-clamp slivers) re-introduces a paid-for bug or keeps the CPU
+   MVP for the geometry **closest to the camera**. So "the CPU stops computing clip-space entirely" is **not
+   achievable** for Turok.
+3. **Unfalsifiable in the dev loop + already measured a loss.** Mandarine measures the *inverse* of real PICA
+   (per-draw matrix uploads dominate the emulator, are ~free on hardware) — PD's full build was **2.2× slower in
+   Mandarine** and a CPU **wash (9.0 vs 9.2 ms)** on hardware; dropping CPU cull alone was −9% to −22% on real
+   New-3DS busy scenes, and PD **deferred** the cull-winding stage ("a winding minefield"). You'd build it blind,
+   confirmable only by netloading to a physical 3DS.
+
+**Staged plan (if ever pursued):** (0) profile on real HW first — only justified if provably transform-bound;
+(1) object-space vertex core + `use_gpu_mvp` gate, byte-identical off — *hard*; (2) retire CPU fog (already on the
+PICA fog LUT) + drop trivial-reject — *easy* but submitting off-screen tris to the weak rasterizer was a net loss
+for PD; (3) bone palette from the matrix stack — *very hard*, Turok's `G_MTX_MUL` accumulate on a **64-deep** stack
+overflows the ~10-bone PICA uniform budget on bosses → constant CPU fallback on the heavy objects (PD softlocked
+here); (4) **NoN near-clip + GPU cull winding** — *very hard / make-or-break*, wrong winding = world renders
+inside-out; (5) skip the CPU MVP — the payoff appears here, which PD measured as a wash.
+
+**Better levers (order of preference):** **B1 render-thread split** (offloads the *entire* walk byte-identically,
+zero precision/winding/near-clip risk, the seam already exists) → **retained-mode / DL caching** (attacks the DL
+walk that T&L can't touch — removes transform *and* pack for static sections; shares the object-space-VBO
+prerequisite, adds cart-cache-relocation invalidation hazard) → full HW-T&L only as a *gated-off determinism*
+foundation if an on-device profile ever proves per-vertex transform is the specific bottleneck.
 
 ---
 
