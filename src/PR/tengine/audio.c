@@ -295,11 +295,20 @@ void initAudio(void)
 	romcpy(_sfxctlSegmentRomStart,  AW.SndPlayerList.sfxBankPtr, bankLen);
 	alBnkfNew((ALBankFile *) AW.SndPlayerList.sfxBankPtr, _sfxtblSegmentRomStart);
 #endif
-	AW.SndPlayerList.sfxBank = ((ALBankFile *) AW.SndPlayerList.sfxBankPtr)->bankArray[0];
-	ASSERT(AW.SndPlayerList.sfxBank);
-	//sort sfx
-	inst =  AW.SndPlayerList.sfxBank->instArray[0];
-	SortSounds(inst);
+#ifdef PLATFORM_PORT
+	/* PORT: the SFX bank can fail to load (3DS: no TUROK_ROM env + no dev sfx.ctl on the SD) -> sfxBankPtr
+	 * is NULL. The bankArray/instArray walk below would deref NULL — harmless on N64 (a low-RDRAM read) but a
+	 * data-abort on a protected host / real 3DS HW (Mandarine tolerates it: unmapped Read @ +0xC/+0xE, PC in
+	 * initAudio). Skip it when the bank is absent; audio just stays silent (already gated off on 3DS). */
+	if (AW.SndPlayerList.sfxBankPtr)
+#endif
+	{
+		AW.SndPlayerList.sfxBank = ((ALBankFile *) AW.SndPlayerList.sfxBankPtr)->bankArray[0];
+		ASSERT(AW.SndPlayerList.sfxBank);
+		//sort sfx
+		inst =  AW.SndPlayerList.sfxBank->instArray[0];
+		SortSounds(inst);
+	}
 
 #ifndef DISABLE_SFX
 	 // Initialize the soundplayer
