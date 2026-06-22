@@ -443,6 +443,48 @@ its own init and prints nothing):
 Mandarine top-FB via `plat3dsCaptureTopFB` / a screenshot), or a genuine product decision / a wedged emulator
 that needs a human (e.g. dumping `dspfirm.cdc`, a Mandarine restart). Otherwise: keep looping.
 
+### 11.2 ★ TURN 3DS DEBUGGING ON / OFF (the checklist for "turn on debugging")
+
+A shipped/play build has ALL diagnostics OFF (commit `6d480f2`). When the user says **"turn on debugging"**, flip
+these ON (do all that fit the task; the boot traces + the crash log + gdbstub are the usual trio); **"turn off
+debugging" / "clean build"** = revert them. Most are runtime flags (NO rebuild) — only #4 needs a rebuild.
+
+1. **Boot/trace logging (`plat3dsBootLog` / the `BL("…")` lines + `svcOutputDebugString`).** Runtime, no rebuild.
+   - ON: add a line `debug 1` to `sdmc:/3ds/turok/turok.cfg` (host: `~/.local/share/mandarine-emu/sdmc/3ds/turok/turok.cfg`).
+     Gates `g_cfg_debug` (config.c) → `plat3dsBootLog` (sys_3ds.c). OFF: drop the line (or `debug 0`).
+   - Read the trace at `sdmc:/3ds/turok/boot.log` (host: same path under `…/sdmc/…`). **Last line = where it hung/crashed.**
+     `: > boot.log` (or `rm`) before a run for a fresh trace. Add more `BL("…")` points + rebuild to narrow.
+2. **gdbstub (the gdb debugger — for HANGS).** Emulator setting in `~/.config/mandarine-emu/qt-config.ini`.
+   - ON: `use_gdbstub=true` **AND** `use_gdbstub\default=false` (★ `\default=true` makes Mandarine IGNORE the value;
+     a machine reboot resets it to `true`, so always set both). Port `24689`. OFF: `use_gdbstub=false`.
+   - Harness: `/tmp/boot_probe.sh <gdb-cmds> <elf> <3dsx>` (kills `AppRun.wrapped`/`.mount_mandar`, polls `:24689`,
+     runs `gdb-multiarch -batch`). gdb's `continue` is ASYNC on Mandarine + a guest fault is NOT forwarded as a
+     signal → gdb is good for HANGS (breakpoints + the last-reached one), useless for CRASHES (use #3).
+3. **The Mandarine crash LOG (the faulting PC, no gdb — BEST for a crash).** `log_filter=*:Trace` (qt-config.ini, on)
+   → `~/.local/share/mandarine-emu/log/mandarine_log.txt`. `: > <log>` before a run; a guest wild/NULL deref logs
+   `HW.Memory <Error> … unmapped ReadNN @ 0x<addr> at PC 0x<pc>` → `arm-none-eabi-addr2line -f -e build_3ds/turok.elf
+   0x<pc>`. `@ 0xEA00…`/garbage = wild ptr; `@ 0x0000000C/E` = NULL+offset field (Mandarine returns 0/continues =
+   "tolerated", but a real-HW abort); same-PC repeated = a spin.
+4. **Diagnostic `__appInit` (pre-`main` thread/service probe — ONLY for a pre-main hang).** Needs a rebuild.
+   - ON: add `-DTUROK_DIAG_APPINIT` to `Makefile.3ds` `DEFINES` + `make -f Makefile.3ds`. Strong `__appInit` mirroring
+     libctru's order with clean gdb-breakpoint boundaries + a test-thread probe + `svcOutputDebugString` traces.
+     OFF: drop the define (libctru's weak `__appInit` is the default).
+5. **Audio / ndsp (ONLY to test audio — currently crashes).** Runtime: `audio_3ds 1` in `turok.cfg` → calls
+   `ndspInit` + un-gates music (`LoadSeq`) + SFX (`CScene__DoSoundEffect`). Needs `dspfirm.cdc`; the CSP/SFX ARM-parse
+   bugs are OPEN, so this currently crashes the level (that's why it's off). Default `0` = silent + stable.
+6. **PC-side debugging (the ground-truth target — fastest iteration).** `tools/build_port.sh debug` (-O0 +
+   memcpy/SIGSEGV guard), `tools/build_port.sh ubsan` (-fsanitize=alignment, the ARM-alignment pre-flight),
+   `TUROK_WATCHDOG=1` (backtrace a freeze), `romdata.c` DMA logging. Headless audio: `TUROK_AUDIO_WAV=x.wav`.
+
+**Screenshot the running 3DS game:** Mandarine titles its window **`turok`** (the app name), NOT "mandarine" — so
+`xdotool search --name mandarine` FAILS. Enumerate (`for w in $(xdotool search --all); do … getwindowname == "turok"`),
+pick the LARGER window (~1308×1090; the terminal also matches "turok" by its path), then `import -window <id> out.png`
+(captures even when stacked behind VS Code). Set `DISPLAY=:1`.
+
+**Mandarine hygiene (applies whenever launching):** it WEDGES every ~5-10 rapid launches (a stuck D-state
+`kworker/…events_unbound`); kill with `pkill -9 -f 'AppRun.wrapped'; pkill -9 -f '\.mount_mandar'` + a ~40-60 s
+cooldown, or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is live.
+
 ## 10. Port edits to game source (keep this log honest)
 
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
