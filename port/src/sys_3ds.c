@@ -38,12 +38,18 @@ void __system_allocateHeaps(void)   /* strong -> overrides libctru's weak defaul
 {
     u32 avail = osGetMemRegionFree(MEMREGION_APPLICATION) & ~0xFFFu;
 
-    const u32 SAFETY  = 32u * 1024u * 1024u;  /* FCRAM left UNMAPPED for kernel thread/TLS + shared-mem maps */
-    const u32 LIN_CAP = 24u * 1024u * 1024u;  /* GPU linear heap (textures/VBO/framebuffers) — Turok is modest */
+    const u32 SAFETY   = 16u * 1024u * 1024u;  /* FCRAM left UNMAPPED for kernel thread-TLS + shared-mem maps */
+    const u32 MAIN_RSV = 16u * 1024u * 1024u;  /* main (malloc) heap reserve — Turok's big pools are static BSS, so this is plenty */
+    const u32 LIN_CAP  = 56u * 1024u * 1024u;  /* ★ GPU/LINEAR heap = where Citro3D textures live (gfx_citro3d's "scratch ram").
+                                                * Was 24 MB (a conservative cap from the boot investigation — but the ACTUAL boot
+                                                * fix was the memset override, not heap headroom). 24 MB is too small for a
+                                                * texture-heavy area's working set -> C3D_TexInit OOMs -> stale/garbage texture
+                                                * slots = the "texture corruption after a while". Give it the lion's share. */
 
-    u32 usable = (avail > SAFETY + (8u << 20)) ? (avail - SAFETY) : (avail / 2u);
-    u32 lin = LIN_CAP;
-    if (lin > usable / 2u) lin = usable / 2u;
+    u32 usable = (avail > SAFETY + (16u << 20)) ? (avail - SAFETY) : (avail / 2u);
+    /* Hand the GPU/linear heap everything past a small main-heap reserve, capped at LIN_CAP. */
+    u32 lin = (usable > MAIN_RSV) ? (usable - MAIN_RSV) : (usable / 2u);
+    if (lin > LIN_CAP) lin = LIN_CAP;
     lin &= ~0xFFFu;
 
     /* allocate the LINEAR (GPU) heap first; shrink-and-retry so it's robust on any memory tier */
