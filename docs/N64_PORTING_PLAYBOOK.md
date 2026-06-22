@@ -363,12 +363,17 @@ Audio is its own world. The DSP is portable; the friction is the ABI, the addres
 ## 14. The GPU pipeline: Fast3D transforms on the CPU — keep it there
 
 The single biggest architectural fact about a Fast3D-based port (`gfx_pc.cpp`, the SM64→Banjo→PD→Turok lineage):
-**the vertex transform happens on the CPU, not the GPU.** Fast3D *interprets* the N64 RSP display list, and the
-real RSP did the MVP transform in fixed-function microcode and emitted screen/clip-space verts for the RDP. `gfx_pc`
-faithfully emulates that — it does the **full MVP on the CPU** and hands the backend **already-projected clip-space**
-geometry. The GPU vertex shader is almost a pass-through (on 3DS it adds only the panel rotation + PICA depth remap).
-Contrast a **native-engine** port like **Forsaken**: its *original* 1998 engine also transformed on the CPU (there was
-no consumer hardware T&L until the GeForce 256 in late 1999 — every game did software T&L then), but its Citro3D port
+**the vertex transform happens on the host CPU, not the host GPU.** Fast3D *interprets* the N64 RSP display list, and
+on the real N64 the **RSP did that MVP transform in HARDWARE** — the RSP is a programmable vector coprocessor running
+microcode (F3D/F3DEX), i.e. the N64 (1996) was itself an early hardware-T&L machine, three years before the consumer
+PC's GeForce 256 (and the PlayStation's GTE did hardware T&L in 1994). So `gfx_pc` is *re-emulating the RSP's hardware
+T&L in software* — it does the **full MVP on the host CPU** and hands the backend **already-projected clip-space**
+geometry. The host GPU vertex shader is almost a pass-through (on 3DS it adds only the panel rotation + PICA depth
+remap). (Lifecycle of that transform: **hardware** on the RSP → **software** on the host CPU → and "GPU-MVP" tries to
+push it back to **hardware** on the host GPU — which is where it gets entangled; see below.)
+Contrast a **native-engine** port like **Forsaken**: its *original* 1998 engine also transformed on the CPU (no
+consumer *PC GPU* had hardware T&L until the GeForce 256 in late 1999, so PC games of the era did software T&L on the
+CPU — even as consoles already had dedicated geometry hardware), but its Citro3D port
 **deliberately moved that transform onto the GPU** — it uploads **model-space** verts + MVP uniforms and the PICA
 vertex shader computes `projection·(modelView·inpos)` (`render_c3d.c`: *"GPU-side modelview+projection transforms via
 PICA200 vertex shader"*; `inpos` is in MODEL space). For a native engine that relocation is a clean CPU **offload**.
