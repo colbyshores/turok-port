@@ -411,7 +411,17 @@ its own init and prints nothing):
    - **gdb (RELIABLE pin, slower):** gdbstub ON; harness `/tmp/boot_probe.sh <gdb-cmds> <elf> <3dsx>` (polls
      `:24689`, runs `gdb-multiarch -batch` timeout-bounded — a hung `continue` ⇒ rc 124, last printed breakpoint
      = the hang boundary; `[New Thread N]` = a thread was created). Use when boot.log is too coarse or Mandarine's
-     no-gdb path is being flaky.
+     no-gdb path is being flaky. ★ GOTCHA: needs `use_gdbstub=true` AND `use_gdbstub\default=false` (a reboot
+     resets `\default=true`, which makes Mandarine IGNORE the value → port never opens). NB gdb's `continue` runs
+     ASYNC on Mandarine's stub and a guest data-abort is NOT forwarded as a signal — so gdb is good for HANGS, bad
+     for CRASHES (use the log file below for crashes).
+   - **★ THE MANDARINE LOG FILE (BEST for a CRASH — gives the faulting PC, no gdb):** with `log_filter=*:Trace`
+     (qt-config.ini), Mandarine writes `~/.local/share/mandarine-emu/log/mandarine_log.txt`. A guest wild/NULL
+     deref logs `HW.Memory <Error> ... unmapped ReadNN @ 0x<addr> at PC 0x<pc>` — `addr2line -e build_3ds/turok.elf
+     0x<pc>` gives the function. Tells you the bad address class too: `@ 0xEA00xxxx`/garbage = a wild pointer
+     (endianness/relocation); `@ 0x0000000C/0xE` = a NULL+offset struct-field deref (N64 null-tolerance — Mandarine
+     RETURNS 0 and continues, so a one-shot is "tolerated", but on real HW it data-aborts → guard it). A repeated
+     same-PC read = a SPIN. `: > mandarine_log.txt` before each run so the trace is fresh.
 4. **Diagnose + fix the ONE thing**, then go to 1. The recurring 3DS hang/crash classes (fix-and-advance):
    - **hosted-libc shadow** — the game ships its own `memset`/`memcpy`/etc. (memory.c) that statically SHADOWS
      newlib's, and libctru calls it pre-`main` → hang. Gate the override out on `PLATFORM_3DS`. (THE pre-main fix,
