@@ -367,23 +367,35 @@ The single biggest architectural fact about a Fast3D-based port (`gfx_pc.cpp`, t
 real RSP did the MVP transform in fixed-function microcode and emitted screen/clip-space verts for the RDP. `gfx_pc`
 faithfully emulates that — it does the **full MVP on the CPU** and hands the backend **already-projected clip-space**
 geometry. The GPU vertex shader is almost a pass-through (on 3DS it adds only the panel rotation + PICA depth remap).
-This is the opposite of a native-engine port (e.g. **Forsaken**, whose Citro3D renderer uploads model-space verts +
-MVP uniforms and lets the **GPU** transform). The difference dictates several decisions:
+Contrast a **native-engine** port like **Forsaken**: its *original* 1998 engine also transformed on the CPU (there was
+no consumer hardware T&L until the GeForce 256 in late 1999 — every game did software T&L then), but its Citro3D port
+**deliberately moved that transform onto the GPU** — it uploads **model-space** verts + MVP uniforms and the PICA
+vertex shader computes `projection·(modelView·inpos)` (`render_c3d.c`: *"GPU-side modelview+projection transforms via
+PICA200 vertex shader"*; `inpos` is in MODEL space). For a native engine that relocation is a clean CPU **offload**.
+So the decisive question is **not** "CPU or GPU" in the abstract — both engines started on the CPU — it's whether the
+transform stage is **separable**, and that's what splits the two port types:
 
 - **★★ Do NOT "move the MVP to the GPU."** It looks like a free win (offload math to the GPU vertex shader), but it
   is a **regression** for a Fast3D port: the interpreter already computed the transform on the CPU, so a GPU-MVP path
   either redundantly re-transforms or forces you to ship un-projected verts the rest of the pipeline doesn't expect.
   **Empirically: Perfect Dark took a measurable performance HIT when GPU-MVP was enabled** — the CPU-transform path
   is faster for these ports. The CPU pass is unavoidable (it's what Fast3D *is*); adding a GPU transform on top only
-  costs. (Forsaken can afford GPU-MVP precisely because it has *no* CPU transform to begin with.)
+  costs. **★ The subtlety (don't mis-state it): Forsaken's port *also* moved a CPU transform to the GPU — and there it
+  was a WIN.** Same operation, opposite outcome, because of **separability**. A native engine's transform is a
+  *separable* stage: relocate it to the GPU and the CPU is cleanly offloaded, with nothing downstream needing the
+  CPU-side result. In Fast3D the transform is *entangled* — the CPU-side near/far/frustum **clip + cull**, the combiner
+  setup, and the clip-space-shear **stereo** all consume the CPU-computed clip-space positions, and the per-vertex DL
+  walk stays on the CPU regardless — so GPU-MVP surrenders those for nothing while adding GPU/upload cost. The right
+  question is *whether the transform can be cleanly detached from the rest of the pipeline*, not just *where it runs*.
 - **★ Single-pass stereo: shear the clip space, don't re-project.** Because the projection is already baked into the
   verts on the CPU, you **cannot change the projection per eye** without re-running the whole CPU interpreter (≈2× the
   dominant cost). So PD/Turok apply stereo as a **post-projection clip-space shear** — record the draw stream once,
   then replay it for the second eye with a small per-eye `transform` that adds `eyeSign·(SHEAR_Z·z + SHEAR_W·w)` to the
   horizontal clip coord (after the perspective divide that's a depth-proportional disparity = parallax). The heavy CPU
-  pass is **shared** between eyes; only a cheap shear differs. A native renderer (Forsaken) does the *geometrically
-  correct* thing instead — an **off-axis projection shift per eye** (re-upload proj, GPU re-transforms) — which is fine
-  for it because the GPU does the transform anyway. **Neither is "drift": each method fits its pipeline.** The shear is
+  pass is **shared** between eyes; only a cheap shear differs. Forsaken's port does the *geometrically
+  correct* thing instead — an **off-axis projection shift per eye** (re-upload proj, GPU re-transforms) — which it can
+  afford precisely *because* it relocated the transform to the GPU, so re-transforming the 2nd eye is just another GPU
+  pass. **Neither is "drift": each method fits its pipeline.** The shear is
   a slight approximation (it ignores the per-eye scale change of a true off-axis frustum), but at the 3DS's tiny IOD it
   is visually indistinguishable and **the only cheap option for Fast3D.** Porting the off-axis method into a Fast3D
   engine would double the CPU cost; the proof is Forsaken's *own* non-Fast3D fallback backend (picaGL), which has no

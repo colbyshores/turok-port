@@ -230,8 +230,10 @@ the **full MVP on the CPU** and hands the GPU **pre-projected clip-space** verts
 per eye without re-running the (already dominant) CPU interpreter. The shear reuses the single CPU
 transform for both eyes; an off-axis projection per eye would force a second CPU pass. **Empirically
 confirmed:** Perfect Dark *took a measurable perf hit when GPU-MVP was enabled* — the CPU-transform
-path is faster for these Fast3D ports. Forsaken can afford projection-shift only because its renderer
-leaves the transform to the GPU. **Do not port Forsaken's stereo method into Turok.**
+path is faster for these Fast3D ports. (Note: Forsaken's 1998 engine *also* did CPU software T&L; its
+port deliberately moved that transform to the GPU — a WIN there because a native engine's transform is a
+*separable* stage, whereas Fast3D's is *entangled* with CPU clip/cull + the shear-stereo. Same move,
+opposite outcome.) **Do not port Forsaken's stereo/GPU-MVP method into Turok.**
 
 ---
 
