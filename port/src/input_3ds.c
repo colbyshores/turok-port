@@ -8,7 +8,7 @@
  *
  * input3dsScan() is called once per frame from gfx_3ds.c::handle_events (the per-frame wapi callback).
  *
- * Control layout (user, 2026-06-21): X=forward, B=backward, Y=strafe-left, A=strafe-right (the face
+ * Control layout (user, 2026-06-21): Y=forward, A=backward, X=strafe-left, B=strafe-right (the face
  * buttons -> the engine's C-button movement); D-pad up/right=cycle weapon up, down/left=cycle weapon
  * down (-> A/B weapon next/prev); R=fire (Z_TRIG), L=jump (R_TRIG); START=pause; SELECT=run/walk toggle;
  * circle pad = turn/move (analog stick). (Default engine config is right-handed: movement on the
@@ -68,11 +68,11 @@ void input3dsScan(void)
      * onto those N64 bits. NB: the 3DS D-pad is NOT mapped to the N64 D-pad (that
      * IS the engine's run/walk toggle) — it drives the weapon cycle via A/B. */
 
-    /* movement — face buttons -> C-buttons */
-    if (kHeld & KEY_X)  btn |= N64_CU;   /* X = move forward   */
-    if (kHeld & KEY_B)  btn |= N64_CD;   /* B = move backward  */
-    if (kHeld & KEY_Y)  btn |= N64_CL;   /* Y = strafe left    */
-    if (kHeld & KEY_A)  btn |= N64_CR;   /* A = strafe right   */
+    /* movement — face buttons -> C-buttons (X<->Y and A<->B swapped per the 3DS layout) */
+    if (kHeld & KEY_Y)  btn |= N64_CU;   /* Y = move forward   */
+    if (kHeld & KEY_A)  btn |= N64_CD;   /* A = move backward  */
+    if (kHeld & KEY_X)  btn |= N64_CL;   /* X = strafe left    */
+    if (kHeld & KEY_B)  btn |= N64_CR;   /* B = strafe right   */
 
     /* weapon cycle — D-pad -> A/B (next/prev). up & right = up; down & left = down */
     if (kHeld & (KEY_DUP   | KEY_DRIGHT)) btn |= N64_A;  /* cycle weapons up   (next) */
