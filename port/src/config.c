@@ -20,6 +20,7 @@ int   g_cfg_mouse_invert = 0;        /* TUROK_MOUSE_INVERT */
 int   g_cfg_walk_default = 0;        /* 0 = run, 1 = walk  */
 int   g_cfg_win_w        = 1280;     /* TUROK_WIN_W */
 int   g_cfg_win_h        = 1024;     /* TUROK_WIN_H */
+int   g_cfg_audio_3ds    = 0;        /* 3DS: 1 = call ndspInit (needs dspfirm.cdc); 0 = skip (boots silent) */
 
 static const char *cfg_path(void)
 {
@@ -50,6 +51,7 @@ void turokConfigLoad(void)
         else if (!strcmp(key, "walk_default"))      g_cfg_walk_default = (int)val ? 1 : 0;
         else if (!strcmp(key, "window_width"))      g_cfg_win_w        = (int)val;
         else if (!strcmp(key, "window_height"))     g_cfg_win_h        = (int)val;
+        else if (!strcmp(key, "audio_3ds"))         g_cfg_audio_3ds    = (int)val ? 1 : 0;
     }
     fclose(f);
 
