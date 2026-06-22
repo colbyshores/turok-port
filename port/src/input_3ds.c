@@ -68,12 +68,12 @@ void input3dsScan(void)
      * onto those N64 bits. NB: the 3DS D-pad is NOT mapped to the N64 D-pad (that
      * IS the engine's run/walk toggle) — it drives the weapon cycle via A/B. */
 
-    /* movement — face buttons -> C-buttons. (Reversed the earlier Y<->A and X<->B swap:
-     * the swap was wrong on real 3DS hardware; this is the corrected layout.) */
-    if (kHeld & KEY_A)  btn |= N64_CU;   /* A = move forward   */
-    if (kHeld & KEY_Y)  btn |= N64_CD;   /* Y = move backward  */
-    if (kHeld & KEY_B)  btn |= N64_CL;   /* B = strafe left    */
-    if (kHeld & KEY_X)  btn |= N64_CR;   /* X = strafe right   */
+    /* movement — face buttons -> C-buttons. Natural diamond (user-confirmed on hardware):
+     * X=top=forward, B=bottom=back, Y=left=strafe-left, A=right=strafe-right. */
+    if (kHeld & KEY_X)  btn |= N64_CU;   /* X = move forward   */
+    if (kHeld & KEY_B)  btn |= N64_CD;   /* B = move backward  */
+    if (kHeld & KEY_Y)  btn |= N64_CL;   /* Y = strafe left    */
+    if (kHeld & KEY_A)  btn |= N64_CR;   /* A = strafe right   */
 
     /* weapon cycle — D-pad -> A/B (next/prev). up & right = up; down & left = down */
     if (kHeld & (KEY_DUP   | KEY_DRIGHT)) btn |= N64_A;  /* cycle weapons up   (next) */
