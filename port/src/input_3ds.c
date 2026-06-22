@@ -8,9 +8,11 @@
  *
  * input3dsScan() is called once per frame from gfx_3ds.c::handle_events (the per-frame wapi callback).
  *
- * First-boot FPS map (refine later): circle pad = move/turn (analog stick), A=jump, B=fire, X/Y=weapon
- * prev/next, L=aim/map, R=fire, D-pad=digital move (C-buttons), START=pause. (Default engine config is
- * right-handed: movement on the C-buttons, jump on R_TRIG, fire on Z_TRIG.)
+ * Control layout (user, 2026-06-21): X=forward, B=backward, Y=strafe-left, A=strafe-right (the face
+ * buttons -> the engine's C-button movement); D-pad up/right=cycle weapon up, down/left=cycle weapon
+ * down (-> A/B weapon next/prev); R=fire (Z_TRIG), L=jump (R_TRIG); START=pause; SELECT=run/walk toggle;
+ * circle pad = turn/move (analog stick). (Default engine config is right-handed: movement on the
+ * C-buttons, jump on R_TRIG, fire on Z_TRIG, weapon next/prev on A/B.)
  */
 #ifdef PLATFORM_3DS
 #include <3ds.h>
@@ -60,20 +62,27 @@ void input3dsScan(void)
     sx = cpad_axis(cp.dx);
     sy = cpad_axis(cp.dy);
 
-    /* digital movement on the C-buttons (engine default right-handed config). */
-    if (kHeld & KEY_DUP)    btn |= N64_CU;   /* forward  */
-    if (kHeld & KEY_DDOWN)  btn |= N64_CD;   /* backward */
-    if (kHeld & KEY_DLEFT)  btn |= N64_CL;   /* strafe L */
-    if (kHeld & KEY_DRIGHT) btn |= N64_CR;   /* strafe R */
+    /* ── User control layout (2026-06-21) ─────────────────────────────────────
+     * Engine right-handed config: movement = C-buttons, Fire=Z_TRIG, Jump=R_TRIG,
+     * WeaponNext=A_BUTTON, WeaponPrev=B_BUTTON. We map the 3DS physical buttons
+     * onto those N64 bits. NB: the 3DS D-pad is NOT mapped to the N64 D-pad (that
+     * IS the engine's run/walk toggle) — it drives the weapon cycle via A/B. */
 
-    /* actions */
-    if (kHeld & KEY_B)      btn |= N64_Z;    /* fire (Z_TRIG)  */
-    if (kHeld & KEY_R)      btn |= N64_Z;    /* fire (shoulder)*/
-    if (kHeld & KEY_A)      btn |= N64_R;    /* jump (R_TRIG)  */
-    if (kHeld & KEY_Y)      btn |= N64_A;    /* next weapon    */
-    if (kHeld & KEY_X)      btn |= N64_B;    /* prev weapon    */
-    if (kHeld & KEY_L)      btn |= N64_L;    /* map / aim (L_TRIG) */
-    if (kHeld & KEY_START)  btn |= N64_START;/* pause */
+    /* movement — face buttons -> C-buttons */
+    if (kHeld & KEY_X)  btn |= N64_CU;   /* X = move forward   */
+    if (kHeld & KEY_B)  btn |= N64_CD;   /* B = move backward  */
+    if (kHeld & KEY_Y)  btn |= N64_CL;   /* Y = strafe left    */
+    if (kHeld & KEY_A)  btn |= N64_CR;   /* A = strafe right   */
+
+    /* weapon cycle — D-pad -> A/B (next/prev). up & right = up; down & left = down */
+    if (kHeld & (KEY_DUP   | KEY_DRIGHT)) btn |= N64_A;  /* cycle weapons up   (next) */
+    if (kHeld & (KEY_DDOWN | KEY_DLEFT))  btn |= N64_B;  /* cycle weapons down (prev) */
+
+    /* shoulders */
+    if (kHeld & KEY_R)  btn |= N64_Z;    /* R = fire (Z_TRIG) */
+    if (kHeld & KEY_L)  btn |= N64_R;    /* L = jump (R_TRIG) */
+
+    if (kHeld & KEY_START) btn |= N64_START;  /* pause */
 
     /* SELECT toggles run/walk (the 3DS E-equivalent), edge-triggered. */
     if (kDown & KEY_SELECT) g_turok_walk_mode = !g_turok_walk_mode;
