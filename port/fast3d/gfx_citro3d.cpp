@@ -2658,6 +2658,10 @@ static void gfx_citro3d_init(void) {
 #if PD_BAKE_THREAD
     bakeThreadStart();   // async facade-bake worker (N3DS only — self-gates OG; bakethread.txt also gates it)
 #endif
+    /* turok.cfg `bake 0` => disable facade baking entirely (raw facades, no bake hitch). Default 1 =
+     * baking on; with PD_BAKE_THREAD it runs on the spare core so it shouldn't stall the main frame.
+     * (The worker thread, if started, just idles when sAutoBake is 0.) */
+    { extern int g_cfg_bake; if (!g_cfg_bake) sAutoBake = 0; }
     setupPipeline();
 }
 

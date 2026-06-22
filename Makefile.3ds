@@ -40,7 +40,7 @@ ARCH := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
 
 # Platform gates. PLATFORM_PORT guards the endian/null-tolerance work in src/PR/tengine;
 # PLATFORM_3DS is 3DS-only. (No -DSHIP_IT vs the PC build? The PC build sets it; keep parity.)
-PORT_DEFINES := -DPLATFORM_PORT=1 -DPLATFORM_3DS=1 -D__3DS__ -D_3DS
+PORT_DEFINES := -DPLATFORM_PORT=1 -DPLATFORM_3DS=1 -D__3DS__ -D_3DS -DPD_BAKE_THREAD=1
 
 # Mirror tools/build_port.sh GAME_D exactly (minus host-only bits).
 GAME_DEFINES := -D_LANGUAGE_C=1 -D_MIPS_SZLONG=32 -DF3DEX_GBI -DN_MICRO -D_FINALROM -DNDEBUG -DSHIP_IT

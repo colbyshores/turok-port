@@ -25,6 +25,7 @@ int   g_cfg_warp         = -1;       /* 3DS bring-up: warp-to-level id (0,1000..
 int   g_cfg_debug        = 0;        /* 1 = enable the 3DS boot.log / svcOutputDebugString trace logging (off = clean play) */
 int   g_cfg_fps          = -1;       /* present-rate cap (3DS); -1 = platform default (30 on 3DS = locked, beat-free), 0 = uncapped/vsync */
 int   g_cfg_tick         = -1;       /* logic tick rate (3DS); -1 = platform default (0 on 3DS = logic every present), 30 = 30Hz logic + interp */
+int   g_cfg_bake         = 1;        /* 3DS facade texture baking: 1 = on (async worker, default), 0 = off (raw facades, no bake hitch) */
 
 static const char *cfg_path(void)
 {
@@ -60,6 +61,7 @@ void turokConfigLoad(void)
         else if (!strcmp(key, "debug"))             g_cfg_debug        = (int)val ? 1 : 0;
         else if (!strcmp(key, "fps"))               g_cfg_fps          = (int)val;
         else if (!strcmp(key, "tick"))              g_cfg_tick         = (int)val;
+        else if (!strcmp(key, "bake"))              g_cfg_bake         = (int)val ? 1 : 0;
     }
     fclose(f);
 
