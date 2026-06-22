@@ -218,6 +218,14 @@ The renderer is the *same vendored PD code*, so the deficit is **not** the backe
 - **Build *flags* are at parity with PD** (`-O2`, no LTO/fast-math). The math *source* is the delta (Q3/Q4).
 - **`-ffast-math` is banned** — it deletes the NaN freeze-guards the port relies on.
 - **Single-pass stereo is already correct and efficient** — see the architecture note below; nothing to do.
+- **GPU-MVP (move the CPU vertex transform to the PICA shader) — investigated, NOT worth it.** Partially detachable
+  (position is attribute-independent; `NoN` removes the CPU near-clip), but the CPU-computed clip-space is entangled
+  with four stages (trivial-reject, back-face cull, the 3DS Sutherland-Hodgman near-clip, per-vertex fog) + the
+  single-pass stereo shear. **Decisive proof: Perfect Dark built it on a `3ds-gpu-mvp` branch and measured a WASH
+  (~9.0 vs ~9.2 ms) that doesn't free CPU cycles** (the MVP gets *duplicated* CPU+GPU; naive/skinning variants
+  regressed). The multiply is only ~15-40% of one per-vertex stage and the rest of the walk stays on the CPU. The
+  better lever for the idle core is **B1 (render-thread split)** — it offloads the whole walk, not just the multiply.
+  Gate on M1 (PROF) first. *(Full feasibility analysis: the `turok-gpu-mvp-feasibility` workflow, 2026-06-22.)*
 
 ---
 

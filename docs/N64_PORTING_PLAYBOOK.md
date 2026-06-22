@@ -378,15 +378,24 @@ transform stage is **separable**, and that's what splits the two port types:
 - **★★ Do NOT "move the MVP to the GPU."** It looks like a free win (offload math to the GPU vertex shader), but it
   is a **regression** for a Fast3D port: the interpreter already computed the transform on the CPU, so a GPU-MVP path
   either redundantly re-transforms or forces you to ship un-projected verts the rest of the pipeline doesn't expect.
-  **Empirically: Perfect Dark took a measurable performance HIT when GPU-MVP was enabled** — the CPU-transform path
-  is faster for these ports. The CPU pass is unavoidable (it's what Fast3D *is*); adding a GPU transform on top only
-  costs. **★ The subtlety (don't mis-state it): Forsaken's port *also* moved a CPU transform to the GPU — and there it
-  was a WIN.** Same operation, opposite outcome, because of **separability**. A native engine's transform is a
-  *separable* stage: relocate it to the GPU and the CPU is cleanly offloaded, with nothing downstream needing the
-  CPU-side result. In Fast3D the transform is *entangled* — the CPU-side near/far/frustum **clip + cull**, the combiner
-  setup, and the clip-space-shear **stereo** all consume the CPU-computed clip-space positions, and the per-vertex DL
-  walk stays on the CPU regardless — so GPU-MVP surrenders those for nothing while adding GPU/upload cost. The right
-  question is *whether the transform can be cleanly detached from the rest of the pipeline*, not just *where it runs*.
+  **★ Empirically settled — Perfect Dark BUILT this exact move on a `3ds-gpu-mvp` branch and measured it a WASH
+  (~9.0 vs ~9.2 ms host frame), explicitly *not* freeing CPU cycles** — because the CPU still computes clip-space per
+  vertex for cull/fog/near-clip/stereo, so the MVP ends up **DUPLICATED** on CPU+GPU, not moved (the naive variant +
+  GPU-skinning actually *regressed*, to ~9 fps from 20-30). The matrix multiply is only ~15-40% of *one* per-vertex
+  stage; the rest (`G_VTX` unpack, lighting, texgen, trivial-reject, fog) stays on the CPU regardless — gfx_pc *is*
+  the interpreter and must walk every vertex. So you'd save a sliver and *add* a per-**draw** modelView upload (at
+  ≤32-vert `G_VTX` granularity, since Fast3D has no per-object concept). **★ The subtlety (don't mis-state it):
+  Forsaken's port *also* moved a CPU transform to the GPU — and there it was a WIN.** Same operation, opposite
+  outcome, because of **separability**. A native engine's transform is a *separable* stage: relocate it and the CPU is
+  cleanly offloaded, with nothing downstream needing the CPU-side result. In Fast3D it is *entangled* — the CPU-side
+  near/far/frustum **clip + cull**, the per-vertex **fog**, and the clip-space-shear **stereo** all consume the
+  CPU-computed clip-space positions, and the per-vertex DL walk stays on the CPU regardless — so GPU-MVP surrenders
+  those for nothing. The right question is *whether the transform can be cleanly detached from the rest of the
+  pipeline*, not just *where it runs*. **The genuine way to use a spare core here is the RENDER-THREAD SPLIT** (move
+  the whole `gfx_run` onto core 2 — it offloads the *entire* per-vertex walk, ~10× the multiply, with zero fidelity
+  risk because the proven clip/cull/stereo/fog math is *relocated byte-identical, not rewritten*), NOT GPU-MVP. The
+  decision gate is one **on-device PROF capture** (CPU-bound ⇒ the split is the lever; GPU-bound ⇒ chase texture
+  format + state-batching) — see `docs/3DS_PERFORMANCE.md` B1/M1.
 - **★ Single-pass stereo: shear the clip space, don't re-project.** Because the projection is already baked into the
   verts on the CPU, you **cannot change the projection per eye** without re-running the whole CPU interpreter (≈2× the
   dominant cost). So PD/Turok apply stereo as a **post-projection clip-space shear** — record the draw stream once,
