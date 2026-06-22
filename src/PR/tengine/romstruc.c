@@ -246,7 +246,8 @@ CGameRegion*	CGameRegion__FindNextLowerRegion(CGameRegion *pThis, CVector3 vPos)
  * this for &Corners[badIndex] keeps every downstream collision query (GetGroundNormal/Height,
  * TrackGround, RegionCollision, minimap) from dereferencing wild/NULL memory and crashing — notably
  * during the key-pickup / death cinematic, where the player's collision runs against such regions. */
-static CROMCorner	s_portDummyCorner;
+static CROMCorner	s_portDummyCorner __attribute__((aligned(8)));   /* 8-aligned: a substituted corner must
+												* not ldrd/ldm-abort on ARM11 in any path that reads m_vCorner directly. */
 static int			s_portBadCorners;
 #endif
 
@@ -709,14 +710,30 @@ float CGameRegion__GetGroundHeight(CGameRegion *pThis, float X, float Z)
    {
       // degenerate region
       // return average height
+#ifdef PLATFORM_PORT
+      /* PORT (ARM align): the .y floats live in the byte-parsed corner buffer; a direct read is vldr
+       * (faults on ARM11 misaligned) and GCC may vectorize the sum — route each through an integer ldr.
+       * Same class as the GetGroundNormal fix above (the sweep missed these GetGroundHeight reads). */
+      return (turok_rd_f32(&pThis->m_pCorners[0]->m_vCorner.y)
+            + turok_rd_f32(&pThis->m_pCorners[1]->m_vCorner.y)
+            + turok_rd_f32(&pThis->m_pCorners[2]->m_vCorner.y))/3;
+#else
       return (pThis->m_pCorners[0]->m_vCorner.y
 				  + pThis->m_pCorners[1]->m_vCorner.y
 				  + pThis->m_pCorners[2]->m_vCorner.y)/3;
+#endif
    }
    else
    {
       // use corner 0 for point on plane
+#ifdef PLATFORM_PORT
+      /* PORT (ARM align): CVector3 (12B) struct-copy from the misaligned corner buffer fuses to ldm/
+       * ldrd → ARM11 data-abort (the teleporter-to-white HANG: the post-warp region re-acquire hammers
+       * GetGroundHeight). Copy out via the byte-loop accessor, mirroring GetGroundNormal at line ~646. */
+      turok_memcpy_unaligned(&vPoint, &pThis->m_pCorners[0]->m_vCorner, sizeof vPoint);
+#else
 		vPoint = pThis->m_pCorners[0]->m_vCorner;
+#endif
 
       return ((vPoint.z - Z)*vNormal.z + (vPoint.x - X)*vNormal.x + vPoint.y*vNormal.y)/vNormal.y;
    }
@@ -855,7 +872,13 @@ BOOL CGameRegion__GetGroundIntersection(CGameRegion *pThis, CVector3 *pvStart, C
 	CVector3__Subtract(&vDelta, pvEnd, pvStart);
 
 	if (pThis)
+#ifdef PLATFORM_PORT
+		/* PORT (ARM align): CVector3 struct-copy from the misaligned corner buffer fuses to ldm/ldrd →
+		 * ARM11 fault (same class as GetGroundNormal/Height). */
+		turok_memcpy_unaligned(&vCorner, &pThis->m_pCorners[0]->m_vCorner, sizeof vCorner);
+#else
 		vCorner = pThis->m_pCorners[0]->m_vCorner;
+#endif
 	else
 		vCorner.x = vCorner.y = vCorner.z = 0;
 
