@@ -41,6 +41,15 @@ void r_memcpy(void *pDest, void *pSrc, int Count)
 		((BYTE*)pDest)[i] = ((BYTE*)pSrc)[i];
 }
 //*/
+/* ★★ 3DS BOOT FIX: do NOT override the host libc's `memset` on 3DS. This file defines a custom
+ * `memset` (for the N64 bare-metal build) that, when statically linked, SHADOWS newlib's memset —
+ * and libctru's own code calls memset (e.g. `threadCreate` zeroes the new thread's stack/TLS). The
+ * resulting interaction HANGS aptInit's APT-event-thread creation pre-main on 3DS (root-caused via
+ * gdb-on-Mandarine: every minimal binary with Turok's exact flags/size/stack/heap BOOTS; the only
+ * newlib symbol Turok overrides is `memset`, and the hang sits exactly at threadCreate's memset call).
+ * On 3DS use newlib's optimised, ABI-correct memset. (PC keeps this one — its system threading uses
+ * glibc's internal memset, so the override is harmless there; left unchanged to avoid PC churn.) */
+#if !defined(PLATFORM_3DS)
 void memset(void *pDest, BYTE Val, int Count)
 {
 	int i;
@@ -50,6 +59,7 @@ void memset(void *pDest, BYTE Val, int Count)
 	for (i=0; i<Count; i++)
 		((BYTE*)pDest)[i] = Val;
 }
+#endif
 #endif
 
 /*****************************************************************************
