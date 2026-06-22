@@ -85,13 +85,39 @@ int g_turok_logic_tick = 1;
 static struct timespec g_tick_last = {0, 0};   /* real time of the last logic tick */
 static long g_tick_interval_ns = 0;            /* 1/TICK_FPS in ns; 0 = no logic-rate cap */
 
+/* PORT: monotonic high-res clock. THE frame pacing + logic-tick gate run off this. On 3DS,
+ * clock_gettime(CLOCK_MONOTONIC) on newlib is coarse/unreliable, which makes the 33ms tick gate
+ * misfire = the frame-pacing JUDDER. Use the ARM11 system-tick counter directly (the same source
+ * gfx_3ds.c uses for its FPS delta): sub-µs resolution, always monotonic, no syscall ambiguity. */
+#ifdef PLATFORM_3DS
+extern unsigned long long svcGetSystemTick(void);
+#define PORT_ARM11_HZ 268111856ULL              /* SYSCLOCK_ARM11 */
+static void port_mono(struct timespec *ts)
+{
+    unsigned long long t = svcGetSystemTick();
+    ts->tv_sec  = (time_t)(t / PORT_ARM11_HZ);
+    ts->tv_nsec = (long)(((t % PORT_ARM11_HZ) * 1000000000ULL) / PORT_ARM11_HZ);
+}
+#else
+static void port_mono(struct timespec *ts) { clock_gettime(CLOCK_MONOTONIC, ts); }
+#endif
+
+/* PORT: nanosecond sleep for the frame-pacing cap. On 3DS use the kernel sleep directly
+ * (newlib's nanosleep is not reliably wired); elsewhere nanosleep. */
+#ifdef PLATFORM_3DS
+extern void svcSleepThread(long long ns);
+static void port_sleep_ns(long ns) { if (ns > 0) svcSleepThread((long long)ns); }
+#else
+static void port_sleep_ns(long ns) { if (ns > 0) { struct timespec d = {0, ns}; nanosleep(&d, NULL); } }
+#endif
+
 /* PORT: render-side interpolation factor (0..1) — how far the current real time is from the last
  * logic tick toward the next. CEngineApp__UpdateGAME renders the player at lerp(prev,cur,alpha) so
  * motion is smooth at the 60fps render rate despite the 30Hz logic. 0 when TUROK_TICK_FPS=0. */
 float turok_render_alpha(void)
 {
     if (g_tick_interval_ns <= 0 || g_tick_last.tv_sec == 0) return 0.0f;
-    struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+    struct timespec now; port_mono(&now);
     long el = (now.tv_sec - g_tick_last.tv_sec) * 1000000000L + (now.tv_nsec - g_tick_last.tv_nsec);
     float a = (float)el / (float)g_tick_interval_ns;
     return a < 0.0f ? 0.0f : (a > 1.0f ? 1.0f : a);
@@ -112,12 +138,12 @@ s32 osRecvMesg(OSMesgQueue *mq, OSMesg *msg, s32 flag)
             if (s_fps < 0) { const char *e = getenv("TUROK_FPS"); s_fps = e ? atoi(e) : 60; }
             if (s_fps > 0) {
                 static struct timespec last = {0, 0};
-                struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+                struct timespec now; port_mono(&now);
                 if (last.tv_sec) {
                     long tgt = 1000000000L / s_fps;
                     long el = (now.tv_sec - last.tv_sec) * 1000000000L + (now.tv_nsec - last.tv_nsec);
-                    if (el < tgt) { struct timespec d = {0, tgt - el}; nanosleep(&d, NULL);
-                                    clock_gettime(CLOCK_MONOTONIC, &now); }
+                    if (el < tgt) { port_sleep_ns(tgt - el);
+                                    port_mono(&now); }
                 }
                 last = now;
             }
@@ -189,15 +215,25 @@ void osViSwapBuffer(void *frameBuf)
      * unaffected). (The SDL2 path paces in osRecvMesg instead; headless never hits that branch.) */
     {
         static int s_pfps = -2;
-        if (s_pfps == -2) { const char *e = getenv("TUROK_FPS"); s_pfps = (e && *e) ? atoi(e) : 0; }
+        if (s_pfps == -2) {
+#ifdef PLATFORM_3DS
+            /* 3DS: present-rate cap from turok.cfg `fps`. Default 30 = a deterministic, beat-free
+             * lock (the ARM11 single-thread software renderer can't reliably sustain 60, so an
+             * uncapped vsync collapses toward ~30 and BEATS against the 30Hz logic tick = the judder).
+             * Set `fps 60` in turok.cfg to try for 60 if a level sustains it; `fps 0` = uncapped/vsync. */
+            extern int g_cfg_fps; s_pfps = (g_cfg_fps >= 0) ? g_cfg_fps : 30;
+#else
+            const char *e = getenv("TUROK_FPS"); s_pfps = (e && *e) ? atoi(e) : 0;
+#endif
+        }
         if (s_pfps > 0) {
             static struct timespec plast = {0, 0};
-            struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+            struct timespec now; port_mono(&now);
             if (plast.tv_sec) {
                 long tgt = 1000000000L / s_pfps;
                 long el = (now.tv_sec - plast.tv_sec) * 1000000000L + (now.tv_nsec - plast.tv_nsec);
-                if (el < tgt) { struct timespec d = {0, tgt - el}; nanosleep(&d, NULL);
-                                clock_gettime(CLOCK_MONOTONIC, &now); }
+                if (el < tgt) { port_sleep_ns(tgt - el);
+                                port_mono(&now); }
             }
             plast = now;
         }
@@ -210,10 +246,20 @@ void osViSwapBuffer(void *frameBuf)
      * fast. TUROK_TICK_FPS=0 = logic every frame (old behaviour); higher = faster, lower = slower. */
     {
         static int s_tick = -1;
-        if (s_tick < 0) { const char *e = getenv("TUROK_TICK_FPS"); s_tick = e ? atoi(e) : 30; }
+        if (s_tick < 0) {
+#ifdef PLATFORM_3DS
+            /* 3DS: logic tick rate from turok.cfg `tick`. Default 0 = advance LOGIC every present
+             * (no wall-clock gate) — paired with the 30fps present cap above this is a clean locked
+             * 30 with NO 30Hz-logic/30Hz-present beat and no interpolation double-cost. Set `tick 30`
+             * (with `fps 60`) to drive 30Hz logic + 60Hz interpolated render if a level sustains 60. */
+            extern int g_cfg_tick; s_tick = (g_cfg_tick >= 0) ? g_cfg_tick : 0;
+#else
+            const char *e = getenv("TUROK_TICK_FPS"); s_tick = e ? atoi(e) : 30;
+#endif
+        }
         if (s_tick > 0) {
             g_tick_interval_ns = 1000000000L / s_tick;
-            struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+            struct timespec now; port_mono(&now);
             if (g_tick_last.tv_sec == 0) { g_tick_last = now; g_turok_logic_tick = 1; }
             else {
                 long el = (now.tv_sec - g_tick_last.tv_sec) * 1000000000L + (now.tv_nsec - g_tick_last.tv_nsec);

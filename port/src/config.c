@@ -23,6 +23,8 @@ int   g_cfg_win_h        = 1024;     /* TUROK_WIN_H */
 int   g_cfg_audio_3ds    = 0;        /* 3DS: 1 = call ndspInit (needs dspfirm.cdc); 0 = skip (boots silent) */
 int   g_cfg_warp         = -1;       /* 3DS bring-up: warp-to-level id (0,1000..8000); -1 = normal legal-screen boot */
 int   g_cfg_debug        = 0;        /* 1 = enable the 3DS boot.log / svcOutputDebugString trace logging (off = clean play) */
+int   g_cfg_fps          = -1;       /* present-rate cap (3DS); -1 = platform default (30 on 3DS = locked, beat-free), 0 = uncapped/vsync */
+int   g_cfg_tick         = -1;       /* logic tick rate (3DS); -1 = platform default (0 on 3DS = logic every present), 30 = 30Hz logic + interp */
 
 static const char *cfg_path(void)
 {
@@ -56,6 +58,8 @@ void turokConfigLoad(void)
         else if (!strcmp(key, "audio_3ds"))         g_cfg_audio_3ds    = (int)val ? 1 : 0;
         else if (!strcmp(key, "warp"))              g_cfg_warp         = (int)val;
         else if (!strcmp(key, "debug"))             g_cfg_debug        = (int)val ? 1 : 0;
+        else if (!strcmp(key, "fps"))               g_cfg_fps          = (int)val;
+        else if (!strcmp(key, "tick"))              g_cfg_tick         = (int)val;
     }
     fclose(f);
 
