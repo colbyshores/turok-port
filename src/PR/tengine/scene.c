@@ -414,19 +414,6 @@ void CScene__WarpPointsReceived(CScene *pThis, CCacheEntry **ppceTarget)
 	warpPoints = (CROMWarpPoint*) CUnindexedSet__GetBasePtr(&usWarpDests);
 	ASSERT(nWarpPoints == CUnindexedSet__GetBlockCount(&usWarpDests));
 
-#ifdef PLATFORM_PORT
-	/* TUROK_WARPTABLE=1: one-shot dump of the entire warp-destination table (id -> level/pos), to see
-	 * whether warp ID 9600 genuinely has two destinations in the data or our parse fabricated one. */
-	{ extern char *getenv(const char*); static int wt=-1, dumped=0; if(wt<0){const char*e=getenv("TUROK_WARPTABLE"); wt=(e&&atoi(e))?1:0;}
-	  if(wt && !dumped){ dumped=1; extern int fprintf(void*,const char*,...); extern void *stderr; int _k;
-	    fprintf(stderr,"[WARPTBL] === %d warp points ===\n", nWarpPoints);
-	    for(_k=0;_k<nWarpPoints;_k++)
-	      fprintf(stderr,"[WARPTBL] tbl[%d] id=%d lvl=%d pos=(%.0f,%.0f,%.0f)\n", _k,
-	        (int)ORDERBYTES(ids[_k]), (int)(WORD)ORDERBYTES((WORD)warpPoints[_k].m_nLevel),
-	        ORDERBYTES(warpPoints[_k].m_vPos.x), ORDERBYTES(warpPoints[_k].m_vPos.y), ORDERBYTES(warpPoints[_k].m_vPos.z)); } }
-#endif
-
-
 	// handle ID -1 as return warp
 	if (pThis->m_nWarpID == RETURN_WARP_ID)
 	{
@@ -441,14 +428,6 @@ void CScene__WarpPointsReceived(CScene *pThis, CCacheEntry **ppceTarget)
 			pThis->m_WarpFound = FALSE;
 			pThis->m_nLevel = 0;
 		}
-#ifdef PLATFORM_PORT
-		/* TUROK_WARPLOG (blue-portal return bug): was the return point actually saved at portal-entry,
-		 * and what level does the return resolve to? If returnSaved=0 the forward store never fired. */
-		{ extern char *getenv(const char *); static int wl=-1; if(wl<0){const char*e=getenv("TUROK_WARPLOG"); wl=(e&&atoi(e))?1:0;}
-		  if(wl){ extern int fprintf(void*,const char*,...); extern void *stderr;
-		    fprintf(stderr,"[WARP] RequestWarpPoints RETURN: returnSaved=%d -> found=%d level=%d\n",
-		      GetApp()->m_ReturnWarpSaved, pThis->m_WarpFound, pThis->m_nLevel); } }
-#endif
 	}
 	else
 	if (pThis->m_nWarpID == CRASH_WARP_ID)
@@ -495,15 +474,6 @@ void CScene__WarpPointsReceived(CScene *pThis, CCacheEntry **ppceTarget)
 			    if (_best >= 0) choice = _best;
 			  } }
 #endif
-#ifdef PLATFORM_PORT
-			/* TUROK_FORCECHOICE=<n>: force the n-th warp point in the matched range (debug the blue-portal
-			 * OOB — a warp ID with multiple points is RANDOM-picked; this pins a specific one). */
-			{ extern char *getenv(const char*); const char*_fce=getenv("TUROK_FORCECHOICE");
-			  if(_fce && last>first){ extern int fprintf(void*,const char*,...); extern void *stderr;
-			    choice = first + (atoi(_fce) % ((last+1)-first));
-			    fprintf(stderr,"[WARP]   FORCECHOICE -> choice=%d ids[%d]=0x%x ids[%d]=0x%x\n",
-			      choice, first, (unsigned)ORDERBYTES(ids[first]), last, (unsigned)ORDERBYTES(ids[last])); } }
-#endif
 
 			// must copy data because pceWarpPoints may not be around later
 			/* PORT/ARM: warpPoints is a byte-parsed cart buffer; a direct struct copy fuses to
@@ -518,35 +488,13 @@ void CScene__WarpPointsReceived(CScene *pThis, CCacheEntry **ppceTarget)
 			pThis->m_WarpPoint.m_vPos.x = ORDERBYTES(pThis->m_WarpPoint.m_vPos.x);
 			pThis->m_WarpPoint.m_vPos.y = ORDERBYTES(pThis->m_WarpPoint.m_vPos.y);
 			pThis->m_WarpPoint.m_vPos.z = ORDERBYTES(pThis->m_WarpPoint.m_vPos.z);
-#ifdef PLATFORM_PORT
-			/* TUROK_SPAWNAT="x,y,z": override the spawn position (host-order) for testing — e.g. spawn at a
-			 * cliff edge to test the fall-death respawn without walking there. Only the real-warp (initial)
-			 * spawn passes here; the CINEMA_WARP_ID fall-death respawn uses a separate branch, so it's untouched. */
-			{ extern char *getenv(const char*); extern int sscanf(const char*,const char*,...);
-			  static int rd=0; static float sx,sy,sz; static int have=0;
-			  if(!rd){ rd=1; const char*e=getenv("TUROK_SPAWNAT"); if(e) have=(sscanf(e,"%f,%f,%f",&sx,&sy,&sz)==3); }
-			  if(have){ pThis->m_WarpPoint.m_vPos.x=sx; pThis->m_WarpPoint.m_vPos.y=sy; pThis->m_WarpPoint.m_vPos.z=sz; } }
-#endif
 			pThis->m_WarpPoint.m_nLevel = ORDERBYTES(pThis->m_WarpPoint.m_nLevel);
 #endif
 			pThis->m_nLevel = pThis->m_WarpPoint.m_nLevel;
-#ifdef PLATFORM_PORT
-			{ extern char *getenv(const char*); static int wl=-1; if(wl<0){const char*e=getenv("TUROK_WARPLOG"); wl=(e&&atoi(e))?1:0;}
-			  if(wl){ extern int fprintf(void*,const char*,...); extern void *stderr;
-			    fprintf(stderr,"[WARP] resolve nWarpID=%d FOUND choice=%d/[%d..%d] vPos=(%.0f,%.0f,%.0f) nRegion raw=0x%x sw=%d nLevel=%d\n",
-			      pThis->m_nWarpID, choice, first, last, pThis->m_WarpPoint.m_vPos.x, pThis->m_WarpPoint.m_vPos.y, pThis->m_WarpPoint.m_vPos.z,
-			      (unsigned)pThis->m_WarpPoint.m_nRegion, (int)(WORD)ORDERBYTES((WORD)pThis->m_WarpPoint.m_nRegion), pThis->m_nLevel);
-				    { int _wi; for(_wi=first;_wi<=last;_wi++) fprintf(stderr,"[WARP]   wp[%d] vPos=(%.0f,%.0f,%.0f) nLvl=%d nReg=0x%x(sw=%d)\n", _wi, ORDERBYTES(warpPoints[_wi].m_vPos.x), ORDERBYTES(warpPoints[_wi].m_vPos.y), ORDERBYTES(warpPoints[_wi].m_vPos.z), (int)(WORD)ORDERBYTES((WORD)warpPoints[_wi].m_nLevel), (unsigned)warpPoints[_wi].m_nRegion, (int)(WORD)ORDERBYTES((WORD)warpPoints[_wi].m_nRegion)); } } }
-#endif
 		}
 		else
 		{
 			pThis->m_nLevel = 0;
-#ifdef PLATFORM_PORT
-			{ extern char *getenv(const char*); static int wl=-1; if(wl<0){const char*e=getenv("TUROK_WARPLOG"); wl=(e&&atoi(e))?1:0;}
-			  if(wl){ extern int fprintf(void*,const char*,...); extern void *stderr;
-			    fprintf(stderr,"[WARP] resolve nWarpID=%d NOT-FOUND in this level's warp points -> m_nLevel=0\n", pThis->m_nWarpID); } }
-#endif
 		}
 	}
 
@@ -1152,13 +1100,6 @@ void CScene__RequestLevel(CScene *pThis, int nLevel)
 												 FALSE);
 
 	ASSERT(CIndexedSet__GetBlockCount(&isLevels));
-#ifdef PLATFORM_PORT
-	/* TUROK_WARPLOG (blue-portal OOB): which level-geometry block this warp selects. If a bonus warp's
-	 * m_nLevel modulos to the wrong/empty block, the wrong geometry streams and the player voids. */
-	{ extern char *getenv(const char*); static int wl=-1; if(wl<0){const char*e=getenv("TUROK_WARPLOG"); wl=(e&&atoi(e))?1:0;}
-	  if(wl){ extern int fprintf(void*,const char*,...); extern void *stderr; int bc=CIndexedSet__GetBlockCount(&isLevels);
-	    fprintf(stderr,"[WARP] RequestLevel nLevel(in)=%d -> block=%d (count=%d)\n", nLevel, ((nLevel%bc)+bc)%bc, bc); } }
-#endif
 	nLevel %= CIndexedSet__GetBlockCount(&isLevels);
 
 	// find address of level
@@ -3603,33 +3544,6 @@ void CScene__BuildInstanceCollisionList(CScene *pThis, CUnindexedSet *pusAnimIns
 
 	// add pickups
 	CSimplePool__AddToCollisionList(&pThis->m_SimplePool, pThis);
-
-#ifdef PLATFORM_PORT
-	/* TUROK_FORCEPORTAL: scan the freshly-built collision list (m_pInstances) for a warp/portal simple
-	 * and fire the REAL CWarp__Warp path (back-off + store=TRUE) — reproduces the blue-portal warp
-	 * headlessly, without the player physically colliding. Logs every warp simple it sees (m_Id/flags)
-	 * so we can tell whether a portal is in collision range. Pair with TUROK_FAKEINPUT=7 (patrol) so the
-	 * player wanders until a portal enters range. Fires ONCE. */
-	{ extern char *getenv(const char*); extern int AI_IsWarp(int); extern void CWarp__Warp(CGameSimpleInstance*);
-	  static int fp=-2; static int done=0;
-	  if(fp==-2){ const char*e=getenv("TUROK_FORCEPORTAL"); fp=(e&&atoi(e))?1:0; }
-	  if(fp && !done){
-	    int _i; extern int fprintf(void*,const char*,...); extern void *stderr;
-	    for(_i=0;_i<pThis->m_nInstances;_i++){
-	      CInstanceHdr *_ih = pThis->m_pInstances[_i];
-	      if(_ih && _ih->m_Type==I_SIMPLE && AI_IsWarp(CInstanceHdr__TypeFlag(_ih))){
-	        CGameSimpleInstance *_w = (CGameSimpleInstance*)_ih;
-	        int _id = _ih->m_pEA ? _ih->m_pEA->m_Id : -999;
-	        fprintf(stderr,"[WARP] FORCEPORTAL warp simple #%d m_Id=%d wFlags=0x%x\n", _i, _id, _w->m_wFlags);
-	        if(!(_w->m_wFlags & SIMPLE_FLAG_GONE) && (_w->m_wFlags & SIMPLE_FLAG_VISIBLE) && _id>0){
-	          fprintf(stderr,"[WARP] FORCEPORTAL -> CWarp__Warp on m_Id=%d\n", _id);
-	          CWarp__Warp(_w); done=1; break;
-	        }
-	      }
-	    }
-	  }
-	}
-#endif
 }
 
 

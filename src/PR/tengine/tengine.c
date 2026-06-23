@@ -2421,15 +2421,6 @@ void CEngineApp__Warp(CEngineApp *pThis, int WarpID, int nType, BOOL StoreWarpRe
 
 	ASSERT((nType >= WARP_WITHINLEVEL) && (nType <= WARP_BETWEENLEVELS));
 
-#ifdef PLATFORM_PORT
-	/* TUROK_WARPLOG (blue-portal return bug): the WarpID the warp was invoked with. RETURN_WARP_ID(-1)
-	 * => restore m_ReturnWarp; CAMPAIGNER_BOSS_WARP_ID(8999) => the boss the user lands on by mistake. */
-	{ extern char *getenv(const char *); static int wl=-1; if(wl<0){const char*e=getenv("TUROK_WARPLOG"); wl=(e&&atoi(e))?1:0;}
-	  if(wl){ extern int fprintf(void*,const char*,...); extern void *stderr;
-	    fprintf(stderr,"[WARP] CEngineApp__Warp: WarpID=%d nType=%d store=%d (RETURN=%d CAMPAIGNER=%d)\n",
-	      WarpID, nType, StoreWarpReturn, RETURN_WARP_ID, CAMPAIGNER_BOSS_WARP_ID); } }
-#endif
-
 	// Skip boss levels if the boss is already dead
 	switch(WarpID)
 	{
@@ -4091,13 +4082,6 @@ void CEngineApp__Main(CEngineApp *pThis)
 						}
 
 						// Goto cinema warp?
-#ifdef PLATFORM_PORT
-						{ extern char *getenv(const char*); static int dl=-2; if(dl==-2){const char*e=getenv("TUROK_DEATHLOG");dl=(e&&atoi(e))?1:0;}
-						  if(dl){ extern int fprintf(void*,const char*,...); extern void *stderr;
-						    fprintf(stderr,"[DEATHLOG] respawn: UseCinemaWarp=%d m_WarpID=%d CurrentCheckpoint=%d CinemaFlags=0x%x wasFall=%d CinemaWarp=(%.0f,%.0f,%.0f)\n",
-						      pThis->m_UseCinemaWarp, pThis->m_WarpID, CTurokMovement.CurrentCheckpoint, (unsigned)pThis->m_CinemaFlags, g_turok_death_was_fall,
-						      pThis->m_CinemaWarp.m_vPos.x, pThis->m_CinemaWarp.m_vPos.y, pThis->m_CinemaWarp.m_vPos.z); } }
-#endif
 						if (pThis->m_UseCinemaWarp)
 						{
 							if (pThis->m_UseCinemaWarp == 2)
@@ -4794,54 +4778,6 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	    if (game_frame_number == 0 || ex*ex+ey*ey+ez*ez > 100.0f*100.0f) _ipHave = 0; } }
 #endif
 
-#ifdef PLATFORM_PORT
-	/* TUROK_FORCEWARP=<id>: headlessly reproduce a within-level (blue-portal) warp to <id>. Fires ONCE,
-	 * ~60 frames after a player exists and we're not already warping, so the level is settled. Lets us
-	 * capture the warp resolution + level-block selection for a bonus warp (9600) that TUROK_WARP can't
-	 * reach (TUROK_WARP clamps to the level's warp-point 0). Debug aid for the blue-portal OOB bug. */
-	{ extern char *getenv(const char*); static int fw=-2; static int fwc=0;
-	  if (fw==-2){ const char*e=getenv("TUROK_FORCEWARP"); fw=(e?atoi(e):-1); }
-	  if (fw>=0 && fwc>=0){
-	    CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
-	    if (_pl && pThis->m_Warp == WARP_NOT_WARPING && ++fwc>=60){
-	      extern int fprintf(void*,const char*,...); extern void *stderr;
-	      fprintf(stderr,"[WARP] FORCEWARP -> CEngineApp__Warp(%d, WARP_WITHINLEVEL)\n", fw);
-	      CEngineApp__Warp(pThis, fw, WARP_WITHINLEVEL, FALSE);
-	      CTurokMovement.CurrentCheckpoint = fw ;   /* PORT: treat the forced warp as a checkpoint so a fall here respawns back at it (clean test loop) */
-	      fwc = -1;   /* fired; never again */
-	    } }
-	}
-#endif
-
-#ifdef PLATFORM_PORT
-	/* TUROK_TESTPORTAL=1: a re-triggerable blue-portal test trigger AT the fire-pit (warp-0) spawn, so the
-	 * 9600 key-gate can be exercised repeatedly without hiking to the real portal. Just walk AWAY from the
-	 * fire-pit — the moment the player crosses a ~200u zone around the spawn (-1837,-3290) outward, it fires
-	 * CEngineApp__Warp(9600) -> the bonus (lvl 26; the key gate keeps it off the boss). Does NOT fire on the
-	 * initial spawn. store=TRUE so the bonus's own return portal brings you back to the fire-pit; walk away
-	 * again to retest. Prints your distance every ~90 frames so you can see the zone. */
-	{ extern char *getenv(const char*); static int tp=-2; static int wasOut=0; static unsigned _tpc=0;
-	  if (tp==-2){ const char*e=getenv("TUROK_TESTPORTAL"); tp=(e&&atoi(e))?1:0; }
-	  if (tp) {
-	    CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
-	    if (_pl && pThis->m_Warp == WARP_NOT_WARPING) {
-	      float _dx = _pl->ah.ih.m_vPos.x - (-1837.0f);
-	      float _dz = _pl->ah.ih.m_vPos.z - (-3290.0f);
-	      int _inside = (_dx*_dx + _dz*_dz) < (200.0f*200.0f);
-	      { extern int fprintf(void*,const char*,...); extern void *stderr;
-	        if ((++_tpc % 90u) == 0u)
-	          fprintf(stderr,"[WARP] TESTPORTAL: dist^2=%.0f from fire-pit (zone=200^2=40000) — walk AWAY to warp\n",
-	                  (double)(_dx*_dx + _dz*_dz));
-	        if (!_inside && !wasOut) {   /* walked AWAY from the fire-pit (crossed the ~200u zone) -> warp */
-	          fprintf(stderr,"[WARP] TESTPORTAL (fire-pit) -> CEngineApp__Warp(9600)\n");
-	          CEngineApp__Warp(pThis, 9600, WARP_WITHINLEVEL, TRUE);
-	        }
-	        wasOut = !_inside; }
-	    }
-	  }
-	}
-#endif
-
 	// Request latest controller information
 	if (validcontrollers && !cntrlReadInProg)
 	{
@@ -4922,33 +4858,6 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	// Start pressed? - if so signal it to camera
 	if ((CTControl__IsStart(pCTControl)) && (pThis->m_FadeStatus == FADE_NULL))
 		pThis->m_Camera.m_StartPressed = TRUE ;
-
-#ifdef PLATFORM_PORT
-	/* TUROK_POSLOG: periodic player pos + death/warp state, for diagnosing fall-death respawn headlessly. */
-	{ extern char *getenv(const char*); static int pl=-2; if(pl==-2){const char*e=getenv("TUROK_POSLOG");pl=(e&&atoi(e))?1:0;}
-	  if(pl){ static int _pc=0; CGameObjectInstance *_p=CEngineApp__GetPlayer(pThis);
-	    if(_p && (++_pc%30)==0){ extern int fprintf(void*,const char*,...); extern void *stderr;
-	      fprintf(stderr,"[POS] pos=(%.0f,%.0f,%.0f) m_Death=%d m_Warp=%d hp=%d region=%p\n",
-	        _p->ah.ih.m_vPos.x,_p->ah.ih.m_vPos.y,_p->ah.ih.m_vPos.z, (int)pThis->m_Death, (int)pThis->m_Warp,
-	        (int)_p->m_AI.m_Health, (void*)_p->ah.ih.m_pCurrentRegion); } }
-	}
-	/* TUROK_FORCEYAW: override player facing each frame (headless cliff-steering for fall-death repro). */
-	{ extern char *getenv(const char*); extern double atof(const char*); static int fy=-2; static float fyv;
-	  if(fy==-2){const char*e=getenv("TUROK_FORCEYAW");fy=e?1:0;if(e)fyv=(float)atof(e);}
-	  if(fy){ CGameObjectInstance *_p=CEngineApp__GetPlayer(pThis); if(_p) _p->m_RotY=fyv; } }
-	/* TUROK_SETCHECKPOINT: force CurrentCheckpoint each frame (test fall-death respawn with m_WarpID != checkpoint). */
-	{ extern char *getenv(const char*); extern int atoi(const char*); static int sc=-2; static int scv;
-	  if(sc==-2){const char*e=getenv("TUROK_SETCHECKPOINT");sc=e?1:0;if(e)scv=atoi(e);}
-	  if(sc) CTurokMovement.CurrentCheckpoint=scv; }
-	/* TUROK_SETLIVES: pin the lives count (test game-over: SETLIVES=0 -> next death = game over). */
-	{ extern char *getenv(const char*); extern int atoi(const char*); static int sl=-2; static int slv;
-	  if(sl==-2){const char*e=getenv("TUROK_SETLIVES");sl=e?1:0;if(e)slv=atoi(e);}
-	  if(sl) CTurokMovement.Lives=slv; }
-	/* TUROK_KILLSELF: zero the player's health from frame ~120 (deterministic death/game-over test). */
-	{ extern char *getenv(const char*); extern int atoi(const char*); static int ks=-2; static int kc=0;
-	  if(ks==-2){const char*e=getenv("TUROK_KILLSELF");ks=(e&&atoi(e))?1:0;}
-	  if(ks && ++kc>=120 && kc<200){ CGameObjectInstance *_p=CEngineApp__GetPlayer(pThis); if(_p) _p->m_AI.m_Health=0; } }
-#endif
 
 	// Update turok
 	if ((pThis->m_bPause==FALSE) && (pThis->m_Warp == WARP_NOT_WARPING) && (pThis->m_Death == DEATH_NOT_DIEING) &&(pThis->m_bTraining ==FALSE))

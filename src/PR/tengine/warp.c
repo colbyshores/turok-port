@@ -33,21 +33,6 @@ void CWarp__Warp(CGameSimpleInstance *pWarp)
 				  && (pWarp->ah.ih.m_pEA->m_Id > 0)
 				  && (pWarp->m_wFlags & SIMPLE_FLAG_VISIBLE) )
 			{
-#ifdef PLATFORM_PORT
-				/* TUROK_WARPLOG: the blue-portal "re-enter -> Campaigner boss" bug needs an interactive
-				 * trace (can't script walking into a trigger headlessly). This dumps the portal's read
-				 * flags + destination so we can see whether RETURNWARP is recognized (WarpReturn taken)
-				 * or it falls through to a forward warp on m_Id. Endianness of these fields is already
-				 * verified correct (scene.c ObjectAttributesReceived), so a wrong value here = a data issue. */
-				{ extern char *getenv(const char *); static int wl=-1; if(wl<0){const char*e=getenv("TUROK_WARPLOG"); wl=(e&&atoi(e))?1:0;}
-				  if(wl){ extern int fprintf(void*,const char*,...); extern void *stderr;
-				    fprintf(stderr,"[WARP] dyn-warp HIT: m_Id=%d  flags2=0x%08x STORE=%d  flags3=0x%04x RETURN=%d\n",
-				      (int)pWarp->ah.ih.m_pEA->m_Id,
-				      (unsigned)pWarp->ah.ih.m_pEA->m_dwTypeFlags2,
-				      (pWarp->ah.ih.m_pEA->m_dwTypeFlags2 & AI_TYPE2_STOREWARPRETURN)?1:0,
-				      (unsigned short)pWarp->ah.ih.m_pEA->m_wTypeFlags3,
-				      (pWarp->ah.ih.m_pEA->m_wTypeFlags3 & AI_TYPE3_RETURNWARP)?1:0); } }
-#endif
 				if (pWarp->ah.ih.m_pEA->m_wTypeFlags3 & AI_TYPE3_RETURNWARP)
 				{
 					CEngineApp__WarpReturn(GetApp());
