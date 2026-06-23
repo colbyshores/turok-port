@@ -240,6 +240,13 @@ typedef struct {
     uint32_t stageConst[6];    // per-STAGE TEV constants (ABGR8), composed per draw
                                // from the chain's cRgbSrc/cASrc sources
     int16_t  tex0, tex1;       // texture-pool ids (-1 = none)
+    // ★ Bug C (torch yellow squares): the texture-pool slot id (tex0) is NOT a stable content handle — under
+    // memory pressure gfx_pc evicts + REUSES a slot mid-frame (new_texture free-list), so a recorded flame
+    // draw can replay against a slot now holding ANOTHER (opaque) texture. sTexValid stays TRUE, so the plain
+    // !sTexValid skip misses it; through the flame combiner (alpha = TEXEL0.a * PRIM.a) the stale opaque
+    // texels paint the whole billboard quad solid yellow/grey. Snapshot the slot's CONTENT identity
+    // (sTexSrcAddr) at record time and re-validate at replay — the missing piece next to wrap/filter below.
+    uintptr_t tex0Src;
     // depth state
     bool     depthTest, depthMask, depthCompare, depthDecal, depthSourcePrim, depthInter;
     // blend
@@ -433,6 +440,7 @@ static int       sBakeSkip = 0;             // bakes skipped this run (cap/budge
 static int       sTexLodMips = 1;           // §21.11: honor N64 tex_lod → mip level textures (texlodmips.txt)
 static bool      sMemLog = false;           // memlog.txt: lightweight PRODUCTION mem log (freeFCRAM/OOM) to boot.log
 static uint32_t  sTexOomCount = 0;          // cumulative texture-upload OOM skips (production-counted, for memlog)
+static uint32_t  sTexStaleSkips = 0;        // ★ Bug C: draws skipped because tex0's slot was reused mid-frame (valid-but-stale)
 static uint32_t  sMemFreeMinKB = 0xFFFFFFFFu; // sticky min free linear heap (KB), production memlog
 static bool      sMipsEnabled = true;       // ★ BK: DEFAULT ON. The PC GL reference glGenerateMipmap()s every
                                             // gen_mipmaps (N64 tex_lod) texture; with mips OFF the PICA's
@@ -2074,6 +2082,8 @@ static void gfx_citro3d_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size
         if (cmd->tex0 == (int16_t)scaleTex) cmd->tex0 = (int16_t)bakeTex;
         if (cmd->tex1 == (int16_t)scaleTex) cmd->tex1 = (int16_t)bakeTex;
     }
+    // ★ Bug C: snapshot tex0's content identity so replay can detect a slot reused for other content.
+    cmd->tex0Src = (cmd->tex0 > 0 && cmd->tex0 < TEX_POOL_SIZE) ? sTexSrcAddr[cmd->tex0] : 0;
     // Snapshot THIS draw's wrap (a normal pool texture only). 0xFF = leave as-is (a bake slot keeps the
     // wrap it was created with; an fbBind ignores tex0). Re-asserted at replay so a later same-texid draw
     // with a different wrap can't corrupt this one (the shared sTexPool[id].param flaw — fixes the glare).
@@ -2547,12 +2557,26 @@ static void replayRange(const C3D_Mtx *eyeTf, int start, int end) {
             curMono = cmd->is2d;
             C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, sUniTransform, curMono ? &sMonoTf : (C3D_Mtx *)eyeTf);
         }
-        // ★ A draw that WANTS a texture (tex0>0) but whose texture is INVALID (upload OOM-skipped /
-        // not yet loaded → sTexValid[tex0]==false) would otherwise leave the PREVIOUS draw's texture
-        // bound on unit 0 and SAMPLE it — the TEV chain reads stale texels. For the torch flame's
-        // PSEUDOCOLOR combiner this collapses to a solid yellow prim block (the "yellow squares
-        // around torches" bug). The N64 intent for a missing texture is no-show: SKIP the draw.
-        if (cmd->tex0 > 0 && !sTexValid[cmd->tex0] && !cmd->fbBind) continue;
+        // ★ Bug C (torch yellow squares) — a draw that WANTS a texture (tex0>0) samples the PREVIOUS draw's
+        // texture on unit 0 if its own slot is unusable, and through the flame combiner (alpha = TEXEL0.a *
+        // PRIM.a) the stale OPAQUE texels paint the whole billboard quad solid yellow/grey. Two ways the slot
+        // is unusable: (a) INVALID — upload OOM-skipped / not yet loaded (sTexValid==false); (b) VALID-but-
+        // STALE — the pool evicted+REUSED this slot for OTHER content mid-frame (sTexValid stays true, so the
+        // plain check below could not catch it — this is the residual cause the adversarial review pinpointed,
+        // since commit 9a9bf34 already handled (a) yet the bug persisted). Re-validate the slot's CONTENT
+        // identity against the snapshot; on either failure, SKIP (the N64 missing-texture = no-show intent).
+        if (cmd->tex0 > 0 && !cmd->fbBind &&
+            (!sTexValid[cmd->tex0] || sTexSrcAddr[cmd->tex0] != cmd->tex0Src)) {
+            // confirmation trace: a VALID-but-stale skip (the (b) case the review predicted). debug-gated.
+            if (sTexValid[cmd->tex0] && cmd->tex0Src && sTexStaleSkips < 32) {
+                extern int g_cfg_debug;
+                if (g_cfg_debug) { char b[88]; snprintf(b, sizeof b,
+                    "TEXSTALE tex0=%d rec=%p cur=%p (slot reused mid-frame)",
+                    (int)cmd->tex0, (void *)cmd->tex0Src, (void *)sTexSrcAddr[cmd->tex0]); plat3dsBootLog(b); }
+            }
+            sTexStaleSkips++;
+            continue;
+        }
         applyViewport(cmd);
         applyCmdState(cmd);
         C3D_DrawArrays(GPU_TRIANGLES, cmd->vboOffset, cmd->vertCount);
