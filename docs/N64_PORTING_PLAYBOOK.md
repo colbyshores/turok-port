@@ -434,6 +434,41 @@ transform stage is **separable**, and that's what splits the two port types:
   about **what you submit** (state-change batching, texture format/bandwidth, draw count via game-side culling), not
   about re-deriving geometry the interpreter already produced.
 
+## 15. Real-hardware-only rendering bugs: don't analyze, *localize* (and the PICA alpha=0 blend rule)
+
+A bug that reproduces on the **real device but never in the emulator** (Citra/Mandarine HLE) is a different
+species from a logic bug, and the usual static code analysis is a trap. The C runs **byte-identically** on the
+device and in the emulator — same combiner decode, same texture bytes, same blend setup — so if HLE is always
+correct and hardware misbehaves, **the bug is in how the silicon executes a correct command stream**, not in your
+code. Add **intermittent / angle-dependent / flickering** and you have a GPU-execution quirk (cache, sync, blend,
+coverage, depth) that no amount of staring at the combiner will reveal.
+
+- **Stop guessing; localize empirically with an on-device, flag-gated A/B that needs NO rebuild per variant.**
+  Gate the experiments behind a value your config reader already loads from the SD (`turok.cfg`), so the user
+  flips a number and relaunches instead of waiting for a rebuild+redeploy cycle. One deployment then splits the
+  whole hypothesis space. The Turok torch-flame "yellow square" took **six blind fixes** (texture format,
+  combiner math, NPOT padding, dead-TEV-stage collapse, stale-slot, cache-coherency — all refuted by the
+  *intermittent + HW-only* profile) and then **one flag-gated probe** to solve: forcing an alpha-test on the
+  suspect draws showed the transparent fragments' alpha really was 0 (the test discarded them cleanly) — proving
+  the **blend**, not the texture/TEV, was the culprit.
+- **★ The PICA200 SRC_ALPHA blend can render `alpha == 0` fragments as OPAQUE (intermittently).** On real
+  silicon the standard `GPU_SRC_ALPHA / GPU_ONE_MINUS_SRC_ALPHA` blend does not reliably honor a zero source
+  alpha, so any alpha-blended surface with fully-transparent texels (sprites, flames, smoke, HUD overlays,
+  menus) can flicker its transparent regions to a solid coloured quad. HLE always honors alpha 0, so it's
+  invisible in the emulator. **Fix (general, DRY — one rule for every alpha-blended draw, not a per-effect
+  patch): give such draws a `GREATER 0` alpha-test to discard zero-coverage fragments.** It's a *mathematical
+  no-op* for correct blending — an `alpha==0` fragment contributes `src*0 + dst*(1-0) = dst` (nothing), so
+  discarding it yields the identical pixel — so it cannot harden a soft edge or erase anything visible; it only
+  removes the wrong-opaque artifact. It is also faithful to the N64's `CLD_SURF` coverage semantic (`CLR_ON_CVG`
+  = don't draw zero-coverage). **Exclude modulate (`DST_COLOR`) blends** — there alpha isn't coverage, so a
+  zero-alpha fragment still multiplies the destination and must not be discarded. Put the rule in the single
+  per-draw alpha-test decision (one source of truth). The PC/GL backend honors alpha 0 correctly and is a
+  separate TU — leave it alone. (Reusable across every Fast3D→Citro3D port that shares this backend.)
+- **General rule for the bug *class*:** when a render artifact is **HW-only + intermittent**, match the user's
+  exact runtime config (it often only appears at a particular FPS/tick/angle/scene), reach for a **flag-gated
+  on-device probe** before any fix, and prefer a fix that is **provably a no-op in the correct case** (like the
+  zero-coverage discard) so generalizing it across all draws can't regress anything.
+
 ---
 
 *Distilled 2026-06-18 from the Turok: Dinosaur Hunter port (incl. the full classic-ABI audio pipeline: threaded

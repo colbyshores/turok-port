@@ -2095,3 +2095,19 @@ and **enabling GPU-MVP measurably HURT Perfect Dark**, confirming CPU-transform 
 Don't port Forsaken's stereo method here. **Next:** wire the PROF profiler + land the low-risk quick wins
 (per-draw state dedup, strip hot-path debug, `-fno-math-errno -ffp-contract=fast -freciprocal-math`, RGBA5551
 textures), then measure on real hardware before the render-thread split.*
+
+*Status: **★ BUG C SOLVED + DEAD-END CLEANUP (2026-06-23).** The intermittent torch-flame "yellow square" (real-3DS-
+only, never Mandarine) is fixed: on real PICA200 the `SRC_ALPHA` blend intermittently renders **alpha==0 fragments as
+OPAQUE**, so any alpha-blended surface with transparent texels can flicker its transparent regions to a solid quad.
+Fix (commit `4510566`, `gfx_citro3d` applyCmdState, PLATFORM_3DS, general/DRY over ALL non-modulate alpha-blended
+draws): give them a **`GREATER 0` alpha-test = discard zero-coverage** — a mathematical no-op for correct blending
+(alpha 0 contributes `src*0+dst*1`=nothing) so it can't regress soft translucency, and faithful to the N64 `CLD_SURF`
+`CLR_ON_CVG` coverage. **User-confirmed on hardware** (torch/smoke/water/HUD clean). The decisive method after **six
+refuted blind fixes**: a `turok.cfg flamediag` **on-device flag-gated A/B** (no rebuild per variant) proved the alpha
+value really IS 0 → the BLEND, not texture/TEV, is the culprit. Generalized rule → [playbook §15](docs/N64_PORTING_PLAYBOOK.md).
+Also removed the disproven `b7f014e` valid-but-stale content-validate (kept the genuine `9a9bf34 !sTexValid` guard) and
+stripped **192 lines** of portal/warp/respawn investigation debug knobs (commit `ba55637`) — real fixes kept (warp
+endianness `16b5fa8`, key-gate `9dbe14f`, interp-skip `7bfd06c`); PC+3DS compile clean. **LESSON: a HW-only +
+intermittent render bug is a SILICON-execution quirk (the C is byte-identical on HW+HLE) — localize it with a
+flag-gated on-device A/B, don't keep guessing statically; prefer a fix that's provably a no-op in the correct case so
+generalizing it across all draws can't regress.***
