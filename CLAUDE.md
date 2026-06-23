@@ -476,19 +476,73 @@ debugging" / "clean build"** = revert them. Most are runtime flags (NO rebuild) 
    memcpy/SIGSEGV guard), `tools/build_port.sh ubsan` (-fsanitize=alignment, the ARM-alignment pre-flight),
    `TUROK_WATCHDOG=1` (backtrace a freeze), `romdata.c` DMA logging. Headless audio: `TUROK_AUDIO_WAV=x.wav`.
 
-**Screenshot the running 3DS game:** Mandarine titles its window **`turok`** (the app name), NOT "mandarine" — so
-`xdotool search --name mandarine` FAILS. Enumerate (`for w in $(xdotool search --all); do … getwindowname == "turok"`),
-pick the LARGER window (~1308×1090; the terminal also matches "turok" by its path), then `import -window <id> out.png`
-(captures even when stacked behind VS Code). Set `DISPLAY=:1`.
+**Screenshot the running 3DS game (★ CORRECTED 2026-06-22 — the old "window is titled `turok`" was wrong for the
+current build):** the current Mandarine titles its window **`Mandarine <hash>`** (e.g. `Mandarine 418c25c`), NOT
+`turok` and NOT lowercase `mandarine`. Search `--name 'Mandarine'` and pick the LARGEST match: `for w in
+$(DISPLAY=:1 xdotool search --name Mandarine); do eval "$(DISPLAY=:1 xdotool getwindowgeometry --shell $w)"; keep
+max WIDTH*HEIGHT; done`, then `DISPLAY=:1 import -window <id> out.png`. The game render fills the TOP band; the rest
+is black. Launch via a background run (`DISPLAY=:1 ~/Desktop/citra/mandarine.AppImage <ABS>/turok.3dsx`) — the
+AppImage LAUNCHER process may report exit 1 while the REAL emulator (`AppRun.wrapped`) keeps running, so don't
+trust the launcher's exit code; confirm with `ps aux | grep AppRun.wrapped` + the SD `boot.log`. Set the level via
+`turok.cfg` `warp <id>` (verified: 0=fire pit, 2000=foggy temple outdoor, 6000=Campaigner boss arena). The A-trace
+`boot.log` lines (`A: CScene__Construct …`/`A: reset block done`) confirm the game booted + the warp loaded.
+
+**★★ TWO shell gotchas that SILENTLY EAT these commands (each cost real time this session — "exit 1, no output"):
+(1) the harness shell runs with `set -e`, so ANY non-zero step — a `pkill`/`grep`/`ls`/`xdotool search` that finds
+NO match returns 1 and ABORTS the whole multi-line script before the later commands run. Guard every such command
+with `|| true`. (2) `pkill -9 -f 'AppRun.wrapped'` is SUICIDAL: `-f` matches the FULL command line, and the bash
+command you are typing CONTAINS the literal "AppRun.wrapped", so pkill kills your OWN shell → again "exit 1, no
+output". Kill Mandarine with `pkill -9 AppRun` (process-NAME/comm match, NO `-f` — never matches your bash) or by
+PID. (Same family as the documented `pkill -x turok` rule.) Foreground `sleep` works inside a bounded `for` loop
+with `|| true`, but the harness may block/auto-background a bare long `sleep`.**
 
 **Mandarine hygiene (applies whenever launching):** it WEDGES every ~5-10 rapid launches (a stuck D-state
-`kworker/…events_unbound`); kill with `pkill -9 -f 'AppRun.wrapped'; pkill -9 -f '\.mount_mandar'` + a ~40-60 s
-cooldown, or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is live.
+`kworker/…events_unbound`); kill with `pkill -9 AppRun` (NOT `-f` — see the suicide gotcha) + a ~40-60 s cooldown,
+or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is live.
 
 ## 10. Port edits to game source (keep this log honest)
 
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
+
+- **★ THREE REAL-HW BUGS — A (teleport hang) + B (portal stretch) + C (torch yellow squares) (2026-06-22,
+  commits `001c14e`+`b7f014e`, all PLATFORM_3DS).** User reported these from real 3DS HW + Mandarine. ★ FIRST
+  lesson: the user asked "did you do a CLEAN build?" — I'd been doing INCREMENTAL `make -f Makefile.3ds`. Verified
+  it was NOT stale (camera.c.o recompiled, clean rebuild byte-identical) — my fixes were just WRONG. **ALWAYS
+  clean-rebuild the 3DS (`make -f Makefile.3ds clean && make`); the NFS staleness risk is real.**
+  - **A (teleporter fade-to-white HANG, real-HW-only)** — my first guess (ARM alignment in GetGroundHeight corner
+    reads) was wrong (kept as harmless hardening). INSTRUMENTED instead: new `TUROK_TRACE("…")` macro
+    (`turok_port.h` → `plat3dsBootLog` under turok.cfg `debug 1`, no-op on PC) brackets the teleport path in
+    `tengine.c`/`scene.c`: `DoWarp` → `RESETLEVEL Construct(m_WarpID)` enter/return → `CScene__Construct`
+    enter/done → `reset block done` → per-frame re-acquire → `NearestRegion` enter/exit. **VERIFIED FIRING in
+    Mandarine** (warp 0/2000/6000 boot the whole bracket cleanly = the hang is the IN-LEVEL teleporter, not boot).
+    The LAST `boot.log` line before the freeze on HW = the hung phase. (Needs the user's HW dump to finish.)
+  - **B (portal stretch renders HORIZONTAL not vertical)** — PROVED my earlier X↔Y swap was a literal NO-OP: the
+    warp zoom is mathematically UNIFORM (`CAMERA_WARP_FINAL_X/Y_SCALE` both 4.0, both radii 4.0 → sx==sy). The
+    stretch is the PICA clamping the N64's 4×-OVERSIZED viewport asymmetrically (it can't render a viewport bigger
+    than the panel). FIX: keep the 3DS viewport NORMAL + apply the uniform zoom in CLIP SPACE (`gfx_citro3d
+    buildTransform` scales the rotated output x/y rows), published via `g_turok_warp_zoom` (1.0 idle); HUD never
+    zooms. (Awaiting interactive confirm.)
+  - **C (torch flame transparent texels show opaque yellow/grey, intermittent/flicker when looking up, PICA-only)**
+    — ran an 8-agent ultracode Workflow + adversarial verify. The CHAIN (a model of how multi-agent convergence
+    can still be WRONG): 6 mapping agents CONVERGED on "MIRROR wrap + POT padding" → **synth REFUTED it** (the
+    flame texture is power-of-two, `textload.c:240` ASSERTs dims=2^shift → never POT-padded; the agents shared a
+    false non-POT assumption) → synth proposed FCRAM OOM → **adversarial verify REFUTED that too** (my commit
+    9a9bf34's `!sTexValid` skip already handles the OOM-invalid path, yet the bug persists → the live cause must
+    bypass that gate). Survivor: **valid-but-stale slot** (a pool slot evicted+reused mid-frame, `sTexValid`
+    stays true). Bake (C) ruled out (`g_cfg_bake` default off → `sAutoBake=0`, the bake redirect never fires).
+    FIX (`gfx_citro3d.cpp`): snapshot tex0's CONTENT identity (`sTexSrcAddr`) per `DrawCmd` at record time —
+    the missing piece next to the per-cmd wrap/filter snapshots the struct ALREADY documents ("texid reuse churns
+    with memory") — and re-validate at replay, skipping on mismatch. Debug-gated `TEXSTALE` trace confirms it.
+    **★ OPEN CAVEAT (likely a 4th cause): the user said "the SPRITE IS THERE, the alpha is yellow/grey" — a
+    valid-but-stale WRONG-WHOLE-texture would corrupt the sprite too, not just the alpha. So B may be wrong and
+    the real cause is ALPHA-SPECIFIC** (the color/intensity is right, only the alpha is opaque). Every alpha path
+    read CORRECT though (combiner alpha=TEXEL0.a*PRIM.a, opt_alpha TRUE, blend SRC_ALPHA, GPU_RGBA8 upload
+    preserves alpha) AND is shared with the working PC GL — so it needs RUNTIME DATA: user runs `debug 1`, looks
+    up at a torch, reports `grep -c TEXSTALE boot.log` + `grep -c TEXOOM boot.log` + whether the yellow changed.
+    `TEXSTALE=0` + yellow persists ⇒ pivot to the alpha-specific cause with a flame-draw alpha-state log.
+  - **★ Mandarine LOCAL-RUN works for this** (window `Mandarine <hash>`, the `set -e` + `pkill -f` suicide gotchas
+    — see §11.2 corrected). Couldn't navigate to a torch (no input injection) to self-verify C.
 
 - **★★ ARM11 (3DS) BYTE-ALIGNMENT SWEEP — found+eliminated, verified on the real ARM binary (2026-06-21,
   commit `fee2e4e`, 10-agent Workflow + objdump/UBSan).** N64 assets are big-endian blobs streamed into byte
