@@ -505,6 +505,43 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
+- **★ OPEN (2026-06-23): TRANSLUCENT PARTICLE SPRITES LOSE THEIR ALPHA → render OPAQUE at certain camera
+  angles, REAL-3DS-HARDWARE ONLY (NOT Mandarine, NOT PC). User-reported, NOT yet fixed — experiments dropped,
+  master is clean.** Affects the torch FLAME, key-pickup SPARKLES, smoke — the alpha-blended billboard
+  particles. At some angles the WHOLE BATCH flips opaque (not per-pixel). Same fingerprint as the SOLVED Bug C
+  (yellow square): HW-only + intermittent + whole-batch ⇒ a **PICA200 silicon execution quirk**, because
+  Mandarine runs the byte-identical ARM binary + Citro3D command stream and renders it CORRECTLY → the command
+  stream is right, the silicon executes it differently.
+  - **★ SUSPECTED LINE (the user's call, "~2406"): [`gfx_citro3d.cpp applyCmdState`](port/fast3d/gfx_citro3d.cpp#L2315)
+    — the per-draw BLEND at [:2346](port/fast3d/gfx_citro3d.cpp#L2346)** (`C3D_AlphaBlend(... GPU_SRC_ALPHA,
+    GPU_ONE_MINUS_SRC_ALPHA ...)`, the translucent alpha-over for `useAlpha && !modulate`) and/or the Bug-C
+    zero-coverage alpha test at [:2373-2374](port/fast3d/gfx_citro3d.cpp#L2373) (`C3D_AlphaTest(true, GPU_GREATER,
+    0)`). The user is confident the fix is **at the blend**, not the alpha test.
+  - **CONFIRMED FACTS (so the command stream is correct — it's silicon):** a multi-agent trace proved **PRIM.a
+    (the per-particle fade) IS delivered correctly**, packed per-vertex into `buf_vbo[off_input1 + k*isz + 3]`
+    (gfx_pc) and read back the same way (gfx_citro3d ~2056) into the TEV per-stage CONSTANT alpha (`stageConst`);
+    `use_alpha` decodes **TRUE** for both particle render modes (flame `G_RM_CLD_SURF`, sparkle
+    `RM_ROB_ZB_PCL_SURF_BLEND`, both `GBL = CLR_IN, A_IN, CLR_MEM, 1MA` = SRC_ALPHA-over); textures are **POT**
+    (no pad/wrap-bleed). The combiner alpha = `TEXEL0.a * PRIM.a` for both (defs.h `G_CC_ROB_DECALRGBA_PRIMALPHA`
+    / `G_CC_ROB_PSEUDOCOLOR_PRIMALPHA`; particle.c:2766-2780 format-driven, PRIM fade at particle.c:2943).
+  - **APPROACHES TRIED — ALL REJECTED (do not re-try blindly):**
+    1. **Drop the Bug-C alpha test (pure alpha-blend)** → REINTRODUCED the yellow squares (Bug C) AND did not fix
+       the translucent-opaque. (The test and the opacity are the *same* PICA blend bug at different alpha levels.)
+    2. **`DST_COLOR, ZERO` multiply blend** (user's probe) → not alpha-weighted; not the answer.
+    3. **★ Additive `GPU_SRC_ALPHA, GPU_ONE` on `useAlpha && !modulate`** (alone, and + the zero-coverage discard)
+       → **TWO failures: (a) WRONG SCOPE — turned the PLANTS/foliage ICY-BLUE** (the `useAlpha && !modulate`
+       predicate also catches alpha-blended foliage, the HUD, sky, menus — NOT just particles), **and (b) it did
+       NOT fix the alpha** (particles still opaque). So the "additive dst=ONE can't hide the background" theory was
+       wrong — the alpha genuinely isn't being applied per-fragment on PICA for these draws.
+  - **KEY CONSTRAINTS for the eventual fix:** (i) any change MUST be **scoped to ONLY the particle billboard
+    draws** (identify by the particle combiner `shader_id0` = DECALRGBA_PRIMALPHA / PSEUDOCOLOR_PRIMALPHA, or the
+    CLD_SURF / PCL_SURF render mode) — a blanket `useAlpha && !modulate` change wrecks foliage/HUD/sky. (ii) the
+    blend alone (additive) does NOT restore the alpha, so the next suspect is the **PICA TEV per-stage CONSTANT
+    alpha** (`stageConst`, the fade carrier) not being applied per-stage on HW, or a **valid-but-stale texture
+    pool slot**. (iii) Use the proven Bug-C method: a **`turok.cfg` flag-gated on-device A/B**, scoped to the
+    particle draws (NOT the slider — the user found the slider sweep useless for this). Full investigation log:
+    [`docs/3DS_PARTICLE_OPACITY_TODO.md`](docs/3DS_PARTICLE_OPACITY_TODO.md).
+
 - **★ THREE REAL-HW BUGS — A (teleport hang) + B (portal stretch) + C (torch yellow squares) (2026-06-22,
   commits `001c14e`+`b7f014e`, all PLATFORM_3DS).** User reported these from real 3DS HW + Mandarine. ★ FIRST
   lesson: the user asked "did you do a CLEAN build?" — I'd been doing INCREMENTAL `make -f Makefile.3ds`. Verified

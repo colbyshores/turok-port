@@ -116,3 +116,32 @@ The **alpha == 0 "yellow square"** PICA blend bug *is* fixed in master (commit `
 alpha-test discards zero-coverage fragments for alpha-blended non-modulate draws
 ([gfx_citro3d.cpp:2373](../port/fast3d/gfx_citro3d.cpp#L2373)). That is a different, confirmed-fixed bug. The
 *this-doc* bug is **low/mid-alpha** going opaque, which is still open.
+
+## ★ 2026-06-23 session — more dead ends; the BLEND is the user's prime suspect; SCOPE is the trap
+
+User reconfirmed (emphatically): the particles **"don't get their alpha at some angles"**, it is **HW-only**
+(not Mandarine, not PC), and the fix is **at the BLEND** ([gfx_citro3d.cpp:2346](../port/fast3d/gfx_citro3d.cpp#L2346)),
+not the alpha test. A multi-agent trace **confirmed the command stream is correct** — `PRIM.a` (the fade) is
+delivered per-vertex into `buf_vbo[off_input1 + k*isz + 3]` and read into the TEV per-stage CONSTANT alpha
+(`stageConst`), `use_alpha` decodes TRUE, textures are POT, combiner alpha = `TEXEL0.a*PRIM.a`. So it is a
+**PICA silicon execution** difference, same fingerprint as the SOLVED Bug C.
+
+**Tried this session, ALL REJECTED:**
+- **Remove the Bug-C alpha test** (pure alpha-over) → yellow squares came back, translucent still opaque.
+- **`DST_COLOR, ZERO` multiply** (probe) → not alpha-weighted.
+- **Additive `SRC_ALPHA, ONE`** on `useAlpha && !modulate` (and + the zero-coverage discard) → **(a) WRONG
+  SCOPE: turned the PLANTS/foliage ICY-BLUE** — `useAlpha && !modulate` also matches alpha-blended foliage / HUD
+  / sky / menus, not just particles — **and (b) did NOT fix the alpha** (particles still opaque). So "additive
+  dst=ONE can't hide the background" was the wrong model: the per-fragment alpha simply isn't being applied on
+  PICA for these draws.
+
+**What this rules in for next time:**
+1. **SCOPE to ONLY the particle billboards.** A blanket `useAlpha && !modulate` blend change wrecks foliage
+   (icy-blue plants), HUD, sky. Identify the particle draws specifically — by combiner `shader_id0`
+   (DECALRGBA_PRIMALPHA / PSEUDOCOLOR_PRIMALPHA, particle.c:2769/2774) or render mode (CLD_SURF / PCL_SURF).
+2. **The blend is not the whole story** — additive didn't restore the alpha. Next suspects: the **PICA TEV
+   per-stage CONSTANT alpha** (`stageConst`, the fade carrier — verify on HW it's actually applied per stage,
+   `e.color = cmd->stageConst[i]` at applyCmdState), or a **valid-but-stale texture-pool slot** churning a
+   different texture into the batch.
+3. **Method:** a `turok.cfg` flag-gated **on-device A/B scoped to the particle draws** (the proven Bug-C
+   approach). The physical 3D-slider sweep was tried and the user found it useless here — use a cfg flag.
