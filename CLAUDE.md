@@ -505,6 +505,27 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
+- **★ N64 BUILD RE-PRESERVED — the source compiles for the ORIGINAL N64 target again (2026-06-24).** Audit
+  found the port had silently broken the N64 code path (never noticed — this env has **no SGI/IRIX SDK**, so
+  the N64 ROM is never built here). Cause: TWO classes of **UNGATED** edits referenced symbols that only exist
+  via the force-included port shim (`turok_port.h`, injected on PC/3DS only): (1) the ARM-alignment accessors
+  `turok_rd_*` / `turok_memcpy_unaligned` (~44 uses, the alignment sweep) and (2) `TUROK_TRACE` (10 uses, the
+  teleport trace). On N64 (original `src/PR/tengine/makefile`, no force-include) those are undeclared → compile/
+  link fail. **Everything else was already N64-safe** — every feature global (interp/tick/walk/weapon/warp-zoom),
+  `fmodf`, `turok_wrap_pi`, and all behavioural edits sit inside `#ifdef PLATFORM_PORT`/`PLATFORM_3DS`, and the
+  NULL→0 edits are N64-faithful. **FIX (the THREE-TARGET RULE, now enforced in the shim):** `turok_align.h` keeps
+  its GCC/ARM accessors under `#ifdef PLATFORM_PORT` and adds an `#else` of **plain native macros** (`turok_rd_f32(p)
+  = *(const float*)p`, etc. — N64 data is aligned + BE-native, so identity = the original behaviour, no GCC
+  builtins so even IDO/MIPSpro `cc` accepts it); `turok_port.h` now exposes `turok_align.h` + `TUROK_TRACE`
+  **UNCONDITIONALLY** (no-op trace off-3DS) while keeping the genuinely port-only shims (qsort rename, fmodf proto,
+  turok_wrap_pi) gated; and `src/PR/tengine/makefile` force-includes the shim so the N64 build sees the native
+  forms. **VERIFIED:** PC + 3DS rebuild byte-identical (1053788-byte 3dsx — codegen-neutral); the N64 header path
+  (`gcc -fsyntax-only`, NEITHER define) compiles clean. **CAVEAT:** the full N64 ROM still can't be *built/tested*
+  here (needs the IRIX SDK or a modern mips-gcc N64 setup); the source is N64-ready, ROM verification is gated on
+  that toolchain. **LESSON: an UNGATED edit that uses a force-include-only symbol compiles for PC/3DS but silently
+  breaks the un-force-included N64 build — keep port-only symbols behind `#ifdef PLATFORM_PORT`, OR (for the few
+  used ungated) give them a native off-port definition in the shim.**
+
 - **★ OPEN (2026-06-23): TRANSLUCENT PARTICLE SPRITES LOSE THEIR ALPHA → render OPAQUE at certain camera
   angles, REAL-3DS-HARDWARE ONLY (NOT Mandarine, NOT PC). User-reported, NOT yet fixed — experiments dropped,
   master is clean.** Affects the torch FLAME, key-pickup SPARKLES, smoke — the alpha-blended billboard

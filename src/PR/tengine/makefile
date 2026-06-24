@@ -15,6 +15,14 @@
 
 include $(ROOT)/usr/include/make/PRdefs
 
+# ── PORT (keep this original-N64 tree compilable alongside the PC + 3DS ports) ──────────────
+# A few accessors are referenced UNGATED in the game source — the ARM-alignment readers
+# (turok_rd_*/turok_memcpy_unaligned) and the TUROK_TRACE debug trace. On PC/3DS they come from
+# the force-included port shim; force-include it here too so they resolve to plain native reads /
+# a no-op on N64 (turok_port.h emits ZERO port behaviour when neither PLATFORM_PORT nor
+# PLATFORM_3DS is defined). NOTE: unverified — this env has no SGI/IRIX SDK to build the ROM.
+CFLAGS += -include $(CURDIR)/../../../port/include/turok_port.h
+
 ##################################################################
 # ADD SOURCE FILES HERE!!!!!!!!
 

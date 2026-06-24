@@ -16,10 +16,16 @@
  * (verified: the scalar reads emit `ldr`/`ldrh`, never `vldr`; the bulk copy is a noinline
  * byte loop GCC can't fuse to `ldm`). Use them anywhere a possibly-misaligned buffer is read.
  *
- * Always-on (NOT gated on PLATFORM_PORT) so a single fix is correct on PC and 3DS alike.
+ * On PC + 3DS (PLATFORM_PORT) these GCC-builtin accessors are used (codegen-neutral on x86,
+ * ARM-safe on 3DS). On the ORIGINAL N64 build (no PLATFORM_PORT — possibly IDO/MIPSpro cc with
+ * no GCC builtins) the #else block defines plain native macros instead: N64 assets are ALIGNED +
+ * big-endian native, so a direct typed read is correct and the unaligned/ARM concern never
+ * applies. Same UNGATED call sites in the game source therefore compile on all three targets.
  */
 #ifndef _TUROK_ALIGN_H
 #define _TUROK_ALIGN_H
+
+#ifdef PLATFORM_PORT   /* ===== PC + 3DS: ARM-safe GCC-builtin accessors ===== */
 
 /* Bulk copy out of a possibly-misaligned buffer. `noinline` is CRITICAL: without it GCC at
  * -O2 sees the constant size at the call site and fuses the copy into `ldm/stm`, which faults
@@ -51,5 +57,19 @@ static __inline__ float turok_rd_f32(const void *p)
 { unsigned int u; __builtin_memcpy(&u, p, 4);   /* integer ldr from the buffer (unaligned-OK) */
   float f; __builtin_memcpy(&f, &u, 4);          /* aligned local -> local bit-cast */
   return f; }
+
+#else  /* ===== N64 / any non-port build: portable native reads (no GCC builtins) ===== */
+
+/* N64 data is aligned + big-endian native, so a direct typed read IS the original behaviour;
+ * plain macros so any C compiler (incl. IDO/MIPSpro cc) accepts them. turok_rd_f32(&x) == x. */
+#include <string.h>
+#define turok_memcpy_unaligned(d, s, n)  memcpy((void *)(d), (const void *)(s), (unsigned long)(n))
+#define turok_rd_u16(p)  (*(const unsigned short *)(const void *)(p))
+#define turok_rd_s16(p)  (*(const short          *)(const void *)(p))
+#define turok_rd_u32(p)  (*(const unsigned int   *)(const void *)(p))
+#define turok_rd_s32(p)  (*(const int            *)(const void *)(p))
+#define turok_rd_f32(p)  (*(const float          *)(const void *)(p))
+
+#endif /* PLATFORM_PORT */
 
 #endif /* _TUROK_ALIGN_H */
