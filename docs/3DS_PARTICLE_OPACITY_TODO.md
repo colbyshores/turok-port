@@ -46,11 +46,18 @@ similar glow particles) — at **certain camera angles**:
    **sparkle** (the only mode with `G_AC_DITHER`, [particle.c:2808](../src/PR/tengine/particle.c#L2808)); the
    **flame** uses `RM_CLD_SURF` / `RM_ZB_CLD_SURF` ([particle.c:2824/2838](../src/PR/tengine/particle.c#L2824),
    no dither), so it never entered the branch → "no change."
-3. **Live intensity / alpha-test threshold sweep via the physical 3D slider** — the alpha-test *did* reach the
-   particles, but raising it "only changes the alpha" (cuts/fades the sprite), not the angle-dependent opacity.
-   Scope was `useAlpha && !modulate`.
+3. **Alpha-test threshold raise (`atest`, the shipped `GREATER 0` made tunable), incl. a live 3D-slider sweep**
+   — ★ **DEFINITIVELY RULED OUT on-device.** Fixed `atest 16` did not kill the boxes; sweeping the slider, the
+   opacity only disappears at the **very top (≈128)**, and at that ref the **fire/particles are over-thinned and
+   look wrong**. So there is **no threshold that removes the artifact without ruining the sprite** → this is
+   **NOT an alpha-coverage problem** (discarding low alpha can't fix it). The experiment lives on branch
+   `3ds-particle-atest` (commit then reset away) for reference. Scope was `useAlpha && !modulate`.
 4. **Additive blend scoped to `useAlpha && !modulate && !is2d && !depthMask`** (intended to reach the flame
    this time) — **NO visible change.**
+
+> **Bottom line after #3 + #4:** neither the blend nor the alpha-coverage is the lever. It is a **per-batch
+> render state that flips at certain angles** (3DS-only). Resume at the STRONGEST LEAD below — diff the
+> billboard's draw state good-angle vs bad-angle and force the normal value.
 
 ## ★ STRONGEST REMAINING LEAD (start here next time)
 
