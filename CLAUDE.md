@@ -525,6 +525,20 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   that toolchain. **LESSON: an UNGATED edit that uses a force-include-only symbol compiles for PC/3DS but silently
   breaks the un-force-included N64 build — keep port-only symbols behind `#ifdef PLATFORM_PORT`, OR (for the few
   used ungated) give them a native off-port definition in the shim.**
+  - **★ FULL PRISTINE-DIFF AUDIT (2026-06-24, on branch `n64-target`).** Diffed our whole `tengine` tree against
+    the user's pristine leak `../turokfinal_cracked` (same version — 78 `.c` both, `coll.c` byte-identical; the
+    clean baseline git never had) via an 8-way parallel audit of all **40 changed files (~2164 lines)**. Result:
+    after the shim fix, **exactly ONE more genuine N64 compile/link breaker** — `audiocfx.c` called the port-only
+    `audioSynthLock()`/`audioSynthUnlock()` **UNGATED** in `CFX_PlaySound` (5 sites); `audio.c`/`scene.c` gate
+    them, this TU was missed → `undefined reference` at link on mips-gcc. **FIXED** by adding `audio.c`'s exact
+    file-top shim (`#ifdef PLATFORM_PORT extern… #else #define …((void)0) #endif`). All other divergences are
+    gated or N64-faithful (`ORDERBYTES` non-port path is unchanged identity; `NULL→0`; the `CGameRegion__Take
+    FromROMRegion` `+int nCorners` signature change is consistent across decl/def/caller). **7 ungated
+    *behaviour* flags** compile+link clean and are INERT on real N64 (the host-null-tolerance guards never fire
+    on valid N64 data) or intended (`PARTICLES_MAX_COUNT 2→128` is the real shipping value, not the leak's debug
+    `2`) — so N64 runs correctly as-is; gate them behind `PLATFORM_PORT` only if byte-exact leak fidelity is
+    wanted. Verified: PC + 3DS rebuild byte-identical (1053788-byte 3dsx). Source is N64-compilable modulo the
+    (absent) IRIX/mips-gcc toolchain.
 
 - **★ OPEN (2026-06-23): TRANSLUCENT PARTICLE SPRITES LOSE THEIR ALPHA → render OPAQUE at certain camera
   angles, REAL-3DS-HARDWARE ONLY (NOT Mandarine, NOT PC). User-reported, NOT yet fixed — experiments dropped,

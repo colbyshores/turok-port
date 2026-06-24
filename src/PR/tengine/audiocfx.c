@@ -13,6 +13,18 @@
 #include "scene.h"
 #include "regtype.h"
 
+#ifdef PLATFORM_PORT
+/* PORT: CFX_PlaySound raises to PRIORITY_AUDIOLOCK around the audio-event-queue critical sections;
+ * the cooperative port replaces that with the recursive synthLock vs the dedicated audio thread
+ * (port/src/audio.c) — same pattern as audio.c/scene.c. On N64 these are NO-OPs (port-only symbols),
+ * so the 5 call sites below resolve to nothing without an implicit decl / undefined reference. */
+extern void audioSynthLock(void);
+extern void audioSynthUnlock(void);
+#else
+#define audioSynthLock()   ((void)0)
+#define audioSynthUnlock() ((void)0)
+#endif
+
 
 
 #define MAX_SOUND_SCENES					4
