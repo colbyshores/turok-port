@@ -469,6 +469,38 @@ coverage, depth) that no amount of staring at the combiner will reveal.
   on-device probe** before any fix, and prefer a fix that is **provably a no-op in the correct case** (like the
   zero-coverage discard) so generalizing it across all draws can't regress anything.
 
+## 16. REDUNDANT per-draw register writes provoke PICA blend quirks — DEDUP them (a perf win that's also a HW fix)
+
+This one cost a long on-device bisection on Turok and is **the most counter-intuitive PICA finding so far** — bank
+it, because it will recur on any Fast3D→Citro3D port.
+
+- **The symptom:** translucent billboard/particle sprites (flames, smoke, sparkles) render **OPAQUE** at some
+  camera angles — whole-batch, intermittent, **real-hardware-ONLY** (HLE emulators never show it). Same fingerprint
+  as the §15 alpha=0 quirk, and an on-device probe confirmed the fragments' alpha really IS 0 — so it's a silicon
+  execution quirk, not a data/combiner/texture bug.
+- **The non-obvious root cause:** **re-issuing the SAME fixed-function register writes on EVERY draw** is itself the
+  trigger. Fast3D faithfully re-asserts `C3D_DepthTest`/`C3D_DepthMap`/`C3D_AlphaBlend`/`C3D_AlphaTest` per draw
+  (the N64 DL re-states them constantly). On real PICA200 that redundant write storm intermittently corrupts the
+  blend so `alpha==0` fragments come out opaque. It is the **redundancy of the writes, not their values**.
+- **The fix = a per-draw GPU-STATE DEDUP.** Shadow the last-applied *effective* depth/blend/alpha state and SKIP
+  the `C3D_*` call when it's bit-identical to what's already set; invalidate the shadow at each record/replay pass
+  start (per eye) and after any path that writes that state directly (e.g. a mid-frame depth clear). The applied
+  values are **byte-identical** — you change only *how often* the registers are written. This is the exact same
+  optimization §14 names as the real **single-pass-stereo perf win** (the per-eye cost is draw *submission*, and the
+  second eye re-issues every state write): so **one change is both a measurable perf win AND the cure for a
+  hardware render bug.** It's also DRY-compatible with the §15 zero-coverage alpha-test (resolve the effective
+  alpha-test once, then dedup-apply it).
+- **★ Don't trust a banked root-cause that a live measurement contradicts.** This bug was mis-banked for weeks as
+  "FCRAM texture eviction, fixed by a smaller texture format (RGBA5551)" — but the on-device heartbeat showed
+  `texOOM=0` with tens of MB of GPU heap FREE the whole time, i.e. *nothing was being evicted*. That single
+  reading should have killed the theory; instead a whole "fresh start" branch was built around the wrong fix
+  before bisection found the truth. **A counter-measurement beats a confident note.**
+- **The bisection method that cracked it (reusable):** build ONE change at a time and A/B each on real HW
+  (`fix-A`, `fix-B`, `A+B`, full). When the full build is good but the isolated pieces aren't, do a **one-line
+  "defeat the suspect" test** on the *known-good* full build — here, force the dedup to never engage
+  (`sStValid = false`) so it re-applies every draw like the broken baseline. If the bug returns, that suspect IS
+  the fix, proven, in a single flip. Far faster than additive guessing once you suspect a specific mechanism.
+
 ---
 
 *Distilled 2026-06-18 from the Turok: Dinosaur Hunter port (incl. the full classic-ABI audio pipeline: threaded

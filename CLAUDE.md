@@ -540,7 +540,53 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     wanted. Verified: PC + 3DS rebuild byte-identical (1053788-byte 3dsx). Source is N64-compilable modulo the
     (absent) IRIX/mips-gcc toolchain.
 
-- **★ OPEN (2026-06-23): TRANSLUCENT PARTICLE SPRITES LOSE THEIR ALPHA → render OPAQUE at certain camera
+- **★★★ SOLVED (2026-06-25) — THE BILLBOARD/PARTICLE OPACITY BUG = PICA200 REDUNDANT PER-DRAW REGISTER-WRITE
+  QUIRK; FIX = per-draw GPU-STATE DEDUP. (Supersedes the "OPEN" write-up below AND every prior theory.)**
+  *(This is on branch `billboard-fix-dedup`: clean master + a single 64-line commit to `gfx_citro3d.cpp`, nothing
+  else. It is the user's "start-fresh, just-the-billboard-fix" branch — see below for why every other guess was a
+  red herring.)*
+  - **THE BUG:** translucent particle billboards (torch flame, key sparkles, smoke, alpha-blended sprites) render
+    OPAQUE at certain camera angles — whole-batch, intermittent, **REAL-3DS-HARDWARE ONLY** (Mandarine's HLE
+    blend + PC OpenGL always honour alpha 0, so they NEVER show it). The C combiner / textures / vertex alpha are
+    byte-identical on HW and HLE — proven (the `flamediag` on-device alpha-test showed the fragments' alpha really
+    IS 0; the blend just won't drop them). So it is a **silicon execution quirk**, not a data/combiner bug.
+  - **ROOT CAUSE (the real one):** **re-issuing the SAME depth/blend/alpha `C3D_*` register writes on EVERY draw**
+    (which the N64 DL semantics make Fast3D do) intermittently provokes the PICA200 to render `alpha==0` fragments
+    OPAQUE. It is the *redundancy of the writes*, not their *values*. `applyCmdState` was calling `C3D_DepthTest`/
+    `C3D_DepthMap`/`C3D_AlphaBlend`/`C3D_AlphaTest` unconditionally per draw.
+  - **THE FIX (`gfx_citro3d.cpp applyCmdState`, PLATFORM_3DS):** shadow the last-applied *effective* depth/blend/
+    alpha state (`sStValid` + `sStDTest/sStDFunc/sStDWrite/sStZoff/sStBlend/sStAtEn/sStAtFunc/sStAtRef`) and SKIP
+    the `C3D_*` write when it's unchanged. Reset the shadow (`cmdStateInvalidate()`) at each `replayRange` pass
+    start (per eye) AND after the mid-frame depth CLEAR (which writes depth state directly). **The applied VALUES
+    are byte-identical to before** — only the *write frequency* changes (it's literally the "Q1 per-draw state
+    dedup" perf optimization; it fixes the render bug as a side effect). PC/GL is a separate TU, unaffected.
+  - **PROVEN BY ON-DEVICE BISECTION (every other suspect REFUTED):** built one-change-at-a-time and the user
+    A/B'd each on real HW. `RGBA5551 textures (T1)` ALONE → still broken. `texture content-hash dedup` ALONE →
+    still broken. `T1 + dedup` → still broken. Full working tree → FIXED. `full state EXCEPT gfx_citro3d=master`
+    → broken (⇒ fix is IN gfx_citro3d). And the kill shot: take the FIXED full state and **defeat ONLY the dedup
+    with one line** (`sStValid = false` so it re-applies every draw, like master) → **bug REINTRODUCED.** So the
+    dedup, and nothing else, is the fix.
+  - **WHY THE OLD THEORIES (all in the OPEN write-up below + the stashed CLAUDE.md) WERE WRONG:** the "FIXED BY
+    T1 / valid-but-stale texture POOL SLOT / FCRAM EVICTION" note (and the earlier blend/alpha-test silicon
+    theories) mis-attributed it. The on-device heartbeat had already shown **`texOOM=0` with ~47 MB linear heap
+    FREE** even in heavy scenes — i.e. NO texture eviction was happening — yet the bug persisted; that alone
+    should have killed the FCRAM theory. T1 *coincidentally* helped at the time only because it shipped alongside
+    the dedup in the same working tree. **When you reintegrate the stashed session work, CORRECT the old
+    "RESOLVED by T1" note.**
+  - **★ GENERALIZABLE LESSON (this is why it's worth documenting — it will recur on ANY Fast3D→Citro3D/PICA
+    port): on real PICA200 hardware, REDUNDANT per-draw fixed-function register writes (`C3D_DepthTest`/
+    `DepthMap`/`AlphaBlend`/`AlphaTest`) can trigger intermittent, angle/scene-dependent blend misbehaviour that
+    HLE emulators (Mandarine/Citra) NEVER reproduce. The cure is a per-draw STATE DEDUP — shadow the effective
+    state, skip the write when unchanged (also a real perf win, since the N64 DL re-asserts state every draw and
+    it DOUBLES on the stereo second eye). A "performance" optimization can be the fix for a hardware RENDER bug.
+    Corollary methodology: a HW-only + intermittent + whole-batch artifact that's byte-identical on HLE is a
+    SILICON quirk — localize it with a flag-gated on-device A/B, and BISECT by building one change at a time +
+    a one-line "defeat-the-suspect" test (here `sStValid=false`); don't trust a banked root-cause note that a live
+    measurement contradicts (the `texOOM=0`/`47 MB-free` heartbeat refuted FCRAM before we wasted a fresh branch
+    on it). Generalized → [playbook §16](docs/N64_PORTING_PLAYBOOK.md).**
+
+- **★ [SUPERSEDED by the SOLVED entry above — kept for the investigation record] OPEN (2026-06-23): TRANSLUCENT
+  PARTICLE SPRITES LOSE THEIR ALPHA → render OPAQUE at certain camera
   angles, REAL-3DS-HARDWARE ONLY (NOT Mandarine, NOT PC). User-reported, NOT yet fixed — experiments dropped,
   master is clean.** Affects the torch FLAME, key-pickup SPARKLES, smoke — the alpha-blended billboard
   particles. At some angles the WHOLE BATCH flips opaque (not per-pixel). Same fingerprint as the SOLVED Bug C
