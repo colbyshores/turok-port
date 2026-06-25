@@ -2312,6 +2312,22 @@ static C3D_FogLut *fogLutGet(int16_t mul, int16_t offset) {
 // that share a level's single fog setting. Reset each frame so the first draw always (re)binds.
 static bool sCurFogOn = false; static int16_t sCurFogMul = 0, sCurFogOff = 0; static uint32_t sCurFogCol = 0xffffffff;
 
+// ★★ THE BILLBOARD / TRANSLUCENT-PARTICLE OPACITY FIX (per-draw GPU-state DEDUP).
+// On REAL PICA200 silicon, RE-ISSUING the same depth/blend/alpha register writes on EVERY draw (which the N64
+// DL semantics make us do) intermittently provokes the hardware to render alpha==0 fragments OPAQUE — so torch
+// flames / smoke / sprite billboards flip to solid quads, HW-only, angle/scene-dependent (Mandarine's HLE
+// blend never shows it). Shadowing the last-applied effective state and SKIPPING the redundant C3D_* write when
+// it's unchanged avoids the quirk (and is faster). The applied VALUES are byte-identical to before — this only
+// changes HOW OFTEN the registers are written. Proven by bisection: defeating this dedup reintroduces the bug,
+// every other suspect (RGBA5551, texture dedup, blend values) did not. Reset (cmdStateInvalidate) at each
+// replayRange pass start (per eye) and after the mid-frame depth CLEAR (which writes depth state directly).
+static bool         sStValid = false;
+static bool         sStDTest; static GPU_TESTFUNC sStDFunc; static GPU_WRITEMASK sStDWrite;
+static float        sStZoff = -1.0f;
+static int          sStBlend = -1;                 // 0 opaque · 1 modulate · 2 alpha-over
+static bool         sStAtEn;  static GPU_TESTFUNC sStAtFunc; static int sStAtRef = -1;
+static inline void  cmdStateInvalidate(void) { sStValid = false; }
+
 static void applyCmdState(const DrawCmd *cmd) {
     // depth — mirror the OpenGL backend's ZMODE logic:
     //   no compare           → ALWAYS
@@ -2329,29 +2345,38 @@ static void applyCmdState(const DrawCmd *cmd) {
     } else {
         df = GPU_LESS;
     }
-    C3D_DepthTest(cmd->depthTest, df, cmd->depthMask ? GPU_WRITE_ALL : GPU_WRITE_COLOR);
+    GPU_WRITEMASK dwrite = cmd->depthMask ? GPU_WRITE_ALL : GPU_WRITE_COLOR;
+    if (!sStValid || sStDTest != cmd->depthTest || sStDFunc != df || sStDWrite != dwrite) {
+        C3D_DepthTest(cmd->depthTest, df, dwrite);
+        sStDTest = cmd->depthTest; sStDFunc = df; sStDWrite = dwrite;
+    }
     // Map our NDC z [-1,0] (near=-1, far=0) to window [0,1] for ALL geometry, so
     // every object/pass shares one depth space and occludes correctly. (The N64
     // per-viewport Z range is intentionally NOT applied — honouring it put rooms
     // and props in different window-depth bands and made props show through walls.
     // The viewmodel is kept on top by the mid-frame depth CLEAR, not the range.)
     // Decals get a small near-bias (≈ glPolygonOffset).
-    C3D_DepthMap(true, 1.0f, cmd->depthDecal ? 1.0f - 0.0015f : 1.0f);
+    { float zoff = cmd->depthDecal ? 1.0f - 0.0015f : 1.0f;
+      if (!sStValid || sStZoff != zoff) { C3D_DepthMap(true, 1.0f, zoff); sStZoff = zoff; } }
 
-    // blend
-    if (cmd->useAlpha) {
-        if (cmd->modulate)
-            C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_DST_COLOR, GPU_ZERO, GPU_DST_COLOR, GPU_ZERO);
-        else
+    // blend (dedup: skip the redundant per-draw write that provokes the PICA opaque-alpha quirk)
+    int blend = !cmd->useAlpha ? 0 : (cmd->modulate ? 1 : 2);
+    if (!sStValid || sStBlend != blend) {
+        if (blend == 2)
             C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA,
                            GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA);
-    } else {
-        C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
+        else if (blend == 1)
+            C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_DST_COLOR, GPU_ZERO, GPU_DST_COLOR, GPU_ZERO);
+        else
+            C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ZERO, GPU_ONE, GPU_ZERO);
+        sStBlend = blend;
     }
 
-    // alpha test
+    // alpha test (dedup: resolve the effective test, apply only if changed — this is the redundant write
+    // that, re-issued every draw, triggers the PICA opaque-alpha quirk on transparent billboards)
+    bool atEn; GPU_TESTFUNC atFunc; int atRef;
     if (cmd->alphaTest) {
-        C3D_AlphaTest(true, GPU_GREATER, cmd->alphaRef);
+        atEn = true; atFunc = GPU_GREATER; atRef = cmd->alphaRef;
     } else {
 #ifdef PLATFORM_3DS
         // ★★ PICA BLEND ZERO-COVERAGE CORRECTNESS RULE (general; first found as the torch-flame "yellow square").
@@ -2370,14 +2395,17 @@ static void applyCmdState(const DrawCmd *cmd) {
         // a zero-alpha fragment still multiplies the destination and must not be discarded. PC OpenGL is a separate
         // TU and honors alpha 0 correctly — unaffected. (If a surface ever shows the artifact at low-but-NONZERO
         // alpha, raise the ref for THAT case only — a global raise would clip genuine soft edges.)
-        if (cmd->useAlpha && !cmd->modulate)
-            C3D_AlphaTest(true, GPU_GREATER, 0);   // discard zero-coverage; honors what the HW blend won't
-        else
-            C3D_AlphaTest(false, GPU_ALWAYS, 0);
+        if (cmd->useAlpha && !cmd->modulate) { atEn = true;  atFunc = GPU_GREATER; atRef = 0; } // discard zero-coverage
+        else                                 { atEn = false; atFunc = GPU_ALWAYS;  atRef = 0; }
 #else
-        C3D_AlphaTest(false, GPU_ALWAYS, 0);
+        atEn = false; atFunc = GPU_ALWAYS; atRef = 0;
 #endif
     }
+    if (!sStValid || sStAtEn != atEn || sStAtFunc != atFunc || sStAtRef != atRef) {
+        C3D_AlphaTest(atEn, atFunc, atRef);
+        sStAtEn = atEn; sStAtFunc = atFunc; sStAtRef = atRef;
+    }
+    sStValid = true;   // depth/blend/alpha shadows now current — subsequent same-state draws skip the writes
 
     // FOG (§3.3/§20.12) — PICA fixed-function fog unit. Distance fog the GL backend does in its fragment
     // shader; here it masks the N64 draw-distance popup (the villa horizon etc.). Skip redundant rebinds:
@@ -2553,6 +2581,7 @@ static void replayRange(const C3D_Mtx *eyeTf, int start, int end) {
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, sUniTransform, (C3D_Mtx *)eyeTf);
     bool curMono = false;
     sCurFogOn = false;    // FOG: force the first fogged draw of this pass to (re)bind (each eye/range resets)
+    cmdStateInvalidate(); // dedup: force the first draw of this pass to re-apply depth/blend/alpha (per eye/range)
     for (int i = start; i < end; i++) {
         const DrawCmd *cmd = &sCmds[i];
         if (cmd->fbOp == 1) continue;             // copy boundary marker — handled by the caller's chain
@@ -2565,6 +2594,7 @@ static void replayRange(const C3D_Mtx *eyeTf, int start, int end) {
             C3D_DepthMap(true, 0.0f, 1.0f);
             C3D_DepthTest(true, GPU_ALWAYS, GPU_WRITE_DEPTH);
             C3D_DrawArrays(GPU_TRIANGLES, cmd->vboOffset, cmd->vertCount);
+            cmdStateInvalidate(); // this path wrote depth state directly → next applyCmdState must re-apply
             continue;
         }
         if (cmd->is2d != curMono) {               // ★ flatten the HUD: mono transform for 2D, eye transform for 3D
