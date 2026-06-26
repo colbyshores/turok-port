@@ -1333,8 +1333,27 @@ static void gfx_adjust_width_height_for_scale(uint32_t& width, uint32_t& height)
     }
 }
 
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+/* ★ DEBUG ONLY (TUROK_F24, PC) — REMOVE once the f24-fog theory is confirmed. Crush an f32 to the
+ * PICA200's float24 PRECISION (1 sign · 7 exp · 16 mantissa) by rounding the f32 mantissa from 23 to
+ * 16 bits, then re-expanding to f32 so the GL rasterizer can consume it. (We keep the f32 8-bit
+ * exponent — the PICA's 7-bit exp range easily covers geometry magnitudes, so the *mantissa* is the
+ * precision that matters and the only thing that bands the fog.) Apply to the clip-space verts so the
+ * PC reproduces the 3DS's f24 1/w fog quantization headlessly, to prove the cause before the fix. */
+static inline float crush_f24(float v) {
+    uint32_t u; memcpy(&u, &v, sizeof(u));
+    u = (u + 0x40u) & 0xFFFFFF80u;   // round bit 6, clear the low 7 mantissa bits → 16-bit mantissa
+    float r; memcpy(&r, &u, sizeof(r));
+    return r;
+}
+static int s_f24_on = -1;
+#endif
+
 static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* vertices) {
     SUPPORT_CHECK(n_vertices <= MAX_VERTICES);
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+    if (s_f24_on < 0) s_f24_on = getenv("TUROK_F24") ? 1 : 0;
+#endif
 
     for (size_t i = 0; i < n_vertices; i++, dest_index++) {
         const Vtx_t* v = &vertices[i].v; /* stock libultra Vtx_t */
@@ -1344,6 +1363,9 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
         float y = v->ob[0] * rsp.MP_matrix[0][1] + v->ob[1] * rsp.MP_matrix[1][1] + v->ob[2] * rsp.MP_matrix[2][1] + rsp.MP_matrix[3][1];
         float z = v->ob[0] * rsp.MP_matrix[0][2] + v->ob[1] * rsp.MP_matrix[1][2] + v->ob[2] * rsp.MP_matrix[2][2] + rsp.MP_matrix[3][2];
         float w = v->ob[0] * rsp.MP_matrix[0][3] + v->ob[1] * rsp.MP_matrix[1][3] + v->ob[2] * rsp.MP_matrix[2][3] + rsp.MP_matrix[3][3];
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+        if (s_f24_on) { x = crush_f24(x); y = crush_f24(y); z = crush_f24(z); w = crush_f24(w); }
+#endif
 
 #ifdef BK_GFX_TRACE
         { static int _tv = 0; if (_tv++ < 12) fprintf(stderr,
