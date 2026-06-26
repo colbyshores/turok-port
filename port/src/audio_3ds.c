@@ -109,10 +109,6 @@ void audioEndFrame(void)
     wb->nsamples = n / 4;
     ndspChnWaveBufAdd(0, wb);
     sCurBuf = (sCurBuf + 1) % NUM_WAVE_BUFFERS;
-    { extern void plat3dsLogv(const char*, ...); static int _p=0, _t=0;
-      const s16 *s = (const s16*)wb->data_vaddr; u32 k, pk=0; u32 ns = wb->nsamples*2;
-      for (k=0;k<ns;k++){ int v=s[k]; if(v<0)v=-v; if((u32)v>pk)pk=v; }
-      _p++; if ((_t++ % 64)==0) plat3dsLogv("[AUD] sReady=%d push#%d bytes=%lu peak=%lu", sReady, _p, (unsigned long)n, (unsigned long)pk); }
     sNext = 0; sNextBytes = 0;
 }
 
