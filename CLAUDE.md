@@ -505,6 +505,31 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
+- **★★ FIRST-PERSON WEAPON / HAND CLIPS THROUGH WALLS = the dropped mid-frame Z-CLEAR — FIXED on 3DS
+  (2026-06-26, commit `0176889`, branch `weapon-wall-clip`, merged to master; user-confirmed "much better").
+  Generalized → [playbook §18](docs/N64_PORTING_PLAYBOOK.md).** User: on the 3DS the FP weapon/hand z-fights and
+  clips INTO walls the camera hugs. **ROOT CAUSE:** Turok draws the viewmodel on top of the world the standard
+  N64 way — it **clears the z-buffer right before the weapon** (`CEngineApp__ClearZBuffer`, [tengine.c:1008](src/PR/tengine/tengine.c#L1008),
+  called from [scene.c:3191](src/PR/tengine/scene.c#L3191)) by redirecting the color image to the z-buffer
+  ([gsDPSetDepthImage(zbuffer)](src/PR/tengine/dlists.c#L55) sets the match target) and `gDPFillRectangle`-ing it
+  with max-z. The Fast3D interpreter **DROPS that fill** — `gfx_pc.cpp gfx_dp_fill_rectangle` returns early when
+  the fill targets the z-buffer (*"already did it with glClear"*). That's fine on desktop GL (it has
+  `GL_DEPTH_CLAMP` → keeps the weapon clean regardless) — **which is exactly why it's PC-clean but 3DS-broken**:
+  the PICA has NO depth-clamp and HARD-clips, so without the mid-frame reset the weapon z-fights/clips into walls.
+  **FIX (PLATFORM_3DS only, [gfx_pc.cpp](port/fast3d/gfx_pc.cpp) `gfx_dp_fill_rectangle`):** when a fill targets the
+  z-buffer, re-issue it as the backend's depth-only clear — `gfx_rapi->clear_framebuffer(false, true)`, which on the
+  citro3d backend records a **full-screen depth-far quad** that replays AFTER the world and BEFORE the gun (the exact
+  mechanism `G_CLEAR_DEPTH_EXT` already uses for Perfect Dark's viewmodel). Restores Turok's intended
+  weapon-on-top behavior only on the platform that lost it; PC keeps the early return (verified identical, rc=0).
+  The frame-start full z-clear also routes here — harmless (a redundant depth-far quad before any geometry; the RT
+  is already depth-cleared). **★ KNOWN ISSUE (accepted): in very TIGHT/small spaces a little residual clipping
+  remains** — the z-clear makes the weapon draw on top of the WORLD, but the weapon's own geometry can still cross
+  the camera near plane at point-blank, which the PICA hard-clips (the same §29 / near-clip limit as the wall
+  see-through — see the near-clip entry below + [playbook §17](docs/N64_PORTING_PLAYBOOK.md)). User accepts it.
+  **LESSON: N64 FPS games draw the viewmodel on top by CLEARING THE Z-BUFFER mid-frame (color-image→z-buffer +
+  max-z fill); a Fast3D port DROPS that fill, which is invisible on desktop GL (depth-clamp) but on the PICA (no
+  depth-clamp) the weapon clips into walls — route the z-fill to the backend's depth-only clear on 3DS.**
+
 - **★★ CAMERA SEES THROUGH WALLS IT HUGS = the 16-unit NEAR CLIP (an N64 16-bit-z-buffer relic) — FIXED on TUROK
   (2026-06-26, commit `004d90a`, merged to master). ★ NOT a universal fix: the SAME change was a NO-OP on
   `../perfect_dark` (tested on HW → dropped, see the PD note below). Generalized →
