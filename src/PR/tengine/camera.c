@@ -914,12 +914,26 @@ void CCamera__Update(CCamera *pThis)
 	pThis->m_AspectRatio = aspect ;
 
 	// Perspective
+#ifdef PLATFORM_PORT
+	/* Port: pull the near plane in from the stock 16 (an N64 16-bit-z-buffer relic) so the camera stops
+	 * clipping into / seeing through walls it hugs. The 24-bit depth buffer has the headroom; tunable via
+	 * turok.cfg `nearclip` (default 4). See port/src/config.c g_cfg_nearclip. */
+	{ extern float g_cfg_nearclip; float nearClip = g_cfg_nearclip;
+	guPerspectiveF(mfPerspective, &pThis->m_PerspNorm,
+						fov,							// field of view
+						aspect,						// aspect ratio
+						nearClip,					// near clip (port: configurable, default 4)
+						pEngine->m_FarClip,	// far clip
+						1);							// precision scaler
+	}
+#else
 	guPerspectiveF(mfPerspective, &pThis->m_PerspNorm,
 						fov,							// field of view
 						aspect,						// aspect ratio
 						SCALING_NEAR_CLIP,		// near clip
 						pEngine->m_FarClip,	// far clip
 						1);							// precision scaler
+#endif
 
 	CMtxF__Scale(mfFlipX, -1, 1, 1);
 

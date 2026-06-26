@@ -41,6 +41,15 @@ int   g_cfg_fog          = 1;        /* fog master. 1 = on (stock haze); 0 = off
 float g_turok_aspect     = 1.3333f;  /* published by gfx_pc each frame; default 4:3 until the first frame. */
 int   g_cfg_widescreen   = 1;        /* 1 = Hor+ widescreen (project at the output aspect); 0 = stock 4:3. turok.cfg `widescreen`. */
 
+/* NEAR CLIP distance. Stock Turok uses SCALING_NEAR_CLIP = far/64 = 16 units — a big near plane chosen for the
+ * N64's 16-bit z-buffer. On the port's 24-bit depth that's wastefully far, and it's the root of the "camera
+ * clips into the wall / see through geometry" bug: when the eye gets within 16 units of a wall the wall is
+ * entirely behind the near plane and can't render correctly (esp. on the 3DS, where the §29 emulation can only
+ * clamp such verts' depth, not fix their projection). 4 units keeps the eye from ever clipping a wall in normal
+ * play while leaving far-plane depth precision far better than the N64 had (24-bit, near/far=4/1024). Tune on
+ * 3DS HW via turok.cfg `nearclip`: lower (2) if a wall still clips, higher (8) if distant z-fighting appears. */
+float g_cfg_nearclip     = 4.0f;
+
 /* Draw-distance ceiling. PC = up to 3x (the slider is a PC feature). 3DS is locked at stock 1x (draw distance is
  * framerate-gated there); the options menu hides the slider row when the max is 1x. */
 float turok_drawdist_max(void)
@@ -94,6 +103,7 @@ void turokConfigLoad(void)
         else if (!strcmp(key, "fog"))               g_cfg_fog          = (int)val ? 1 : 0;
         else if (!strcmp(key, "drawdist"))          g_cfg_drawdist     = (float)val;
         else if (!strcmp(key, "widescreen"))        g_cfg_widescreen   = (int)val ? 1 : 0;
+        else if (!strcmp(key, "nearclip"))          g_cfg_nearclip     = (float)val;
     }
     fclose(f);
 
@@ -101,6 +111,10 @@ void turokConfigLoad(void)
     { float mx = turok_drawdist_max();
       if (g_cfg_drawdist > mx)   g_cfg_drawdist = mx;
       if (g_cfg_drawdist < 1.0f) g_cfg_drawdist = 1.0f; }
+
+    /* Clamp the near clip to a sane range (0.5..16). 16 = stock; below ~0.5 risks close-up z precision. */
+    if (g_cfg_nearclip > 16.0f) g_cfg_nearclip = 16.0f;
+    if (g_cfg_nearclip < 0.5f)  g_cfg_nearclip = 0.5f;
 
     g_turok_walk_mode = g_cfg_walk_default;   /* seed the run/walk toggle from the saved default */
     fprintf(stderr, "[config] loaded '%s' (sens=%.2f invert=%d walk=%d win=%dx%d)\n",

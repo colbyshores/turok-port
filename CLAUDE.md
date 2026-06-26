@@ -505,6 +505,38 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
+- **★★ CAMERA SEES THROUGH WALLS IT HUGS = the 16-unit NEAR CLIP (an N64 16-bit-z-buffer relic) — FIXED
+  (2026-06-26, commit `004d90a`, branch `3ds-wall-clip`; ALSO applied to `../perfect_dark`). Generalized →
+  [playbook §17](docs/N64_PORTING_PLAYBOOK.md).** User: on the 3DS, walking up to a wall lets the camera clip
+  INTO it / see THROUGH the geometry ("sloppy to release with that bug"); same issue on the PD 3DS port. The user
+  suspected "collision verts == render verts" — correct that it's the *enabler* (the eye can sit flush against the
+  rendered surface), but the *cause* is the **near clip plane**. **ROOT CAUSE:** `SCALING_NEAR_CLIP = SCALING_FAR_CLIP
+  (1024) >> 6 = 16` units ([scaling.h:6](src/PR/tengine/scaling.h#L6)) — a big near plane chosen for the N64's
+  **16-bit z-buffer** (it needed a tight near/far ratio for precision). The microcode is **F3DEX No-Nearclipping**,
+  so the N64 itself never near-clips → never shows the bug. On the port: when the eye gets within 16 units of a
+  wall the wall is **entirely behind the near plane**, and the **PICA has no `GL_DEPTH_CLAMP`** so it hard-clips it
+  — the **§29 near-clip emulation** in [gfx_pc.cpp](port/fast3d/gfx_pc.cpp) (Sutherland-Hodgman split for
+  *straddling* tris; clip-space-z clamp for *all-behind* tris) can only fix such verts' **depth**, NOT their
+  (garbage) **x/y projection**, so the hugged wall renders see-through. **The bug is 3DS-only** (desktop GL
+  depth-clamps per-fragment → renders the hugged wall fine; that's why the PC ground-truth never showed it).
+  **FIX:** the 24-bit depth buffer (PC + 3DS) has **256× the N64's depth values**, so the 16-unit plane is obsolete
+  — pull it in to **4** (`camera.c` [~917](src/PR/tengine/camera.c#L917), `PLATFORM_PORT`-gated; N64 path keeps
+  `SCALING_NEAR_CLIP`). The eye can no longer get within the near plane of a wall in normal play, and far-plane
+  precision stays far better than the N64 had (`near/far = 4/1024` = ratio 256 at 24-bit ≫ the N64's ratio 64 at
+  16-bit). **Tunable** via `turok.cfg nearclip` ([config.c](port/src/config.c) `g_cfg_nearclip`, default 4,
+  clamp [0.5,16]): lower (2) if a wall still clips, higher (8) if distant z-fighting shows. **`SCALING_NEAR_CLIP`
+  is used ONLY in the projection** (verified — every other hit is a disassembly/backup file), so no culling/scaling
+  side effects, and Turok's near clip does NOT feed fog (unlike PD — see below), so it's a clean one-liner.
+  User-confirmed **"looks fantastic"** on HW. **★ PERFECT DARK (sibling port) got the SAME fix** — but PD's near
+  (per-level `env->near`, typically 15) **also feeds the fog/shade alpha math** (`env.c`), independently of the
+  projection, so there the clamp goes ONLY at the 3 world-view `guPerspectiveF` calls (`src/lib/vi.c`, via a
+  `viWorldNear()` helper, 3DS-gated, tunable `[Video] NearClipMax` default 4), leaving the stored `g_ViBackData->znear`
+  (the fog's input) untouched. **LESSON: a "camera clips through walls" report on a PICA/3DS port is a NEAR-CLIP
+  bug, not collision — the N64's large near plane (sized for its 16-bit z-buffer) is unreachable-close on a 24-bit
+  port and the PICA hard-clips the all-behind-near wall the §29 emulation can't fully fix. Drop the projection near
+  to ~4; but FIRST grep whether the near value also feeds fog/shade (it does in PD) and if so clamp only at the
+  projection-matrix build, not the stored value.**
+
 - **★★ 3DS AUDIO STATIC/CHOP = ndsp ring OVER-PRODUCTION + silent frame DROP — FIXED (2026-06-26, commit
   `acc71aa`, branch `3ds-audio-thread`).** User on real HW: audio plays but as STATIC + "cut off on every wave
   buffer pushed through." Root cause (found by comparing our `audio_3ds.c` sink vs `../perfect_dark` AND
