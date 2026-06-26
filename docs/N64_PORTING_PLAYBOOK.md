@@ -570,7 +570,43 @@ is stored-but-never-read — a decomp red herring; verify by grepping for the *c
 
 ---
 
+## 18. The first-person weapon clips through walls — the dropped mid-frame Z-CLEAR
+
+**Symptom (3DS / PICA only, NOT desktop GL):** the first-person weapon/hand z-fights and clips INTO walls the
+camera hugs. Distinct from §17 (that's the WORLD seen through; this is the VIEWMODEL clipping into the world).
+
+**Root cause — N64 FPS games draw the viewmodel "always on top" by CLEARING THE Z-BUFFER mid-frame, and the
+Fast3D port drops that clear.** The N64 trick: after drawing the world, **redirect the color image to the
+z-buffer** (`gDPSetColorImage(..., zbuffer)`) and **`gDPFillRectangle` it with max-z** — that resets depth over
+the weapon's screen area, so the weapon then draws on top of everything. (Turok: `CEngineApp__ClearZBuffer`;
+SM64/PD do the same.) But the Fast3D interpreter **drops this fill** — `gfx_dp_fill_rectangle` early-returns when
+the fill target == the z-buffer address (the comment says "already cleared at frame start"). On **desktop GL that's
+invisible** because GL has `GL_DEPTH_CLAMP` and the weapon stays clean anyway; on the **PICA there's no depth-clamp
+and it hard-clips**, so the dropped mid-frame reset means the weapon z-fights / clips into walls. (Same
+desktop-GL-masks-it, PICA-exposes-it shape as §17.)
+
+**The fix — route the z-buffer fill to the backend's depth-only clear (3DS).** When a fill targets the z-buffer,
+instead of dropping it, call `gfx_rapi->clear_framebuffer(false, true)` — the mature Fast3D→PICA backends already
+implement this as a **recorded full-screen depth-far quad** (replays in stream order: after the world, before the
+gun), the same path the `G_CLEAR_DEPTH_EXT` GBI extension uses for an engine that emits it explicitly (PD). Turok
+doesn't emit that extension — it uses the standard color-image-to-z + fill — so you bridge the standard form to
+the same backend call. Gate it to the platform that needs it (3DS); desktop keeps the early return.
+
+**Detection detail:** the early-return test is `rdp.color_image_address == rdp.z_buf_address`. For it to fire, the
+game must have set the depth image (`gsDPSetDepthImage(zbuffer)`) to the same buffer it later redirects the color
+image to — verify both point at the same symbol. The **frame-start full z-clear** uses the identical fill, so it
+routes too; that's harmless (a redundant depth-far quad before any geometry — the RT is already depth-cleared).
+
+**★ Residual (accept it): in very tight/point-blank spots a little weapon clipping remains** — the z-clear makes
+the weapon draw on top of the WORLD, but the weapon's OWN geometry can still cross the camera near plane at
+point-blank, which the PICA hard-clips (the §17 near-plane limit applies to the viewmodel too). The §29-style
+near-clip emulation reduces it; a tiny near clip (§17) reduces it further; it doesn't fully vanish without
+per-fragment depth clamp the PICA lacks.
+
+---
+
 *Distilled 2026-06-18 from the Turok: Dinosaur Hunter port (incl. the full classic-ABI audio pipeline: threaded
 synth, software Acmd mixer, bank/rate/placeholder fixes). §17 added 2026-06-26 (the near-clip wall-see-through fix —
-fixed Turok; tried-and-dropped as a HW no-op on Perfect Dark). See `CLAUDE.md` for the project-specific log and
-`docs/REFERENCES.md` for the per-sibling reference notes.*
+fixed Turok; tried-and-dropped as a HW no-op on Perfect Dark). §18 added 2026-06-26 (the viewmodel mid-frame
+z-clear — 3DS weapon-through-walls fix). See `CLAUDE.md` for the project-specific log and `docs/REFERENCES.md` for
+the per-sibling reference notes.*
