@@ -62,6 +62,11 @@ float g_cfg_nearclip     = 4.0f;
 float g_cfg_fogscale     = 1.0f;
 float g_cfg_fogbias      = 0.0f;
 int   g_cfg_fogzflip     = 0;
+/* FOG MODE (3DS): 0 = stock PICA hardware FogLut (per-fragment, indexed by the f24 1/w hardware fog index —
+ * bands/drops fog on distant geometry). 1 = PER-VERTEX fog (compute the fog factor in f32 per-vertex like the
+ * PC/GL backend, hand the PICA a [0,1] value it interpolates accurately, sidestepping the f24 1/w). turok.cfg
+ * `fogmode`. Gated for instant on-HW A/B; default 0 (stock) so it's an opt-in until validated. */
+int   g_cfg_fogmode      = 0;
 
 /* Draw-distance ceiling. PC = up to 3x (the slider is a PC feature). 3DS is locked at stock 1x (draw distance is
  * framerate-gated there); the options menu hides the slider row when the max is 1x. */
@@ -117,6 +122,7 @@ void turokConfigLoad(void)
         else if (!strcmp(key, "fogscale"))          g_cfg_fogscale     = (float)val;
         else if (!strcmp(key, "fogbias"))           g_cfg_fogbias      = (float)val;
         else if (!strcmp(key, "fogzflip"))          g_cfg_fogzflip     = (int)val ? 1 : 0;
+        else if (!strcmp(key, "fogmode"))           g_cfg_fogmode      = (int)val;
         else if (!strcmp(key, "drawdist"))          g_cfg_drawdist     = (float)val;
         else if (!strcmp(key, "widescreen"))        g_cfg_widescreen   = (int)val ? 1 : 0;
         else if (!strcmp(key, "nearclip"))          g_cfg_nearclip     = (float)val;
