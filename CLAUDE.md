@@ -506,7 +506,7 @@ We own this source outright (no IDO byte-matching build to preserve), so light, 
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
 - **★★ KEY-PICKUP CINEMATIC SLOW-MOTION = a per-frame O(nRegions) region re-acquire — FIXED (2026-06-26, commit
-  `<key-slowdown>`, branch `key-pickup-slowdown`, merged to master; USER-CONFIRMED FIXED on HW).** User: picking up
+  `1a7e95b`, branch `key-pickup-slowdown`, merged to master; USER-CONFIRMED FIXED on HW).** User: picking up
   a key made Turok move in SLOW MOTION during the cinematic, then CHOPPY for ~a couple seconds after, before going
   smooth. **ROOT CAUSE (a port-added cost, not N64):** the death-fix region re-acquire ([tengine.c
   CEngineApp__UpdateGAME](src/PR/tengine/tengine.c#L5043)) called `CScene__NearestRegion` — an **O(nRegions) LINEAR
