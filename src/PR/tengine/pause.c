@@ -187,6 +187,9 @@ static char	text_train2[] = {0x4f, 0x6e, 0x75, 0x7a, 0x53, 0x79, 0x56, 0x4d, -1}
 static char	text_areyousure[] = {0x6D, 0x72, 0x57, 0x4D, 0x7A, 0x57, 0x80, 0x4E, 0x51, -1};
 #endif
 
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+static char	text_quit[] = {"quit game"} ;		// PC: quit to desktop
+#endif
 
 
 char *pause_text[]=
@@ -210,6 +213,9 @@ char *pause_text[]=
 	text_entercheat,
 	text_cheatmenu,
 	text_restart,
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+	text_quit,
+#endif
 } ;
 
 char pause_menu_items[PAUSE_END_SELECTION];
@@ -1569,6 +1575,12 @@ INT32 CPause__Update(CPause *pThis)
 					RequestorMode = PAUSE_RESTART_GAME ;
 					ReturnValue = -1 ;
 					break ;
+
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+				case PAUSE_QUIT:			// PC: quit to desktop (matches the SDL window-close path)
+					{ extern void exit(int); exit(0); }
+					break ;
+#endif
 
 			}
 		}

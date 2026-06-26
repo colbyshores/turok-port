@@ -896,6 +896,16 @@ void CCamera__Update(CCamera *pThis)
 	// Keep pixels square
 	aspect = (SCREEN_WD*pThis->m_XScale)/(SCREEN_HT*pThis->m_YScale*(1-pThis->m_LetterBoxScale)) ;
 
+#ifdef PLATFORM_PORT
+	/* WIDESCREEN (Hor+): project the 3D world at the real OUTPUT aspect (g_turok_aspect, published each frame by
+	 * gfx_pc = PC window / 3DS 400x240) instead of the fixed N64 4:3, so the horizontal FOV widens with no stretch.
+	 * Keep the XScale/YScale (water wobble) + LetterBoxScale factors. The cull frustum below reuses `aspect`, so it
+	 * widens to match. g_cfg_widescreen 0 = stock 4:3. */
+	{ extern int g_cfg_widescreen; extern float g_turok_aspect;
+	  if (g_cfg_widescreen && g_turok_aspect > 0.1f)
+	      aspect = g_turok_aspect * pThis->m_XScale / (pThis->m_YScale*(1-pThis->m_LetterBoxScale)) ; }
+#endif
+
 	// Keep x scale at 1
 //	aspect = (SCREEN_WD*pThis->m_XScale)/(SCREEN_HT*pThis->m_YScale) ;
 

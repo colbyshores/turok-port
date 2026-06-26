@@ -18,8 +18,8 @@ extern int   g_turok_walk_mode;      /* input.c — seeded from walk_default at 
 float g_cfg_mouse_sens   = 6.0f;     /* TUROK_MOUSE_SENS  */
 int   g_cfg_mouse_invert = 0;        /* TUROK_MOUSE_INVERT */
 int   g_cfg_walk_default = 0;        /* 0 = run, 1 = walk  */
-int   g_cfg_win_w        = 1280;     /* TUROK_WIN_W */
-int   g_cfg_win_h        = 1024;     /* TUROK_WIN_H */
+int   g_cfg_win_w        = 1600;     /* TUROK_WIN_W (16:9 default for widescreen) */
+int   g_cfg_win_h        = 900;      /* TUROK_WIN_H */
 int   g_cfg_audio_3ds    = 0;        /* 3DS: 1 = call ndspInit (needs dspfirm.cdc); 0 = skip (boots silent) */
 int   g_cfg_warp         = -1;       /* 3DS bring-up: warp-to-level id (0,1000..8000); -1 = normal legal-screen boot */
 int   g_cfg_debug        = 0;        /* 1 = enable the 3DS boot.log / svcOutputDebugString trace logging (off = clean play) */
@@ -33,6 +33,12 @@ int   g_cfg_gamepad      = 1;        /* PC: 1 = use a connected game controller;
  * the projection far plane). Defaults = ORIGINAL Turok. Backed by turok.cfg `drawdist` / `fog`. */
 float g_cfg_drawdist     = 1.0f;     /* DRAW DISTANCE multiplier (options slider). 1 = stock far clip; up to turok_drawdist_max() pushes the projection far plane out so the fog recedes/thins and reveals the vista it hid. */
 int   g_cfg_fog          = 1;        /* fog master. 1 = on (stock haze); 0 = off (turok.cfg `fog`). */
+
+/* Widescreen (Hor+). g_turok_aspect is published each frame by gfx_pc = the real output aspect ratio (PC window /
+ * 3DS 400x240); camera.c projects the 3D world at it so the horizontal FOV widens with no stretch. g_cfg_widescreen
+ * gates it (1 = on; 0 = stock 4:3). The HUD is kept 4:3-centered in the Fast3D seam. */
+float g_turok_aspect     = 1.3333f;  /* published by gfx_pc each frame; default 4:3 until the first frame. */
+int   g_cfg_widescreen   = 1;        /* 1 = Hor+ widescreen (project at the output aspect); 0 = stock 4:3. turok.cfg `widescreen`. */
 
 /* Draw-distance ceiling. PC = up to 3x (the slider is a PC feature). 3DS is locked at stock 1x (draw distance is
  * framerate-gated there); the options menu hides the slider row when the max is 1x. */
@@ -85,6 +91,7 @@ void turokConfigLoad(void)
         else if (!strcmp(key, "gamepad"))           g_cfg_gamepad      = (int)val ? 1 : 0;
         else if (!strcmp(key, "fog"))               g_cfg_fog          = (int)val ? 1 : 0;
         else if (!strcmp(key, "drawdist"))          g_cfg_drawdist     = (float)val;
+        else if (!strcmp(key, "widescreen"))        g_cfg_widescreen   = (int)val ? 1 : 0;
     }
     fclose(f);
 

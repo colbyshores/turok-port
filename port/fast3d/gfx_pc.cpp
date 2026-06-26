@@ -231,6 +231,9 @@ static struct GfxDimensions gfx_prev_dimensions;
 struct XYWidthHeight gfx_current_game_window_viewport;
 struct XYWidthHeight gfx_current_native_viewport;
 float gfx_current_native_aspect = 4.f / 3.f;
+#ifdef PLATFORM_PORT
+static bool s_proj_is_2d = false;   /* widescreen: current projection is ortho (2D HUD/menu) vs perspective (3D) */
+#endif
 bool gfx_framebuffers_enabled = true;
 bool gfx_detail_textures_enabled = true;
 
@@ -1222,6 +1225,13 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
         } else {
             gfx_matrix_mul(rsp.P_matrix, matrix, rsp.P_matrix);
         }
+#ifdef PLATFORM_PORT
+        /* Widescreen: detect a 2D ORTHO projection vs a 3D PERSPECTIVE one by the z->w (perspective) term
+         * P[2][3]: a perspective projection has it = -1 (verified: w = -z), guOrtho has it = 0. So |P[2][3]|<0.5
+         * means 2D ortho — then the pause box/bar/menu tris are pillarboxed like the 2D texrects, keeping all
+         * 2D content 4:3-centered and consistent. */
+        s_proj_is_2d = (rsp.P_matrix[2][3] > -0.5f && rsp.P_matrix[2][3] < 0.5f);
+#endif
     } else { // G_MTX_MODELVIEW
 #ifdef PLATFORM_PORT
         if ((parameters & G_MTX_PUSH) && rsp.modelview_matrix_stack_size >= MODELVIEW_STACK_DEPTH) {
@@ -1292,6 +1302,17 @@ static float gfx_adjust_x_for_aspect_ratio(float x, float w = 1.f) {
     }
 }
 
+#ifdef PLATFORM_PORT
+/* WIDESCREEN 2D pillarbox: scale a clip-space X (NDC) into the centered 4:3 region so 2D content (HUD texrects,
+ * pause/menu ortho tris, legal art) stays undistorted while the 3D world fills the wide screen. No-op unless
+ * widescreen is on AND the output is wider than 4:3. */
+static inline float gfx_ws_pillarbox(float x) {
+    extern int g_cfg_widescreen; extern float g_turok_aspect;
+    if (g_cfg_widescreen && g_turok_aspect > 1.3334f) return x * (4.0f / 3.0f) / g_turok_aspect;
+    return x;
+}
+#endif
+
 static void gfx_adjust_width_height_for_scale(uint32_t& width, uint32_t& height) {
     width = std::round(width * RATIO_Y);
     height = std::round(height * RATIO_Y);
@@ -1334,6 +1355,11 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
                 rsp.MP_matrix[0][0], rsp.MP_matrix[3][3]); } } } }
 #endif
         x = gfx_adjust_x_for_aspect_ratio(x, w);
+#ifdef PLATFORM_PORT
+        /* Widescreen: pillarbox 2D ORTHO geometry (pause box/bar, menu) so it matches the 2D texrects; leave
+         * 3D perspective geometry alone (the game already projects it wide via camera.c). */
+        if (s_proj_is_2d) x = gfx_ws_pillarbox(x);
+#endif
 
         short U = v->tc[0] * rsp.texture_scaling_factor.s >> 16;
         short V = v->tc[1] * rsp.texture_scaling_factor.t >> 16;
@@ -2426,6 +2452,13 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
     ulxf = gfx_adjust_x_for_aspect_ratio(ulxf);
     lrxf = gfx_adjust_x_for_aspect_ratio(lrxf);
 
+#ifdef PLATFORM_PORT
+    /* WIDESCREEN HUD pillarbox: texrects are 2D screen-space (the HUD C16BitGraphics, the options menu, the
+     * legal/intro art) — keep them at native 4:3, centered, so they aren't stretched. */
+    ulxf = gfx_ws_pillarbox(ulxf);
+    lrxf = gfx_ws_pillarbox(lrxf);
+#endif
+
     struct LoadedVertex* ul = &rsp.loaded_vertices[MAX_VERTICES + 0];
     struct LoadedVertex* ll = &rsp.loaded_vertices[MAX_VERTICES + 1];
     struct LoadedVertex* lr = &rsp.loaded_vertices[MAX_VERTICES + 2];
@@ -2590,8 +2623,10 @@ static void gfx_dp_fill_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t
     }
     uint32_t mode = (rdp.other_mode_h & (3U << G_MDSFT_CYCLETYPE));
 
-    // OTRTODO: This is a bit of a hack for widescreen screen fades, but it'll work for now...
-    if (ulx == 0 && uly == 0 && lrx == 319 * 4 && lry == 239 * 4) {
+    // Widescreen screen fades/clears: any fill covering the full 4:3 area (Turok's RenderTint uses 0,0,320,240
+    // via gDPScisFillRectangle, the older path uses 0,0,319,239) must cover the WHOLE widescreen, not just the
+    // central 4:3 — else the fade leaves the side bands unfaded. Expand any fill that spans the full screen.
+    if (ulx <= 0 && uly <= 0 && lrx >= 319 * 4 && lry >= 239 * 4) {
         ulx = -1024;
         uly = -1024;
         lrx = 2048;
@@ -3147,6 +3182,11 @@ extern "C" void gfx_start_frame(void) {
     gfx_current_window_dimensions.aspect_ratio = (float)gfx_current_window_dimensions.width / gfx_current_window_dimensions.height;
 
     gfx_current_dimensions = gfx_current_window_dimensions;
+
+#ifdef PLATFORM_PORT
+    /* Publish the real output aspect ratio for the game's projection (camera.c Hor+ widescreen). */
+    { extern float g_turok_aspect; if (gfx_current_dimensions.aspect_ratio > 0.1f) g_turok_aspect = gfx_current_dimensions.aspect_ratio; }
+#endif
 
     gfx_current_game_window_viewport.width = gfx_current_dimensions.width;
     gfx_current_game_window_viewport.height = gfx_current_dimensions.height;
