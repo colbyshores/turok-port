@@ -201,6 +201,10 @@ struct ShaderProgram {
     uint8_t  off_uv0;          // tex0 u (0xff if none)
     uint8_t  off_uv1;          // tex1 u (0xff if none)
     uint8_t  off_input1;       // first colour input (0xff if none)
+    uint8_t  off_fog;          // fog block in buf_vbo (0xff if none): [r,g,b,FACTOR]; factor at +3
+    uint8_t  fog_stage;        // ★ per-vertex-fog (fogmode 1): index of the appended fog INTERPOLATE
+                               // stage, 0xff if none. The fog factor rides the interpolated PRIMARY
+                               // alpha; the fog colour is the per-draw stageConst[fog_stage].
     // Three precomputed stage chains differing only in how INPUT_1/INPUT_2 map to
     // the single PICA vertex colour (see tevSrc). draw_triangles picks per-draw by
     // testing which input actually varies across the batch (SM64 two-colour tris):
@@ -301,7 +305,7 @@ static bool    sFogEnable = true;
 // Dev-only: flip the hardware fog depth index direction (near↔far). Calibrated once on HW, then baked.
 static bool    sFogZFlip = false;
 // Fog diagnostic tunables (turok.cfg, port/src/config.c). Defaults = stock no-op.
-extern "C" { extern float g_cfg_fogscale; extern float g_cfg_fogbias; extern int g_cfg_fogzflip; }
+extern "C" { extern float g_cfg_fogscale; extern float g_cfg_fogbias; extern int g_cfg_fogzflip; extern int g_cfg_fogmode; }
 static int   stVpX, stVpY, stVpW, stVpH;
 static int   stScX, stScY, stScW, stScH; static bool stScissorOn = false;
 static int16_t stTexUnit[2] = { -1, -1 };
@@ -694,6 +698,30 @@ static void buildTev(struct ShaderProgram *prg) {
     sBuildI2Const = false; sBuildSwap = false;
     prg->num_stages = stages;
 
+    // ★ PER-VERTEX FOG (fogmode 1): append a fog blend as the FINAL TEV stage to all three chains.
+    //   out.rgb = INTERPOLATE(CONSTANT[fogColor], PREVIOUS, PRIMARY.alpha) = fogColor·f + prev·(1−f),
+    //   where f = the per-vertex fog factor riding the interpolated PRIMARY alpha (set in the repack).
+    //   alpha = PREVIOUS (untouched, so alpha-test/blend still see the combiner's alpha). The fog colour
+    //   is the per-draw stageConst[fog_stage]. This replaces the per-fragment hardware FogLut (disabled
+    //   in applyCmdState when fogmode==1), whose f24 1/w index banded/dropped fog at distance. Only when
+    //   there's a free stage (PICA has 6; Turok combiners use ≤4, so room).
+    prg->fog_stage = 0xff;
+    if (cc->opt_fog && g_cfg_fogmode == 1 && stages < 6) {
+        C3D_TexEnv *chains[3] = { &prg->env[stages], &prg->envC[stages], &prg->envS[stages] };
+        for (int c = 0; c < 3; c++) {
+            C3D_TexEnv *e = chains[c];
+            C3D_TexEnvInit(e);
+            C3D_TexEnvSrc(e, C3D_RGB, GPU_CONSTANT, GPU_PREVIOUS, GPU_PRIMARY_COLOR);
+            C3D_TexEnvOpRgb(e, GPU_TEVOP_RGB_SRC_COLOR, GPU_TEVOP_RGB_SRC_COLOR, GPU_TEVOP_RGB_SRC_ALPHA);
+            C3D_TexEnvFunc(e, C3D_RGB, GPU_INTERPOLATE);
+            C3D_TexEnvSrc(e, C3D_Alpha, GPU_PREVIOUS, GPU_PREVIOUS, GPU_PREVIOUS);
+            C3D_TexEnvOpAlpha(e, GPU_TEVOP_A_SRC_ALPHA, GPU_TEVOP_A_SRC_ALPHA, GPU_TEVOP_A_SRC_ALPHA);
+            C3D_TexEnvFunc(e, C3D_Alpha, GPU_REPLACE);
+        }
+        prg->fog_stage = stages;
+        prg->num_stages = stages + 1;
+    }
+
     // cyc1UsesI2: env vs envC differ only if cycle 1 references INPUT_2.
     // usesI2: INPUT_2 referenced anywhere → the envS swap is a candidate.
     prg->cyc1UsesI2 = false;
@@ -725,7 +753,7 @@ static uint8_t computeNumFloats(const struct CCFeatures *cc) {
 static void computeOffsets(struct ShaderProgram *prg) {
     const struct CCFeatures *cc = &prg->cc;
     uint8_t o = 4; // after pos
-    prg->off_uv0 = 0xff; prg->off_uv1 = 0xff; prg->off_input1 = 0xff;
+    prg->off_uv0 = 0xff; prg->off_uv1 = 0xff; prg->off_input1 = 0xff; prg->off_fog = 0xff;
     if (cc->used_textures[0]) {
         prg->off_uv0 = o; o += 2;
         if (cc->clamp[0][0]) o += 1;
@@ -736,7 +764,7 @@ static void computeOffsets(struct ShaderProgram *prg) {
         if (cc->clamp[1][0]) o += 1;
         if (cc->clamp[1][1]) o += 1;
     }
-    if (cc->opt_fog) o += 4;
+    if (cc->opt_fog) { prg->off_fog = o; o += 4; }   // [r,g,b,factor]; per-vertex fog reads factor @ +3
     if (cc->opt_grayscale) o += 4;
     if (cc->num_inputs > 0) prg->off_input1 = o;
 }
@@ -2025,6 +2053,11 @@ static void gfx_citro3d_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size
             if (clrOff >= 0) { t[6] = src[clrOff]; t[7] = src[clrOff + 1]; t[8] = src[clrOff + 2]; t[9] = hasAlpha ? src[clrOff + 3] : 1.f; }
             else             { t[6] = 1.f; t[7] = 1.f; t[8] = 1.f; t[9] = 1.f; }
             if (tintMag)     { t[6] = 1.f; t[7] = 0.f; t[8] = 1.f; t[9] = 1.f; } // DIAG magenta override
+            // ★ PER-VERTEX FOG (fogmode 1): the fog blend stage (buildTev) reads the factor from the
+            // interpolated PRIMARY alpha — override it with the f32 per-vertex fog factor. Only fires when
+            // the fog stage exists (fogmode 1 + opt_fog); reusing the shade-alpha channel is safe here
+            // because the fog stage leaves the output alpha = the combiner's alpha (REPLACE PREVIOUS).
+            if (prg->fog_stage != 0xff && prg->off_fog != 0xff) t[9] = src[prg->off_fog + 3];
         }
         if (doTess) {
             emitTessTri(tri[0], tri[1], tri[2], tilesS, tilesT, &wr, 0);
@@ -2061,6 +2094,10 @@ static void gfx_citro3d_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size
                 a = (uint8_t)(buf_vbo[prg->off_input1 + (size_t)(ca - SHADER_INPUT_1) * isz + 3] * 255.f);
             stageConst[s] = ((uint32_t)a << 24) | ((uint32_t)b << 16) | ((uint32_t)g << 8) | r; // ABGR
         }
+        // ★ per-vertex fog: the appended fog stage's CONSTANT is the per-draw fog colour (stFogColor is
+        // 0x00BBGGRR; the TEV const is ABGR, so OR in opaque alpha). Its cRgbSrc was never built by the
+        // combiner, so set it explicitly here (overrides the garbage the loop left at this index).
+        if (prg->fog_stage != 0xff) stageConst[prg->fog_stage] = 0xFF000000u | stFogColor;
         for (int s = prg->num_stages; s < 6; s++) stageConst[s] = 0xFFFFFFFF;
     }
 
@@ -2419,7 +2456,9 @@ static void applyCmdState(const DrawCmd *cmd) {
     // FOG (§3.3/§20.12) — PICA fixed-function fog unit. Distance fog the GL backend does in its fragment
     // shader; here it masks the N64 draw-distance popup (the villa horizon etc.). Skip redundant rebinds:
     // a level's geometry shares one fog setting, so this fires once then no-ops for the rest of the frame.
-    if (cmd->fogEnable) {
+    // fogmode 1 = PER-VERTEX fog (the appended TEV stage); keep the hardware FogLut OFF so it doesn't
+    // double the fog. fogmode 0 = the stock hardware FogLut path below.
+    if (cmd->fogEnable && g_cfg_fogmode != 1) {
         if (!sCurFogOn || cmd->fogMul != sCurFogMul || cmd->fogOffset != sCurFogOff) {
             C3D_FogGasMode(GPU_FOG, GPU_PLAIN_DENSITY, (g_cfg_fogzflip || sFogZFlip));
             C3D_FogLutBind(fogLutGet(cmd->fogMul, cmd->fogOffset));
