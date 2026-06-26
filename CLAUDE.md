@@ -505,6 +505,31 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
+- **★★ KEY-PICKUP CINEMATIC SLOW-MOTION = a per-frame O(nRegions) region re-acquire — FIXED (2026-06-26, commit
+  `<key-slowdown>`, branch `key-pickup-slowdown`, merged to master; USER-CONFIRMED FIXED on HW).** User: picking up
+  a key made Turok move in SLOW MOTION during the cinematic, then CHOPPY for ~a couple seconds after, before going
+  smooth. **ROOT CAUSE (a port-added cost, not N64):** the death-fix region re-acquire ([tengine.c
+  CEngineApp__UpdateGAME](src/PR/tengine/tengine.c#L5043)) called `CScene__NearestRegion` — an **O(nRegions) LINEAR
+  SCAN** over the whole level ([scene.c:4385](src/PR/tengine/scene.c#L4385), a `for (cRegion < nRegions)` distance
+  loop; big levels have THOUSANDS of regions) — **EVERY FRAME** for the entire cinematic + a 30-frame countdown
+  window (`_rw`). On the slow ARM11 that scan dominates the frame → frames blow past the 33 ms tick interval → the
+  logic clock (one tick/frame, snap-forward NO catch-up, [os_shim.c:278](port/src/os_shim.c#L278)) falls behind
+  real time = **slow motion**; the **30-frame `_rw` countdown** after the cinematic = the **~1 s of choppiness**.
+  (PC never showed it — fast enough that the scan is invisible; it's a 3DS-perf symptom.) **FIX (PLATFORM_PORT,
+  the re-acquire block):** the scan only needs to run when the region could actually have CHANGED — gate it on
+  `PORT_REGION_BAD(region) || collision-cache-data-ptr changed (the model-swap relocated the collision buffer,
+  staling region pointers) || the player MOVED >0.5u since the last scan (a respawn/teleport into a valid-but-wrong
+  region)`. A held, non-relocating cinematic pose can't change region → skip the scan (was ~30-60 scans/cinematic,
+  now ~1-2). **Correctness-neutral** — re-acquires on exactly the events that change the region, so the death /
+  key-cinematic fall-through fix it backs is fully preserved (verified: patrol rc=0, no anomalies). **LESSON: a
+  per-frame O(n) full scan added as a host-portability "safety" re-acquire is INVISIBLE on a fast PC but CRAWLS on
+  the slow 3DS ARM11 — gate any per-frame scan on the actual CHANGE condition (only scan when the thing it guards
+  against can have happened: a move, a relocation, a bad pointer), not unconditionally. And the slow-motion mechanism
+  is specific: the tick clock runs ONE logic tick per frame with NO catch-up, so any frame that exceeds the tick
+  interval drops the game below real-time = slow-mo — a heavy per-frame cost shows up as slow motion, not just low
+  fps.** (The re-acquire remains a band-aid for the deeper M5 collision-streaming root — keep the cache resident /
+  rebase corners on relocation — but it's now a cheap one.)
+
 - **★★ FIRST-PERSON WEAPON / HAND CLIPS THROUGH WALLS = the dropped mid-frame Z-CLEAR — FIXED on 3DS
   (2026-06-26, commit `0176889`, branch `weapon-wall-clip`, merged to master; user-confirmed "much better").
   Generalized → [playbook §18](docs/N64_PORTING_PLAYBOOK.md).** User: on the 3DS the FP weapon/hand z-fights and
