@@ -506,10 +506,12 @@ it, because it will recur on any Fast3D→Citro3D port.
 ## 17. The camera sees THROUGH walls it hugs — the near clip is an N64 16-bit-z-buffer relic
 
 **Symptom (real-3DS / PICA only, NOT desktop GL):** walk the first-person camera right up to a wall and you see
-*through* it — the wall face vanishes / goes transparent and you see the void or the next room behind it. Reported
-on BOTH this port AND the sibling Perfect Dark 3DS port (same root, same fix). It looks like a collision bug ("the
-camera is inside the wall"), and the collision *is* the enabling factor (collision verts == render verts, so the
-eye can sit flush against the rendered surface), but the actual cause is the **near clip plane**.
+*through* it — the wall face vanishes / goes transparent and you see the void or the next room behind it. The
+*symptom* was reported on BOTH this port AND the sibling Perfect Dark 3DS port — but **the fix is ENGINE-SPECIFIC:
+it fixed Turok ("looks fantastic" on HW); the identical change was a NO-OP on PD and was dropped** (why: see the end
+of this section). It looks like a collision bug ("the camera is inside the wall"), and the collision *is* the
+enabling factor (collision verts == render verts, so the eye can sit flush against the rendered surface), but the
+actual cause is the **near clip plane**.
 
 **Root cause — a too-FAR near plane meets the PICA's hard near-clip.** N64 games set a large near clip because the
 console's **16-bit z-buffer** needed a tight near/far ratio for usable depth precision (Turok: `SCALING_NEAR_CLIP =
@@ -532,9 +534,19 @@ lets the eye reach that state.**
 every PC) has a **24-bit depth buffer = 256× more depth values than the N64's 16-bit**. Drop the *projection* near
 to ~4 units and the eye can no longer get within it of a wall in normal play, while far-plane precision stays far
 better than the N64 ever had (`near/far = 4/1024` ≈ ratio 256 at 24-bit ≫ the N64's ratio 64 at 16-bit). User-
-confirmed it "looks fantastic" on HW for both ports. Make it a **config knob** (Turok `turok.cfg nearclip`, PD
-`[Video] NearClipMax`, default 4) so the precision↔clip trade is tunable on-device without a rebuild: *lower* (2)
-if a wall still clips, *higher* (8) if distant z-fighting appears.
+confirmed it "looks fantastic" on **Turok** HW. Make it a **config knob** (Turok `turok.cfg nearclip`, default 4)
+so the precision↔clip trade is tunable on-device without a rebuild: *lower* (2) if a wall still clips, *higher* (8)
+if distant z-fighting appears.
+
+**★★ But it's NOT universal — verify on HW per-engine.** The identical clamp on **Perfect Dark** (the `viWorldNear()`
+helper below) was **A/B'd on real hardware and made NO visible difference**, so it was dropped. Why it helped Turok
+but not PD: PD already ships a robust §29 software near-clip emulation AND its collision keeps the camera far enough
+that stock near=15 never makes a *collision* wall near-cross; PD's remaining see-through is the **point-blank
+NON-COLLISION** decorative geometry (cliffs you can touch at <1 unit), and PD's own logs already proved a near
+reduction (even to 0.5) does NOT fix *that* (the §29 residual is the best achievable there). Turok's bug was the
+common collision-wall case, which the pull-in *does* fix. **So: the near pull-in fixes the collision-wall case where
+the engine LACKS sufficient near-clip handling; it's a no-op where a §29-style emulation + collision already prevent
+the crossing. Build it, A/B it on HW, and keep it only if it moves the needle.**
 
 **★ The one trap that makes this non-trivial: in some engines the near value also feeds the FOG/shade math.** Turok
 uses the near clip *only* in the projection (`guPerspectiveF`), so changing it is a clean one-liner. **Perfect Dark
@@ -559,6 +571,6 @@ is stored-but-never-read — a decomp red herring; verify by grepping for the *c
 ---
 
 *Distilled 2026-06-18 from the Turok: Dinosaur Hunter port (incl. the full classic-ABI audio pipeline: threaded
-synth, software Acmd mixer, bank/rate/placeholder fixes). §17 added 2026-06-26 (the near-clip wall-see-through fix,
-applied to both Turok and Perfect Dark). See `CLAUDE.md` for the project-specific log and `docs/REFERENCES.md` for
-the per-sibling reference notes.*
+synth, software Acmd mixer, bank/rate/placeholder fixes). §17 added 2026-06-26 (the near-clip wall-see-through fix —
+fixed Turok; tried-and-dropped as a HW no-op on Perfect Dark). See `CLAUDE.md` for the project-specific log and
+`docs/REFERENCES.md` for the per-sibling reference notes.*
