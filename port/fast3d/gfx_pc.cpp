@@ -2627,6 +2627,23 @@ static void gfx_dp_image_rectangle(int32_t tile, int32_t w, int32_t h,
 
 static void gfx_dp_fill_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lry) {
     if (rdp.color_image_address == rdp.z_buf_address) {
+#ifdef PLATFORM_3DS
+        // ★ WEAPON / HAND CLIPS THROUGH WALLS (3DS only) — route Turok's mid-frame z-buffer clear into
+        // the backend's depth reset. Turok draws the first-person weapon on top of the world by CLEARING
+        // THE Z-BUFFER right before it (CEngineApp__ClearZBuffer / tengine.c: redirect the color image to
+        // the z-buffer and fill-rect it with max-z — that's this very fill). The host normally DROPS this
+        // (the early return below) because the frame-start clear already reset depth — fine on desktop GL,
+        // which has GL_DEPTH_CLAMP and keeps the weapon clean. But the PICA has NO depth-clamp and HARD-clips,
+        // so without the mid-frame reset the weapon/hand z-fights and clips INTO walls it hugs. Re-issue it
+        // as the backend's depth-only clear: clear_framebuffer(false,true) records a full-screen depth-far
+        // quad that replays AFTER the world and BEFORE the gun (the exact mechanism G_CLEAR_DEPTH_EXT uses
+        // for Perfect Dark's viewmodel). The frame-start full clear also lands here — harmless (a redundant
+        // depth-far quad before any geometry; the RT is already depth-cleared). Desktop keeps the plain
+        // early return (it never had the bug). 3DS-only per the user report.
+        gfx_flush();
+        gfx_rapi->clear_framebuffer(false, true);
+        return;
+#endif
         // Don't clear Z buffer here since we already did it with glClear
         return;
     }
