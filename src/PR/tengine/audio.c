@@ -412,6 +412,13 @@ INT32 PlayEnvironmentSound(CROMSoundElement *pElement,
 
 #endif
 
+#ifdef PLATFORM_PORT
+	/* PORT/HW: bail if the SFX bank never loaded (no ROM on the SD) — the sfxBank->instArray[0] deref
+	 * further down is a low-NULL read the N64 tolerates but real 3DS HW data-aborts on. See initCFX. */
+	if (!AW.SndPlayerList.sfxBank)
+		return -1;
+#endif
+
 	ospri = osGetThreadPri(NULL);	// synchronize with audio thread
 	osSetThreadPri(NULL, PRIORITY_AUDIOLOCK); audioSynthLock();
 
@@ -1802,6 +1809,10 @@ void SetupSeq()
 
 #ifdef PLATFORM_PORT
 	{ extern void audioSynthLock(void); audioSynthLock(); }   /* serialise the seq build with the audio thread */
+	/* PORT/HW: the music (seq) bank can fail to load (no ROM on the SD) -> seqbankPtr is NULL. The
+	 * seqbankPtr->bankArray[0] deref below is a low-NULL read the N64 tolerates but real HW data-aborts
+	 * on; bail (no music) when the bank is absent. No-op once the bank loads (the working path). */
+	if (!seqbankPtr) { extern void audioSynthUnlock(void); audioSynthUnlock(); return; }
 #endif
 	alCSeqNew(seq, seqPtr);
    alCSPSetSeq(seqp, seq);

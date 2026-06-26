@@ -406,6 +406,15 @@ INT32 initCFX(CROMSoundElement *pElement, int cfxnum, int cfxhandle, CVector3 *v
 
 	ASSERT(pElement);
 
+#ifdef PLATFORM_PORT
+	/* PORT/HW: the SFX bank can fail to load (no TUROK_ROM / no ROM on the SD card, or a wrong-offset
+	 * validation fallback) -> AW.SndPlayerList.sfxBank stays NULL while turok_audio_ready is still set.
+	 * The sfxBank->instArray[0] deref below is a low-NULL read (FAR=0xC) that the N64 (no MMU) tolerates
+	 * but real 3DS/ARM11 HW data-aborts on (Luma crash dump: data abort, r12=NULL, FAR=0x0000000c).
+	 * Fail safe — drop the sound — when the bank is absent. No-op once the banks load (the working path). */
+	if (!AW.SndPlayerList.sfxBank)
+		return -1;
+#endif
 
 	// does sfxnum exist ?
 	if (sfxnum > AW.SndPlayerList.sfxBank->instArray[0]->soundCount)
