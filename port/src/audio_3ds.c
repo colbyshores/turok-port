@@ -18,10 +18,13 @@
 #include "audio.h"
 
 #define OUTPUT_RATE_HZ     22050.0f
-#define NUM_WAVE_BUFFERS   4
-#define WAVE_BUFFER_BYTES  (16 * 1024)        /* ~4096 stereo S16 frames per buffer */
-#define AUDIO_QUEUE_LIMIT  2048               /* samples buffered ahead = SFX trigger latency (~93ms) */
-#define AUDIO_REFILL_GUARD 8                  /* cap frames produced per wake so we never spin */
+/* 8 buffers * the 368-sample (NUM_FIELDS=1) Turok synth frame = ~134ms of ring at 22050 Hz. PD ships 4,
+ * but its audio thread isn't competing on a borrowed OG-3DS core (APT 30%); the extra slack keeps the DSP
+ * fed across a heavy game frame / scheduling jitter so it doesn't underrun -> click. ringHasFree() paces
+ * production to the drain regardless, so more buffers cost only latency, not CPU. */
+#define NUM_WAVE_BUFFERS   8
+#define WAVE_BUFFER_BYTES  (4 * 1024)         /* one synth frame is 1472 B (368 stereo S16) — 4 KB is plenty */
+#define AUDIO_QUEUE_LIMIT  4096               /* secondary cap; ringHasFree() is the real back-pressure */
 
 extern int  turok_audio_ready;                /* set at end of initAudio — gate before the synth exists */
 extern void turokAudioManagerFrame(void);     /* audiomgr.c — synth one frame -> audioSetNextBuffer */
@@ -141,12 +144,33 @@ static void audio_synth_frame(void)
     /* not ready: emit nothing (the thread loop's audioEndFrame is a no-op with no stash). */
 }
 
+/* True iff the buffer audioEndFrame would next fill (sCurBuf) is free — i.e. the DSP is NOT still
+ * reading it. Gate the producer on THIS, exactly like perfect_dark's ringHasFree() and sm64-port's
+ * audio_3ds_next_buffer_is_ready(): never synthesize a frame we'd have to DROP.
+ *
+ * ★ THE STATIC/CHOP BUG (2026-06-26): the old loop gated only on audioGetSamplesBuffered() <
+ * AUDIO_QUEUE_LIMIT (2048). But the ndsp ring is just NUM_WAVE_BUFFERS (4) buffers and each Turok synth
+ * frame is only frameSize=368 samples (NUM_FIELDS=1), so the ring holds at most 4*368 = 1472 samples —
+ * which can NEVER reach 2048. So the gate was always open: the loop produced up to AUDIO_REFILL_GUARD (8)
+ * frames per 2ms wake, but only <=4 fit the ring and audioEndFrame SILENTLY DROPPED the rest. The synth
+ * timeline raced ~8x ahead of the DSP while ~half its output was discarded -> the DSP got a sparse,
+ * discontinuous subset = "cut off on every buffer" + static. The ring (4 buffers) IS the back-pressure;
+ * ringHasFree() makes us produce exactly at the DSP drain rate, dropping nothing. */
+static int ringHasFree(void)
+{
+    if (!sReady) return 0;
+    return sWaveBufs[sCurBuf].status == NDSP_WBUF_DONE ||
+           sWaveBufs[sCurBuf].status == NDSP_WBUF_FREE;
+}
+
 static void audioThreadMain(void *arg)
 {
     (void)arg;
     while (!sQuit) {
         int n = 0;
-        while (audioGetSamplesBuffered() < AUDIO_QUEUE_LIMIT && n++ < AUDIO_REFILL_GUARD) {
+        /* Refill every free buffer (paced by the DSP drain), capped at the ring size so one wake can't
+         * spin. ringHasFree() is the real back-pressure — never synth a frame the ring can't hold. */
+        while (ringHasFree() && audioGetSamplesBuffered() < AUDIO_QUEUE_LIMIT && n++ < NUM_WAVE_BUFFERS) {
             RecursiveLock_Lock(&sSynthLock);
             audio_synth_frame();   /* -> audioSetNextBuffer */
             audioEndFrame();       /* -> ndsp ring */
