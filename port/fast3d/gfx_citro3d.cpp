@@ -300,6 +300,8 @@ static bool    stFogEnable = false; static int16_t stFogMul = 0, stFogOffset = 0
 static bool    sFogEnable = true;
 // Dev-only: flip the hardware fog depth index direction (near↔far). Calibrated once on HW, then baked.
 static bool    sFogZFlip = false;
+// Fog diagnostic tunables (turok.cfg, port/src/config.c). Defaults = stock no-op.
+extern "C" { extern float g_cfg_fogscale; extern float g_cfg_fogbias; extern int g_cfg_fogzflip; }
 static int   stVpX, stVpY, stVpW, stVpH;
 static int   stScX, stScY, stScW, stScH; static bool stScissorOn = false;
 static int16_t stTexUnit[2] = { -1, -1 };
@@ -2281,6 +2283,14 @@ static void buildTransform(C3D_Mtx *m, float eyeSign, float level, float zoom) {
 static struct { bool used; int16_t mul, offset; C3D_FogLut lut; } sFogLutCache[FOGLUT_CACHE];
 static int sFogLutNext = 0;
 static C3D_FogLut *fogLutGet(int16_t mul, int16_t offset) {
+    // FOG DIAGNOSTIC (turok.cfg fogscale/fogbias): dial the N64 fog line on HW to pin whether the
+    // "fog drops out at distance/angle" is a strength/calibration miss (tunable fixes it) or the f24
+    // 1/w precision floor (it doesn't — needs per-vertex fog). Stock = scale 1, bias 0 (no-op).
+    { int m = (int)((float)mul * g_cfg_fogscale);
+      int o = (int)((float)offset * g_cfg_fogscale + g_cfg_fogbias);
+      if (m >  32767) m =  32767; else if (m < -32768) m = -32768;
+      if (o >  32767) o =  32767; else if (o < -32768) o = -32768;
+      mul = (int16_t)m; offset = (int16_t)o; }
     for (int i = 0; i < FOGLUT_CACHE; i++)
         if (sFogLutCache[i].used && sFogLutCache[i].mul == mul && sFogLutCache[i].offset == offset)
             return &sFogLutCache[i].lut;
@@ -2411,7 +2421,7 @@ static void applyCmdState(const DrawCmd *cmd) {
     // a level's geometry shares one fog setting, so this fires once then no-ops for the rest of the frame.
     if (cmd->fogEnable) {
         if (!sCurFogOn || cmd->fogMul != sCurFogMul || cmd->fogOffset != sCurFogOff) {
-            C3D_FogGasMode(GPU_FOG, GPU_PLAIN_DENSITY, sFogZFlip);
+            C3D_FogGasMode(GPU_FOG, GPU_PLAIN_DENSITY, (g_cfg_fogzflip || sFogZFlip));
             C3D_FogLutBind(fogLutGet(cmd->fogMul, cmd->fogOffset));
             sCurFogMul = cmd->fogMul; sCurFogOff = cmd->fogOffset;
         }
