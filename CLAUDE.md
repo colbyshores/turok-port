@@ -505,6 +505,80 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
+- **★★ 3DS AUDIO STATIC/CHOP = ndsp ring OVER-PRODUCTION + silent frame DROP — FIXED (2026-06-26, commit
+  `acc71aa`, branch `3ds-audio-thread`).** User on real HW: audio plays but as STATIC + "cut off on every wave
+  buffer pushed through." Root cause (found by comparing our `audio_3ds.c` sink vs `../perfect_dark` AND
+  `../sm64-port`, both of which output ndsp on 3DS): the audio thread gated production only on
+  `audioGetSamplesBuffered() < AUDIO_QUEUE_LIMIT (2048)`, but the ndsp ring is `NUM_WAVE_BUFFERS (4)` buffers and
+  each Turok synth frame is only **`frameSize=368` samples** (`NUM_FIELDS=1` → `framesPerField·OUTPUT_RATE/60` =
+  `1·22050/60` ≈ 368, `audiomgr.c`), so the ring holds at most `4·368 = 1472` samples — **which can NEVER reach
+  2048.** So the back-pressure gate was ALWAYS OPEN: the loop produced up to `AUDIO_REFILL_GUARD (8)` frames per
+  2 ms wake, only ≤4 fit, and `audioEndFrame` **SILENTLY DROPPED the overflow** (the `if status==QUEUED||PLAYING:
+  return` branch). The synth timeline raced ~8× ahead of the DSP while ~half its output was discarded → the DSP
+  got a sparse, discontinuous subset = static + cut-off-every-buffer. **FIX:** mirror PD's **`ringHasFree()`** and
+  sm64-port's **`audio_3ds_next_buffer_is_ready()`** — gate the producer on the next ndsp buffer being FREE/DONE
+  (+ cap `n < NUM_WAVE_BUFFERS`), so we synthesize EXACTLY at the DSP drain rate and drop NOTHING. **The ring IS
+  the back-pressure** (both references rely on this; sm64 even *blocks* until a buffer frees — "avoids discarding
+  buffers if we outrun the DSP"). Also deepened the ring `4→8` small (4 KB) buffers (~134 ms) for ARM11 scheduling
+  jitter headroom on the borrowed OG-3DS core (APT 30%). **LESSON: an ndsp (or any fixed-ring) audio sink must gate
+  the synth on a FREE BUFFER, never on a sample-count threshold the ring can't reach — otherwise it over-produces
+  and the sink silently drops frames, and a raced synth + dropped frames = STATIC/chop, not silence. When porting
+  an N64 synth whose per-frame sample count is small (`NUM_FIELDS=1`), the ring depth in SAMPLES is tiny, so a
+  bytes/samples back-pressure limit tuned for a desktop SDL queue is wrong on 3DS.**
+
+- **★ 3DS AUDIO — NULL-BANK HW DATA-ABORT made FAIL-SAFE (2026-06-26, commit `9eb0432`, branch `3ds-audio-thread`).**
+  User reported a Luma crash after flashing the audio build + pulled the dump via ftpd-pro. **Crash dump analysis
+  (`/luma/dumps/arm11/crash_dump_00000006.dmp`): data abort (exType 3), `r12=NULL`, `FAR=0x0000000c`, DFSR=5
+  (translation fault = unmapped low memory), PC in the sound code region (~`0x118xxx`).** ★ KEY: the dump's
+  device-side timestamp (Jun 25 18:14) **predates the audio ROM-path fix `c0dc8ef` (23:51)** — the dump dates line
+  up cleanly with the work days (Jun 23 perf / Jun 24 / Jun 25), so the RTC is accurate — so #6 is the OLD NULL-bank
+  crash, NOT the current build (and the rebuilt elf makes its symbol mapping unreliable: the LR/PC straddled
+  `SetCFXVolume`/`DoSoundRandomization` which don't call each other — a different build layout). **Root class
+  (still latent in the current build): `turok_audio_ready = 1` is set UNCONDITIONALLY in `initAudio` (audio.c:329)
+  even when `AW.SndPlayerList.sfxBank` is NULL** (line 303 only skips the SortSounds walk when `sfxBankPtr` failed
+  to load — no ROM on the SD, or a wrong-offset validation fallback). The SFX/music play path then derefs the NULL
+  bank (`initCFX`: `sfxBank->instArray[0]->soundCount` = NULL+0xC; `PlayEnvironmentSound`; `SetupSeq`:
+  `seqbankPtr->bankArray[0]`). N64 (no MMU) tolerates the low-NULL read; **real 3DS/ARM11 HW data-aborts** —
+  **Mandarine TOLERATES it (returns 0), which is exactly why audio "worked" in the emulator but a real-HW SD without
+  the ROM crashes.** **FIX:** NULL-guard the three bank-deref chokepoints under `PLATFORM_PORT` (drop the sound /
+  skip music when the bank is absent) — a NO-OP once the banks load (verified: warp-0 fire still captures SFX,
+  peak 13853; PC+3DS build clean). **VERIFIED the device DOES have the ROM** (`sdmc:/3ds/turok/baserom.us.v12.z64`,
+  8 MB) via ftpd-pro, and the device `boot.log` (23:22) showed the game RUNNING (per-frame `NearestRegion` loop), so
+  if the user still crashes WITH the ROM present it's a DIFFERENT bug needing a POST-fix dump (#7) — enabled `debug 1`
+  on the device cfg + cleared the stale boot.log so the next on-HW run is fully diagnosable (last boot.log line = hang
+  point; new Luma dump maps against the current elf). **LESSON: a host audio path that gates dispatch on a "ready"
+  flag must require the BANKS actually loaded, not just "initAudio ran" — and Mandarine's NULL-tolerance (returns 0 on
+  unmapped reads) HIDES exactly the NULL-deref class that real ARM11 HW data-aborts on, so "works in Mandarine" ≠ "safe
+  on HW" for any NULL-pointer path. Luma dump triage: parse exType/FAR/r-regs (build-independent) FIRST; a dump from a
+  rebuilt binary can't be symbol-mapped, so check the dump's device timestamp against the commit timeline before
+  trusting addr2line.**
+
+- **★★ 3DS AUDIO WORKS — SFX + MUSIC on the dedicated core-1 thread (2026-06-26, branch `3ds-audio-thread`,
+  commit `c9c715e`).** 3DS audio now plays SFX AND music on the dedicated audio thread (pinned to **core 1** on
+  OG 3DS / spare **core 2** on New 3DS, like Perfect Dark — the threading + core-pin + ndsp sink in `audio_3ds.c`
+  were already built; what was missing was the data). **ROOT CAUSE (one bug broke ALL 3DS audio):** `audio.c`
+  loaded the retail SFX **and** music banks via `getenv("TUROK_ROM")`, which is **NULL on 3DS (no env vars)** — so
+  BOTH banks failed to load. The SFX player then dereferenced a NULL bank (`unmapped Read @ NULL+0xC/0xE` in
+  `DoSoundElement`), and the CSP music player read a NULL/garbage bank (the "wild `0xEA000014` pointer in
+  `__CSPHandleMIDIMsg`" was a program-change reading `seqp->bank->instCount` on the NULL bank — NOT an alignment
+  bug, despite first looking like a rotated linear-heap pointer; the bank relocation `turokBnkfNew` was fine,
+  sounds 4-aligned). **FIX:** a shared `turokRomPath()` seam in `romdata.c` returning `$TUROK_ROM` or the 3DS
+  sdmc fallback (`sdmc:/3ds/turok/baserom.us.v12.z64`); `audio.c` uses it for both bank loads. With the banks
+  loaded, the shared classic-ABI synth/mixer produces continuous SFX+music and the CSP no longer crashes.
+  **VERIFIED in Mandarine** (dspfirm.cdc present at `~/.local/share/mandarine-emu/sysdata/` + `LLE\DSP=true`):
+  ndspInit OK, the core-1 thread pushes ndsp buffers, synth output continuous (peak ~6-7k w/ music; matches the
+  PC reference ~20-24% under no-input warp 0), **0 crashes / 0 unmapped reads across many runs.** Audio stays
+  **cfg-gated `audio_3ds 1`** (ndspInit can BLOCK with no DSP firmware; real HW + Luma has it). Also added:
+  `g_cfg_music` toggle (`music 0` isolates SFX from the CSP), `plat3dsLogv()` formatted boot.log trace, one-time
+  ndspInit OK/FAILED trace. **★ TEST HARNESS (reusable): `/tmp/audio_test.sh <3dsx-abs> <secs>`** — kills/relaunches
+  Mandarine, captures the default-sink monitor via `parec` (PulseAudio capture got 0% — a Mandarine output-routing
+  quirk, NOT the game; the synth-peak boot.log trace is the reliable signal), and reads `boot.log` + the
+  `mandarine_log.txt` crash log (`unmapped Read … @ <addr> at PC <pc>` → `arm-none-eabi-addr2line -e turok.elf`).
+  **LESSON: any host data path that uses `getenv()` on 3DS is silently NULL (no env vars) — route ROM/asset paths
+  through a platform seam with an sdmc fallback. And a "wild pointer / alignment" symptom can actually be a deref
+  of a field on a NULL struct (NULL+small-offset) — check the data loaded before chasing ARM codegen.** Next:
+  verify on real HW (only the user can), then merge to master.
+
 - **★ WIDESCREEN (Hor+) + DRAW-DISTANCE SLIDER + GAMEPAD DRIFT (2026-06-25, branches `widescreen` / merged
   `pc-drawdist-slider`, all PLATFORM_PORT; quit is PC-only).**
   - **GAMEPAD DRIFT (gfx_sdl2.cpp, PC; commit `1dc5ef4`, on master):** a connected controller with analog-stick

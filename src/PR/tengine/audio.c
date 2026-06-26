@@ -161,7 +161,7 @@ void initAudio(void)
       extern u8 *turokAudioLoadBank(const char *path, u32 *outLen);
       extern u8 *turokAudioLoadBankFromROM(const char *rompath, long offset, u32 size, int expectBank);
       extern void turokBnkfNew(ALBankFile *file, u8 *table);
-      u32 seqtblLen; u8 *seqtbl = 0; const char *rom = getenv("TUROK_ROM");
+      u32 seqtblLen; u8 *seqtbl = 0; extern const char *turokRomPath(void); const char *rom = turokRomPath();
       seqbankPtr = 0;
       if (rom && *rom) {
          seqbankPtr = (ALBankFile *)turokAudioLoadBankFromROM(rom, 0x626dd0, 0x1580, 1);
@@ -272,7 +272,7 @@ void initAudio(void)
 		extern u8 *turokAudioLoadBank(const char *path, u32 *outLen);
 		extern u8 *turokAudioLoadBankFromROM(const char *rompath, long offset, u32 size, int expectBank);
 		extern void turokBnkfNew(ALBankFile *file, u8 *table);
-		u32 sfxtblLen; u8 *sfxtbl = 0; const char *rom = getenv("TUROK_ROM");
+		u32 sfxtblLen; u8 *sfxtbl = 0; extern const char *turokRomPath(void); const char *rom = turokRomPath();
 		AW.SndPlayerList.sfxBankPtr = 0;
 		if (rom && *rom) {
 			AW.SndPlayerList.sfxBankPtr = turokAudioLoadBankFromROM(rom, 0x667230, 0xb2d0, 1);
@@ -410,6 +410,13 @@ INT32 PlayEnvironmentSound(CROMSoundElement *pElement,
 
 	return -1;
 
+#endif
+
+#ifdef PLATFORM_PORT
+	/* PORT/HW: bail if the SFX bank never loaded (no ROM on the SD) — the sfxBank->instArray[0] deref
+	 * further down is a low-NULL read the N64 tolerates but real 3DS HW data-aborts on. See initCFX. */
+	if (!AW.SndPlayerList.sfxBank)
+		return -1;
 #endif
 
 	ospri = osGetThreadPri(NULL);	// synchronize with audio thread
@@ -1802,6 +1809,10 @@ void SetupSeq()
 
 #ifdef PLATFORM_PORT
 	{ extern void audioSynthLock(void); audioSynthLock(); }   /* serialise the seq build with the audio thread */
+	/* PORT/HW: the music (seq) bank can fail to load (no ROM on the SD) -> seqbankPtr is NULL. The
+	 * seqbankPtr->bankArray[0] deref below is a low-NULL read the N64 tolerates but real HW data-aborts
+	 * on; bail (no music) when the bank is absent. No-op once the bank loads (the working path). */
+	if (!seqbankPtr) { extern void audioSynthUnlock(void); audioSynthUnlock(); return; }
 #endif
 	alCSeqNew(seq, seqPtr);
    alCSPSetSeq(seqp, seq);
@@ -1878,7 +1889,7 @@ BOOL LoadSeq(int nTune)
 	 * crashes the level after a variable number of frames. Audio OUTPUT is off by default anyway (ndsp
 	 * skipped, see audio_3ds.c), so gate music on the SAME audio_3ds flag: default 0 => no music => no CSP
 	 * => the level is stable. Re-enable with turok.cfg `audio_3ds 1` once the csplayer ARM parse is fixed. */
-	{ extern int g_cfg_audio_3ds; if (!g_cfg_audio_3ds) return FALSE; }
+	{ extern int g_cfg_audio_3ds, g_cfg_music; if (!g_cfg_audio_3ds || !g_cfg_music) return FALSE; }
 #else
 	{ static int m=-1; if(m<0){const char*e=getenv("TUROK_MUSIC"); m=(e&&!atoi(e))?0:1;} if(!m) return FALSE; }
 #endif

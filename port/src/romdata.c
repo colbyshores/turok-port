@@ -31,6 +31,19 @@ static const char *DEFAULT_CARTDATA[] = {
     NULL,
 };
 
+/* The retail ROM path (Path B). PC: $TUROK_ROM (NULL if unset -> caller uses the dev fallback). 3DS: the
+ * SD-card ROM, since there are no env vars. Shared by romdataInit AND the audio bank loads (audio.c) — the
+ * audio used bare getenv("TUROK_ROM"), which is NULL on 3DS, so the SFX/SEQ banks never loaded and the SFX
+ * player dereferenced a NULL bank. */
+const char *turokRomPath(void)
+{
+    const char *rom = getenv("TUROK_ROM");
+#ifdef PLATFORM_3DS
+    if (!rom || !*rom) rom = "sdmc:/3ds/turok/baserom.us.v12.z64";
+#endif
+    return rom;
+}
+
 /* Load the cart data blob into the static segment. Returns 0 on success. */
 int romdataInit(void)
 {
