@@ -2036,25 +2036,34 @@ static void gfx_citro3d_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size
     // The blur (sPrevSceneTex, a full-screen 1:1 ghost) uses its own orient so the smear isn't mirrored;
     // the lens (sGameFbTex, a distortion) keeps sSnapOrient.
     const int  fbOrient = (sPendingFbBind == &sPrevSceneTex) ? sBlurOrient : sSnapOrient;
-    // ★ PER-VERTEX FOG is a per-DRAW choice (fogmode 1), and it can ONLY safely cover FULLY-OPAQUE geometry.
-    // WHY it can't cover everything (the hardware wall): per-vertex fog needs a [0,1] factor delivered to the
-    // TEV per fragment. The PICA gives the TEV exactly ONE interpolated per-vertex colour (GPU_PRIMARY_COLOR =
-    // the shade) plus 3 texture samples — and all 3 texture units are taken (0=tex0, 1=tex1, 2=the combiner
-    // literal-0/1 white source, see sWhiteTex). The fragment-lighting colours can't carry an arbitrary varying.
-    // So the fog factor has nowhere to ride EXCEPT the shade alpha (PRIMARY.a). That's fine when the draw never
-    // uses the shade alpha — i.e. fully opaque, no alpha test, no alpha blend. The moment a draw uses its output
-    // alpha, riding the fog there corrupts it:
-    //   • alpha-test foliage (opt_texture_edge/opt_alpha_threshold = the billboarded PLANTS) — fog→0 up close
-    //     zeroes the alpha → §15 discard kills them ("plants vanish as you approach").
-    //   • ANY alpha BLEND (stUseAlpha — over OR modulate = water, portals, light shafts, glass) — the draw is
-    //     treated as opaque, so the fog stage fogs its whole quad to ~100% fog colour at distance = the SOLID
-    //     BLUE RECTANGLES the user saw where translucent surfaces should show the scene through them.
-    // Those all keep the hardware FogLut (per-fragment, f24 1/w — slight distance banding, but they're the
-    // minority and usually close-up where fog is light). Opaque terrain/walls — the bulk of the scene and the
-    // banding the user actually complained about — get smooth per-vertex fog. prg->fog_stage!=0xff already
-    // implies fogmode 1 + opt_fog + a free stage.
-    const bool perVertexFog = (prg->fog_stage != 0xff) &&
-        !(prg->cc.opt_texture_edge || prg->cc.opt_alpha_threshold || stUseAlpha);
+    // ★ PER-VERTEX FOG is a per-DRAW choice (fogmode 1). It needs a [0,1] factor delivered to the TEV per
+    // fragment, and on this PICA pipeline the ONLY interpolated per-vertex value the TEV can read is the one
+    // shade colour (GPU_PRIMARY_COLOR) — all 3 texture units are taken (0=tex0, 1=tex1, 2=the load-bearing
+    // combiner literal-0/1 white source, see sWhiteTex; freeing it would break every combiner that uses a 0/1
+    // literal alongside a real constant, and there is no other constant-1.0 TEV source). Fragment-lighting
+    // colours can't carry an arbitrary varying. So the factor rides the shade ALPHA (PRIMARY.a), and the fog
+    // stage outputs alpha = PREVIOUS (the combiner's real alpha, untouched) so blend/alpha-test still work.
+    //
+    // Riding the fog on PRIMARY.a is HARMLESS unless the draw's OUTPUT ALPHA actually depends on the shade
+    // alpha. That is the precise gate — NOT "is it translucent":
+    //   • OPAQUE (no blend, no alpha test) → output alpha is unused → always safe (the bulk: terrain/walls).
+    //   • TRANSLUCENT/alpha-tested but alpha = TEXEL.a (texture-defined, the common case for water/glass/light
+    //     billboards/sprites) → shade alpha is dead weight → safe → these now get smooth fog too.
+    //   • alpha depends on SHADE alpha (foliage alpha = texel.a*shade.a; shade-alpha blends) → riding fog there
+    //     corrupts it (foliage vanishes up close; blends mis-key) → keep the hardware FogLut for those.
+    // alphaUsesShade: SHADER_INPUT_1 (the per-vertex shade colour) appears in the EFFECTIVE alpha pipe — the
+    // separate alpha combiner c[cyc][1] when opt_alpha splits them, else the shared colour pipe c[cyc][0]
+    // (whose alphas drive the output alpha). The colour pipe's RGB use of the shade is irrelevant (fog only
+    // touches alpha), so opaque lit terrain (colour = texel*shade) is NOT excluded.
+    bool alphaUsesShade = false;
+    for (int cyc = 0; cyc < 2; cyc++) {
+        const bool sepAlpha = prg->cc.opt_alpha && !prg->cc.color_alpha_same[cyc];
+        const uint8_t *apipe = prg->cc.c[cyc][sepAlpha ? 1 : 0];
+        for (int k = 0; k < 4; k++)
+            if (apipe[k] == SHADER_INPUT_1) alphaUsesShade = true;
+    }
+    const bool alphaUsed = stUseAlpha || prg->cc.opt_texture_edge || prg->cc.opt_alpha_threshold;
+    const bool perVertexFog = (prg->fog_stage != 0xff) && !(alphaUsed && alphaUsesShade);
     float tri[3][VBO_FLOATS_PER_VTX];
     for (uint32_t v = 0; v < nverts; v += 3) {
         for (int j = 0; j < 3; j++) {
