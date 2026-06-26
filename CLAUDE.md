@@ -505,6 +505,45 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
+- **★ WIDESCREEN (Hor+) + DRAW-DISTANCE SLIDER + GAMEPAD DRIFT (2026-06-25, branches `widescreen` / merged
+  `pc-drawdist-slider`, all PLATFORM_PORT; quit is PC-only).**
+  - **GAMEPAD DRIFT (gfx_sdl2.cpp, PC; commit `1dc5ef4`, on master):** a connected controller with analog-stick
+    drift auto-STRAFED (left stick X past the deadzone) / SPUN-IN-PLACE (right stick X) with NO key press — the pad
+    is auto-opened + polled every frame. Looked like a movement regression; a full bisect proved master clean (the
+    headless "drift" was nondeterministic enemy AI at warp 0). FIX = a stick-ACTIVATION LATCH (each stick must be
+    seen genuinely CENTERED once before it may drive output; a stick resting past the deadzone stays inert forever)
+    + `gamepad 0` cfg / `TUROK_GAMEPAD` off-switch. **LESSON: "player moves with no input" headless at warp 0 is
+    nondeterministic enemy AI, NOT a code bug — the real cause was the SDL pad.**
+  - **DRAW-DISTANCE SLIDER (options.c/.h + tengine.c + config.c, single slider, turok.cfg `drawdist`, PC 1..3x /
+    3DS locked 1x w/ row hidden; on master `f98e416`):** recovered the working version from a dangling stash
+    (`6fdc51f`) after a from-scratch rebuild failed. ★ The bar position MUST be a FILE-SCOPE static
+    (`s_DrawDistSlider`), NOT a `COptions` struct field — a struct field grows COptions and shifts every
+    `CEngineApp` member after it → a stale/mismatched build links corrupted cache/texture pointers. ★ The slider
+    scales the region's TARGET far clip BEFORE the per-region `BlendFLOAT` (tengine.c ~3194), NOT the post-blend
+    `m_FarClip` — scaling `m_FarClip` AFTER the blend fed the multiplied value back through `m_LastFarClip` into the
+    blend → every region-transition OVERSHOT (≈9216 at 3x) = the fog "BREATHING". `m_FarClip` drives BOTH the
+    software geometry cull AND the projection, so scaling the TARGET makes draw distance TRACK + the engine's
+    normalized fog recede/thin on its own (no separate fog knob; there is NO load-based fog anywhere).
+  - **WIDESCREEN (Hor+; camera.c + gfx_pc.cpp + config.c, turok.cfg `widescreen` default on; branch `widescreen`):**
+    the N64 hardcodes a 4:3 projection → STRETCHES on a wide output. FIX: gfx_pc publishes `g_turok_aspect` each
+    frame (= the real output aspect, PC window / 3DS 400x240); `camera.c` projects the 3D world at it (Hor+; the
+    cull frustum reuses the same `aspect` so it widens with it). 2D stays 4:3-CENTERED (undistorted) across BOTH 2D
+    paths — texrects (HUD C16BitGraphics, options menu, legal/intro art) AND ortho tris (the PAUSE box/bar/menu) —
+    pillarboxed via `gfx_ws_pillarbox`. ★ 2D-vs-3D is detected by the projection's z→w term **`P[2][3]`**
+    (perspective = -1, `guOrtho` = 0 → `s_proj_is_2d`), NOT `P[3][3]` (Turok's perspective `P[3][3]` is a large
+    value, not 0 — verified by trace). ★ FADES: Turok's `RenderTint` fade is `gDPScisFillRectangle(0,0,320,240)`;
+    the gfx_pc full-screen-fade hack only matched `(0,0,319,239)` → broadened to `ulx<=0&&uly<=0&&lrx>=319*4&&
+    lry>=239*4` so a fade covers the WHOLE widescreen (not just the central 4:3). Default PC window → 16:9
+    (1600x900). PC pause menu gains a **`quit game`** item (`PAUSE_QUIT`, gated `PLATFORM_PORT && !PLATFORM_3DS` →
+    `exit(0)`; excluded from 3DS where you return to HOME, and N64). **3DS caveat (open): the Citro3D viewport-remap
+    constants (`remapLX/LW/...`) were tuned for the old 4:3-stretched render; the 5:3 Hor+ view may need them
+    retuned if it looks off-center/cropped on the panel.**
+  **LESSONS:** (1) a per-draw scale of a PERSISTENT engine value (`m_FarClip`) that also feeds a per-frame BLEND
+  makes a feedback loop = "breathing" → scale the blend's TARGET input, not the post-blend result. (2) Hor+
+  widescreen on a Fast3D port = project the GAME at the output aspect (the gfx_pc X-adjust stays neutral for 3D);
+  keep 2D 4:3-centered, detecting 2D by the ORTHO projection (`P[2][3]≈0`, NOT `P[3][3]`). (3) a menu slider's
+  state must NOT be a struct field in a growable engine object — use a file-scope static backed by the cfg.
+
 - **★ N64 BUILD RE-PRESERVED — the source compiles for the ORIGINAL N64 target again (2026-06-24).** Audit
   found the port had silently broken the N64 code path (never noticed — this env has **no SGI/IRIX SDK**, so
   the N64 ROM is never built here). Cause: TWO classes of **UNGATED** edits referenced symbols that only exist
