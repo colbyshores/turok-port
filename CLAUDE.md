@@ -505,6 +505,27 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
+- **★★ 3DS AUDIO STATIC/CHOP = ndsp ring OVER-PRODUCTION + silent frame DROP — FIXED (2026-06-26, commit
+  `acc71aa`, branch `3ds-audio-thread`).** User on real HW: audio plays but as STATIC + "cut off on every wave
+  buffer pushed through." Root cause (found by comparing our `audio_3ds.c` sink vs `../perfect_dark` AND
+  `../sm64-port`, both of which output ndsp on 3DS): the audio thread gated production only on
+  `audioGetSamplesBuffered() < AUDIO_QUEUE_LIMIT (2048)`, but the ndsp ring is `NUM_WAVE_BUFFERS (4)` buffers and
+  each Turok synth frame is only **`frameSize=368` samples** (`NUM_FIELDS=1` → `framesPerField·OUTPUT_RATE/60` =
+  `1·22050/60` ≈ 368, `audiomgr.c`), so the ring holds at most `4·368 = 1472` samples — **which can NEVER reach
+  2048.** So the back-pressure gate was ALWAYS OPEN: the loop produced up to `AUDIO_REFILL_GUARD (8)` frames per
+  2 ms wake, only ≤4 fit, and `audioEndFrame` **SILENTLY DROPPED the overflow** (the `if status==QUEUED||PLAYING:
+  return` branch). The synth timeline raced ~8× ahead of the DSP while ~half its output was discarded → the DSP
+  got a sparse, discontinuous subset = static + cut-off-every-buffer. **FIX:** mirror PD's **`ringHasFree()`** and
+  sm64-port's **`audio_3ds_next_buffer_is_ready()`** — gate the producer on the next ndsp buffer being FREE/DONE
+  (+ cap `n < NUM_WAVE_BUFFERS`), so we synthesize EXACTLY at the DSP drain rate and drop NOTHING. **The ring IS
+  the back-pressure** (both references rely on this; sm64 even *blocks* until a buffer frees — "avoids discarding
+  buffers if we outrun the DSP"). Also deepened the ring `4→8` small (4 KB) buffers (~134 ms) for ARM11 scheduling
+  jitter headroom on the borrowed OG-3DS core (APT 30%). **LESSON: an ndsp (or any fixed-ring) audio sink must gate
+  the synth on a FREE BUFFER, never on a sample-count threshold the ring can't reach — otherwise it over-produces
+  and the sink silently drops frames, and a raced synth + dropped frames = STATIC/chop, not silence. When porting
+  an N64 synth whose per-frame sample count is small (`NUM_FIELDS=1`), the ring depth in SAMPLES is tiny, so a
+  bytes/samples back-pressure limit tuned for a desktop SDL queue is wrong on 3DS.**
+
 - **★ 3DS AUDIO — NULL-BANK HW DATA-ABORT made FAIL-SAFE (2026-06-26, commit `9eb0432`, branch `3ds-audio-thread`).**
   User reported a Luma crash after flashing the audio build + pulled the dump via ftpd-pro. **Crash dump analysis
   (`/luma/dumps/arm11/crash_dump_00000006.dmp`): data abort (exType 3), `r12=NULL`, `FAR=0x0000000c`, DFSR=5
