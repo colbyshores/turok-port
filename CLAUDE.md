@@ -505,6 +505,27 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
+- **★ 3DS DISTANCE-FOG BANDING (per-vertex fog) — INVESTIGATED, PARKED on branch `fog-geometry-clip` (2026-06-26).
+  Full writeup: [`docs/3DS_FOG_INVESTIGATION.md`](docs/3DS_FOG_INVESTIGATION.md).** The PICA FogLut bands at
+  distance because its hardware fog index is **f24 `1/w`** (validated on PC by crushing the factor to 24-bit).
+  Fix direction = compute the fog factor f32 **per-vertex** (`turok.cfg fogmode 1`, default 0 = stock FogLut, so
+  master is unaffected). **HARDWARE WALL:** the TEV's only per-vertex input is the ONE shade colour
+  (`GPU_PRIMARY_COLOR`); all 3 texture units are taken (0/1 = textures, **2 = the load-bearing white source for
+  the combiner `0`/`1` literals — freeing it is infeasible**, no other constant-1.0 TEV source), and
+  fragment-lighting can't carry an arbitrary varying. So the factor can only ride the **shade alpha**
+  (`PRIMARY.a`). The fog stage preserves the combiner alpha (`alpha = PREVIOUS`), so the precise safe gate is
+  **exclude only when (alpha is used: blend OR alpha-test) AND (the effective alpha pipe references the shade)**
+  — covers opaque + texel-alpha translucent geometry (`956119e`). **OPEN: "solid blue rectangles in mid-air"**
+  (foggy temple) persist through every classification (opaque-only `dde1472` AND the shade-alpha gate `956119e`)
+  → they're NOT explained by per-vertex-fog classification. **NEXT (don't guess again): A/B `fogmode 0` vs `1` at
+  that spot + a one-shot on-device diagnostic dumping the offending draws' combiner id / alpha source / blend
+  mode** to decide if it's a blend/decode bug, a FogLut over-fog, or a true shade-alpha translucent surface (for
+  which the one untried lever is a per-DRAW constant fog factor in the appended stage's own free `GPU_CONSTANT.a`
+  — no shade-alpha, no texture unit). **LESSON: per-vertex fog on a Fast3D→PICA port has no free per-vertex
+  channel (3 texture units occupied incl. the literal source; one shade colour) — fog must ride the shade alpha,
+  which is safe only for draws whose output alpha doesn't depend on it; gate on shade-alpha USAGE, not
+  "translucent". Generalize once resolved.**
+
 - **★★ KEY-PICKUP CINEMATIC SLOW-MOTION = a per-frame O(nRegions) region re-acquire — FIXED (2026-06-26, commit
   `1a7e95b`, branch `key-pickup-slowdown`, merged to master; USER-CONFIRMED FIXED on HW).** User: picking up
   a key made Turok move in SLOW MOTION during the cinematic, then CHOPPY for ~a couple seconds after, before going
