@@ -505,6 +505,32 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
+- **★★ 3DS AUDIO WORKS — SFX + MUSIC on the dedicated core-1 thread (2026-06-26, branch `3ds-audio-thread`,
+  commit `c9c715e`).** 3DS audio now plays SFX AND music on the dedicated audio thread (pinned to **core 1** on
+  OG 3DS / spare **core 2** on New 3DS, like Perfect Dark — the threading + core-pin + ndsp sink in `audio_3ds.c`
+  were already built; what was missing was the data). **ROOT CAUSE (one bug broke ALL 3DS audio):** `audio.c`
+  loaded the retail SFX **and** music banks via `getenv("TUROK_ROM")`, which is **NULL on 3DS (no env vars)** — so
+  BOTH banks failed to load. The SFX player then dereferenced a NULL bank (`unmapped Read @ NULL+0xC/0xE` in
+  `DoSoundElement`), and the CSP music player read a NULL/garbage bank (the "wild `0xEA000014` pointer in
+  `__CSPHandleMIDIMsg`" was a program-change reading `seqp->bank->instCount` on the NULL bank — NOT an alignment
+  bug, despite first looking like a rotated linear-heap pointer; the bank relocation `turokBnkfNew` was fine,
+  sounds 4-aligned). **FIX:** a shared `turokRomPath()` seam in `romdata.c` returning `$TUROK_ROM` or the 3DS
+  sdmc fallback (`sdmc:/3ds/turok/baserom.us.v12.z64`); `audio.c` uses it for both bank loads. With the banks
+  loaded, the shared classic-ABI synth/mixer produces continuous SFX+music and the CSP no longer crashes.
+  **VERIFIED in Mandarine** (dspfirm.cdc present at `~/.local/share/mandarine-emu/sysdata/` + `LLE\DSP=true`):
+  ndspInit OK, the core-1 thread pushes ndsp buffers, synth output continuous (peak ~6-7k w/ music; matches the
+  PC reference ~20-24% under no-input warp 0), **0 crashes / 0 unmapped reads across many runs.** Audio stays
+  **cfg-gated `audio_3ds 1`** (ndspInit can BLOCK with no DSP firmware; real HW + Luma has it). Also added:
+  `g_cfg_music` toggle (`music 0` isolates SFX from the CSP), `plat3dsLogv()` formatted boot.log trace, one-time
+  ndspInit OK/FAILED trace. **★ TEST HARNESS (reusable): `/tmp/audio_test.sh <3dsx-abs> <secs>`** — kills/relaunches
+  Mandarine, captures the default-sink monitor via `parec` (PulseAudio capture got 0% — a Mandarine output-routing
+  quirk, NOT the game; the synth-peak boot.log trace is the reliable signal), and reads `boot.log` + the
+  `mandarine_log.txt` crash log (`unmapped Read … @ <addr> at PC <pc>` → `arm-none-eabi-addr2line -e turok.elf`).
+  **LESSON: any host data path that uses `getenv()` on 3DS is silently NULL (no env vars) — route ROM/asset paths
+  through a platform seam with an sdmc fallback. And a "wild pointer / alignment" symptom can actually be a deref
+  of a field on a NULL struct (NULL+small-offset) — check the data loaded before chasing ARM codegen.** Next:
+  verify on real HW (only the user can), then merge to master.
+
 - **★ WIDESCREEN (Hor+) + DRAW-DISTANCE SLIDER + GAMEPAD DRIFT (2026-06-25, branches `widescreen` / merged
   `pc-drawdist-slider`, all PLATFORM_PORT; quit is PC-only).**
   - **GAMEPAD DRIFT (gfx_sdl2.cpp, PC; commit `1dc5ef4`, on master):** a connected controller with analog-stick

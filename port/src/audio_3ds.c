@@ -53,11 +53,11 @@ s32 audioInit(void)
 {
     int i;
     float mix[12];
-    /* ★ 3DS BOOT: ndspInit() HANGS in Mandarine when the DSP firmware (dspfirm.cdc) isn't dumped —
-     * it blocks on the DSP-ready sync instead of returning an error (the `!= 0` guard below assumes a
-     * clean failure, which only happens on real HW / with firmware). Skip it unless explicitly enabled
-     * via turok.cfg `audio_3ds 1`; sReady stays 0 so the whole audio path runs silent + the game boots.
-     * Re-enable once the DSP firmware / Mandarine DSP-HLE path is sorted (then audio works). */
+    /* ★ AUDIO WORKS (2026-06-26): SFX + music play on the dedicated core-1 thread once the retail banks load
+     * (the turokRomPath fix — getenv("TUROK_ROM") was NULL on 3DS so both banks were NULL). Still cfg-gated
+     * because ndspInit() BLOCKS instead of erroring when the DSP firmware (dspfirm.cdc) isn't present (the
+     * `!= 0` guard only catches a clean failure, which needs real HW / a firmware-equipped emulator). With
+     * dspfirm present (real 3DS, or Mandarine + LLE DSP) `audio_3ds 1` gives working audio. */
     { extern int g_cfg_audio_3ds; if (!g_cfg_audio_3ds) return 0; }
     if (ndspInit() != 0) {                      /* no dspfirm.cdc -> run silent, still boot */
         { extern void plat3dsLogv(const char*, ...); plat3dsLogv("[AUD] ndspInit FAILED -> silent"); }
