@@ -59,8 +59,10 @@ s32 audioInit(void)
      * via turok.cfg `audio_3ds 1`; sReady stays 0 so the whole audio path runs silent + the game boots.
      * Re-enable once the DSP firmware / Mandarine DSP-HLE path is sorted (then audio works). */
     { extern int g_cfg_audio_3ds; if (!g_cfg_audio_3ds) return 0; }
-    if (ndspInit() != 0)                       /* no dspfirm.cdc -> run silent, still boot */
+    if (ndspInit() != 0) {                      /* no dspfirm.cdc -> run silent, still boot */
+        { extern void plat3dsLogv(const char*, ...); plat3dsLogv("[AUD] ndspInit FAILED -> silent"); }
         return 0;
+    }
 
     ndspSetOutputMode(NDSP_OUTPUT_STEREO);
     ndspChnReset(0);
@@ -77,6 +79,7 @@ s32 audioInit(void)
         sWaveBufs[i].status     = NDSP_WBUF_DONE;
     }
     sReady = 1;
+    { extern void plat3dsLogv(const char*, ...); plat3dsLogv("[AUD] ndspInit OK, sReady=1, rate=%d", (int)OUTPUT_RATE_HZ); }
     return 0;
 }
 
@@ -106,6 +109,10 @@ void audioEndFrame(void)
     wb->nsamples = n / 4;
     ndspChnWaveBufAdd(0, wb);
     sCurBuf = (sCurBuf + 1) % NUM_WAVE_BUFFERS;
+    { extern void plat3dsLogv(const char*, ...); static int _p=0, _t=0;
+      const s16 *s = (const s16*)wb->data_vaddr; u32 k, pk=0; u32 ns = wb->nsamples*2;
+      for (k=0;k<ns;k++){ int v=s[k]; if(v<0)v=-v; if((u32)v>pk)pk=v; }
+      _p++; if ((_t++ % 64)==0) plat3dsLogv("[AUD] sReady=%d push#%d bytes=%lu peak=%lu", sReady, _p, (unsigned long)n, (unsigned long)pk); }
     sNext = 0; sNextBytes = 0;
 }
 

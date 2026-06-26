@@ -123,6 +123,15 @@ void plat3dsBootLog(const char *msg)
     if (f) { fputs(msg, f); fputc('\n', f); fflush(f); fclose(f); started = 1; }  /* per-line: survives a crash */
 }
 
+/* printf-style boot.log trace (debugging). Same `debug 1` gate (via plat3dsBootLog). */
+#include <stdarg.h>
+void plat3dsLogv(const char *fmt, ...)
+{
+    char buf[160];
+    va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
+    plat3dsBootLog(buf);
+}
+
 
 /* "Did anything rasterize?" signal — count non-black pixels on the top-left framebuffer (mirror of
  * the PC TUROK_CAPTURE_FRAME). Cheap, no file written; logs the count. */

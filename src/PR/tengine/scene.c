@@ -2840,6 +2840,10 @@ int CScene__DoSoundEffect(CScene *pThis,
 
 		nElements = CUnindexedSet__GetBlockCount(&usSound);
 		elements = (CROMSoundElement*) CUnindexedSet__GetBasePtr(&usSound);
+#ifdef PLATFORM_3DS
+		{ extern void plat3dsLogv(const char*, ...); static int _t=0; if(_t++<4)
+		  plat3dsLogv("[SFX] type=%d nIdx=%d nElem=%d pbSnds=%p pbSnd=%p elems=%p", (int)nSoundType, (int)nIndex, (int)nElements, (void*)pbSounds, (void*)pbSound, (void*)elements); }
+#endif
 
 		// It is possible that the audio thread could preempt the game thread
 		// while it is inside this function.  If that happens between the time
