@@ -28,6 +28,7 @@ int   g_cfg_tick         = -1;       /* logic tick rate (3DS); -1 = platform def
 int   g_cfg_bake         = 0;        /* 3DS facade texture baking: 0 = OFF (default — Turok's organic art rarely needs the PICA tiled-UV bake, cf. sm64-port; no worker, no hitch), 1 = on (async worker) */
 float g_cfg_stereo_z     = -1.0f;    /* 3DS stereo shear depth term (default 0.04); -1 = compiled default. On-device tuning, real-HW only. */
 float g_cfg_stereo_w     = -1.0f;    /* 3DS stereo shear convergence term (default 0.012); -1 = compiled default. Raise = screen plane nearer. */
+int   g_cfg_gamepad      = 1;        /* PC: 1 = use a connected game controller; 0 = ignore it entirely (escape hatch for a drifting pad that auto-strafes/spins). Env TUROK_GAMEPAD overrides. */
 
 static const char *cfg_path(void)
 {
@@ -66,6 +67,7 @@ void turokConfigLoad(void)
         else if (!strcmp(key, "bake"))              g_cfg_bake         = (int)val ? 1 : 0;
         else if (!strcmp(key, "stereo_z"))          g_cfg_stereo_z     = (float)val;
         else if (!strcmp(key, "stereo_w"))          g_cfg_stereo_w     = (float)val;
+        else if (!strcmp(key, "gamepad"))           g_cfg_gamepad      = (int)val ? 1 : 0;
     }
     fclose(f);
 

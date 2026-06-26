@@ -373,6 +373,11 @@ static float mouse_sens(void) {
                     if (s <= 0.0f) s = g_cfg_mouse_sens > 0.0f ? g_cfg_mouse_sens : 6.0f; }
     return s;
 }
+static int gamepad_on(void) {                            /* TUROK_GAMEPAD=0 or turok.cfg `gamepad 0` fully disables the pad */
+    static int v = -2;
+    if (v == -2) { extern int g_cfg_gamepad; const char *e = getenv("TUROK_GAMEPAD"); v = e ? atoi(e) : g_cfg_gamepad; }
+    return v;
+}
 
 static void turok_sdl_update_input(void) {
     unsigned short btn = 0;
@@ -416,14 +421,30 @@ static void turok_sdl_update_input(void) {
     /* gamepad: left stick = move (Y fwd/back, X strafe via C-buttons); right stick = HELD look (g_look_*);
      * RT fire, A jump, shoulders cycle weapons (A/B button path, tick-gated), Start pause. D-pad -> C-buttons
      * (movement) NOT the raw D-pad, which would fire the native run/walk toggle. */
-    if (g_sdl_controller) {
+    if (g_sdl_controller && gamepad_on()) {
         SDL_GameController *c = g_sdl_controller;
-        signed char gy = (signed char)(-(int)axis_to_n64(SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_LEFTY)));
-        if (gy) sy = gy;
         int lx = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_LEFTX);
-        if (lx < -12000) btn |= N64_CL; else if (lx > 12000) btn |= N64_CR;   /* strafe */
+        int ly = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_LEFTY);
         int rx = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_RIGHTX);
         int ry = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_RIGHTY);
+        /* DRIFT GUARD (the "auto-strafe / spin-in-place with no input" fix): a controller resting with
+         * analog stick drift must not drive the game. Each stick only goes ACTIVE after it has been seen
+         * genuinely CENTERED (both axes within DZ_CENTER) at least once; a stick that boots/rests past the
+         * deadzone (worn/mis-mapped) stays inert forever, so its drift can never strafe or spin. DZ_CENTER
+         * (7000 ≈ 0.21) sits below the strafe (12000) and look (8000) thresholds, so a centered-able stick
+         * only acts when truly pushed. Healthy pads center at rest => active on frame 1, behaviour unchanged.
+         * `gamepad 0` (turok.cfg / TUROK_GAMEPAD=0) is the hard off-switch. */
+        const int DZ_CENTER = 7000;
+        static bool lAct = false, rAct = false;
+        #define ABSI(x) ((x) < 0 ? -(x) : (x))
+        if (ABSI(lx) < DZ_CENTER && ABSI(ly) < DZ_CENTER) lAct = true;
+        if (ABSI(rx) < DZ_CENTER && ABSI(ry) < DZ_CENTER) rAct = true;
+        if (!lAct) { lx = ly = 0; }
+        if (!rAct) { rx = ry = 0; }
+        #undef ABSI
+        signed char gy = (signed char)(-(int)axis_to_n64(ly));
+        if (gy) sy = gy;
+        if (lx < -12000) btn |= N64_CL; else if (lx > 12000) btn |= N64_CR;   /* strafe */
         float gs = mouse_sens() * 0.00004f;
         if (rx < -8000 || rx > 8000) g_look_yaw   += (float)rx * gs;
         if (ry < -8000 || ry > 8000) g_look_pitch += (float)ry * gs * (mouse_invert() ? 1.0f : -1.0f);
