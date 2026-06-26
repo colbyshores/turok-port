@@ -505,6 +505,33 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
+- **★ 3DS AUDIO — NULL-BANK HW DATA-ABORT made FAIL-SAFE (2026-06-26, commit `9eb0432`, branch `3ds-audio-thread`).**
+  User reported a Luma crash after flashing the audio build + pulled the dump via ftpd-pro. **Crash dump analysis
+  (`/luma/dumps/arm11/crash_dump_00000006.dmp`): data abort (exType 3), `r12=NULL`, `FAR=0x0000000c`, DFSR=5
+  (translation fault = unmapped low memory), PC in the sound code region (~`0x118xxx`).** ★ KEY: the dump's
+  device-side timestamp (Jun 25 18:14) **predates the audio ROM-path fix `c0dc8ef` (23:51)** — the dump dates line
+  up cleanly with the work days (Jun 23 perf / Jun 24 / Jun 25), so the RTC is accurate — so #6 is the OLD NULL-bank
+  crash, NOT the current build (and the rebuilt elf makes its symbol mapping unreliable: the LR/PC straddled
+  `SetCFXVolume`/`DoSoundRandomization` which don't call each other — a different build layout). **Root class
+  (still latent in the current build): `turok_audio_ready = 1` is set UNCONDITIONALLY in `initAudio` (audio.c:329)
+  even when `AW.SndPlayerList.sfxBank` is NULL** (line 303 only skips the SortSounds walk when `sfxBankPtr` failed
+  to load — no ROM on the SD, or a wrong-offset validation fallback). The SFX/music play path then derefs the NULL
+  bank (`initCFX`: `sfxBank->instArray[0]->soundCount` = NULL+0xC; `PlayEnvironmentSound`; `SetupSeq`:
+  `seqbankPtr->bankArray[0]`). N64 (no MMU) tolerates the low-NULL read; **real 3DS/ARM11 HW data-aborts** —
+  **Mandarine TOLERATES it (returns 0), which is exactly why audio "worked" in the emulator but a real-HW SD without
+  the ROM crashes.** **FIX:** NULL-guard the three bank-deref chokepoints under `PLATFORM_PORT` (drop the sound /
+  skip music when the bank is absent) — a NO-OP once the banks load (verified: warp-0 fire still captures SFX,
+  peak 13853; PC+3DS build clean). **VERIFIED the device DOES have the ROM** (`sdmc:/3ds/turok/baserom.us.v12.z64`,
+  8 MB) via ftpd-pro, and the device `boot.log` (23:22) showed the game RUNNING (per-frame `NearestRegion` loop), so
+  if the user still crashes WITH the ROM present it's a DIFFERENT bug needing a POST-fix dump (#7) — enabled `debug 1`
+  on the device cfg + cleared the stale boot.log so the next on-HW run is fully diagnosable (last boot.log line = hang
+  point; new Luma dump maps against the current elf). **LESSON: a host audio path that gates dispatch on a "ready"
+  flag must require the BANKS actually loaded, not just "initAudio ran" — and Mandarine's NULL-tolerance (returns 0 on
+  unmapped reads) HIDES exactly the NULL-deref class that real ARM11 HW data-aborts on, so "works in Mandarine" ≠ "safe
+  on HW" for any NULL-pointer path. Luma dump triage: parse exType/FAR/r-regs (build-independent) FIRST; a dump from a
+  rebuilt binary can't be symbol-mapped, so check the dump's device timestamp against the commit timeline before
+  trusting addr2line.**
+
 - **★★ 3DS AUDIO WORKS — SFX + MUSIC on the dedicated core-1 thread (2026-06-26, branch `3ds-audio-thread`,
   commit `c9c715e`).** 3DS audio now plays SFX AND music on the dedicated audio thread (pinned to **core 1** on
   OG 3DS / spare **core 2** on New 3DS, like Perfect Dark — the threading + core-pin + ndsp sink in `audio_3ds.c`
