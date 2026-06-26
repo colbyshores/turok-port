@@ -1226,11 +1226,20 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
             gfx_matrix_mul(rsp.P_matrix, matrix, rsp.P_matrix);
         }
 #ifdef PLATFORM_PORT
-        /* Widescreen: detect a 2D ORTHO projection vs a 3D PERSPECTIVE one by the z->w (perspective) term
-         * P[2][3]: a perspective projection has it = -1 (verified: w = -z), guOrtho has it = 0. So |P[2][3]|<0.5
-         * means 2D ortho — then the pause box/bar/menu tris are pillarboxed like the 2D texrects, keeping all
-         * 2D content 4:3-centered and consistent. */
-        s_proj_is_2d = (rsp.P_matrix[2][3] > -0.5f && rsp.P_matrix[2][3] < 0.5f);
+        /* Widescreen: detect a 2D ORTHO projection vs a 3D PERSPECTIVE one by the PERSPECTIVE COLUMN
+         * (P[0][3],P[1][3],P[2][3]) — the part of the matrix that makes w depend on vertex position.
+         *
+         * ★ FLAP FIX (2026-06-26): the old test used ONLY P[2][3]. But Turok bakes the VIEW rotation into
+         * the projection matrix (camera.c: m_mfProjection = mfView * mfPerspective * mfFlipX), so for the
+         * combined matrix P[2][3] = -View[2][2] = -cos(yaw)-ish — it SWEEPS THROUGH 0 as the camera turns
+         * ~90°. So looking sideways made |P[2][3]|<0.5 → the 3D world was misdetected as 2D and pillarboxed
+         * → the view "scrunched in/out" flapping between 5:3 and a narrower aspect depending on look
+         * direction (worst on the 3DS). The whole perspective column = the view's negated Z axis, a UNIT
+         * vector, so its L1 norm is ≥1 for ANY 3D view rotation but ≈0 for a guOrtho 2D projection (w≡1,
+         * column is [0,0,0,1]). That magnitude is rotation-INVARIANT → no flap. (P[2][3] alone, and P[3][3],
+         * were both shown unreliable for this combined matrix.) */
+        { float persp = fabsf(rsp.P_matrix[0][3]) + fabsf(rsp.P_matrix[1][3]) + fabsf(rsp.P_matrix[2][3]);
+          s_proj_is_2d = (persp < 0.5f); }
 #endif
     } else { // G_MTX_MODELVIEW
 #ifdef PLATFORM_PORT

@@ -2247,13 +2247,12 @@ static void buildTransform(C3D_Mtx *m, float eyeSign, float level, float zoom) {
     //                              catastrophically cancels at the far plane (z≈w) → z-fighting / background
     //                              bleed (villa sky slivers). NDC z = inpos.z/w is the same [-1,0].
     // outpos.w = inpos.w
-    // ★ Fullscreen remap: BK renders a 292x216 region of the 320x240 N64
-    // framebuffer (NDC X[-1,0.825], Y[-0.80,1.0]; the rest was CRT overscan).
-    // Unremapped, the unused L-shaped border shows the clear colour on the
-    // 3DS ("magenta border" in trace builds). Scale+offset that region to
-    // fill the panel (clip-space, so offsets ride on w).
-    const float kGX0 = -1.0f, kGX1 = 292.0f / 320.0f * 2.0f - 1.0f;   // 0.825
-    const float kGY0 = 1.0f - 216.0f / 240.0f * 2.0f, kGY1 = 1.0f;    // -0.80
+    // ★ Fullscreen remap: IDENTITY for Turok (2026-06-26). BK rendered only a 292x216 sub-region of its
+    // 320x240 framebuffer (NDC X[-1,0.825], Y[-0.80,1.0]; the rest was CRT overscan) and this scaled that
+    // region up to fill the panel. Turok renders the FULL frame at the correct 5:3 camera aspect, so the
+    // crop+stretch distorted it — neutral [-1,1]x[-1,1] maps the full NDC frame straight to the panel.
+    const float kGX0 = -1.0f, kGX1 = 1.0f;
+    const float kGY0 = -1.0f, kGY1 = 1.0f;
     const float sxf = 2.0f / (kGX1 - kGX0), oxf = -1.0f - sxf * kGX0;
     const float syf = 2.0f / (kGY1 - kGY0), oyf =  1.0f - syf * kGY1;
     Mtx_Zeros(m);
@@ -2513,10 +2512,15 @@ static void applyCmdState(const DrawCmd *cmd) {
  * clipping content to the old region (the magenta L-border persisted after
  * the matrix-only fix). Game region in logical coords: X [0,365] (=400*292/320),
  * Y [24,240] (bottom 24 rows unused; GL bottom-left origin). */
-static inline int remapLX(int v) { return (v * 400 + 182) / 365; }
-static inline int remapLW(int v) { return (v * 400 + 182) / 365; }
-static inline int remapLY(int v) { int r = ((v - 24) * 240 + 108) / 216; return r < 0 ? 0 : r; }
-static inline int remapLH(int v) { return (v * 240 + 108) / 216; }
+/* ★ VIEWPORT REMAP (2026-06-26): IDENTITY for Turok. These were Banjo-Kazooie's overscan remap — BK renders
+ * only a 365x216 sub-region (with a 24px top offset) of the 400x240 logical frame and these scaled it up to
+ * fill the panel. Turok renders the FULL 320x240 N64 frame (verified: viewport x=0,y=240,w=320,h=240), so the
+ * scaled 400x240 viewport already fills the panel — applying BK's ×1.096/×1.111 + 24px-offset crop/stretch was
+ * the source of the 5:3 distortion. Identity = the camera's correct-aspect (5:3) full frame maps 1:1. */
+static inline int remapLX(int v) { return v; }
+static inline int remapLW(int v) { return v; }
+static inline int remapLY(int v) { return v; }
+static inline int remapLH(int v) { return v; }
 
 static void applyViewport(const DrawCmd *cmd) {
 #if VOID_DIAG_FULLSCREEN

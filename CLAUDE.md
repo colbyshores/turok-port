@@ -603,9 +603,17 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
     frame (= the real output aspect, PC window / 3DS 400x240); `camera.c` projects the 3D world at it (Hor+; the
     cull frustum reuses the same `aspect` so it widens with it). 2D stays 4:3-CENTERED (undistorted) across BOTH 2D
     paths — texrects (HUD C16BitGraphics, options menu, legal/intro art) AND ortho tris (the PAUSE box/bar/menu) —
-    pillarboxed via `gfx_ws_pillarbox`. ★ 2D-vs-3D is detected by the projection's z→w term **`P[2][3]`**
-    (perspective = -1, `guOrtho` = 0 → `s_proj_is_2d`), NOT `P[3][3]` (Turok's perspective `P[3][3]` is a large
-    value, not 0 — verified by trace). ★ FADES: Turok's `RenderTint` fade is `gDPScisFillRectangle(0,0,320,240)`;
+    pillarboxed via `gfx_ws_pillarbox`. ★ 2D-vs-3D is detected by the **L1 norm of the projection's PERSPECTIVE
+    COLUMN** `|P[0][3]|+|P[1][3]|+|P[2][3]|` (`<0.5` = 2D ortho → `s_proj_is_2d`). **★★ CORRECTION (2026-06-26,
+    branch `widescreen-3ds-flap`, commit `*`): the original test used ONLY `P[2][3]` and that FLAPPED with camera
+    yaw — Turok bakes the VIEW into the projection (`camera.c: mfView*mfPerspective*mfFlipX`), so the whole
+    perspective column is the view's negated Z axis (a UNIT vector that ROTATES with the camera); `P[2][3]` alone
+    = -cos(yaw)-ish, sweeping through 0 as you turn ~90° → facing sideways made `|P[2][3]|<0.5` → the 3D WORLD was
+    misclassified as 2D and pillarboxed → the view "scrunched in/out" between 5:3 and a narrower aspect depending
+    on look direction (worst on the 3DS rotated panel; also on PC). The L1 norm of the full column is rotation-
+    INVARIANT: ≥1 for ANY 3D view (verified by patrol trace: stays in [1.02,1.42]) but ≈0 for a `guOrtho` 2D
+    projection (`[0,0,0,1]` column), so it never flaps. `P[3][3]` is ALSO unreliable here (Turok's perspective
+    `P[3][3]` is a large value, not 0).** ★ FADES: Turok's `RenderTint` fade is `gDPScisFillRectangle(0,0,320,240)`;
     the gfx_pc full-screen-fade hack only matched `(0,0,319,239)` → broadened to `ulx<=0&&uly<=0&&lrx>=319*4&&
     lry>=239*4` so a fade covers the WHOLE widescreen (not just the central 4:3). Default PC window → 16:9
     (1600x900). PC pause menu gains a **`quit game`** item (`PAUSE_QUIT`, gated `PLATFORM_PORT && !PLATFORM_3DS` →
@@ -615,7 +623,11 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   **LESSONS:** (1) a per-draw scale of a PERSISTENT engine value (`m_FarClip`) that also feeds a per-frame BLEND
   makes a feedback loop = "breathing" → scale the blend's TARGET input, not the post-blend result. (2) Hor+
   widescreen on a Fast3D port = project the GAME at the output aspect (the gfx_pc X-adjust stays neutral for 3D);
-  keep 2D 4:3-centered, detecting 2D by the ORTHO projection (`P[2][3]≈0`, NOT `P[3][3]`). (3) a menu slider's
+  keep 2D 4:3-centered, detecting 2D by the ORTHO projection — but by the **L1 norm of the whole perspective
+  column** (`|P[0][3]|+|P[1][3]|+|P[2][3]|<0.5`), NOT a single element: when the game bakes the view into the
+  projection (the common N64 idiom `view*persp`), any single perspective-column element rotates with the camera
+  yaw and crosses the threshold → the 2D/3D classifier FLAPS with look direction (= the "view scrunches as you
+  turn" bug). The column's MAGNITUDE is the view Z axis's length = 1, rotation-invariant. (3) a menu slider's
   state must NOT be a struct field in a growable engine object — use a file-scope static backed by the cfg.
 
 - **★ N64 BUILD RE-PRESERVED — the source compiles for the ORIGINAL N64 target again (2026-06-24).** Audit
