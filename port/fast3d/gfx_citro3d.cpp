@@ -2036,15 +2036,25 @@ static void gfx_citro3d_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size
     // The blur (sPrevSceneTex, a full-screen 1:1 ghost) uses its own orient so the smear isn't mirrored;
     // the lens (sGameFbTex, a distortion) keeps sSnapOrient.
     const int  fbOrient = (sPendingFbBind == &sPrevSceneTex) ? sBlurOrient : sSnapOrient;
-    // ★ PER-VERTEX FOG is a per-DRAW choice (fogmode 1). Only OPAQUE geometry — whose output alpha doesn't
-    // gate visibility — may ride the fog factor on PRIMARY.a + use the fog TEV stage. Alpha-tested foliage
-    // (opt_texture_edge / opt_alpha_threshold = the billboarded PLANTS/sprites) and zero-coverage-discard
-    // blends (useAlpha && !modulate) compute visibility from the output alpha, so the factor-ride would zero
-    // it as fog→0 up close → the §15 discard kills them ("plants vanish as you approach"). Those keep the
-    // hardware FogLut (slight banding, but they're close-up where fog is light). prg->fog_stage!=0xff already
+    // ★ PER-VERTEX FOG is a per-DRAW choice (fogmode 1), and it can ONLY safely cover FULLY-OPAQUE geometry.
+    // WHY it can't cover everything (the hardware wall): per-vertex fog needs a [0,1] factor delivered to the
+    // TEV per fragment. The PICA gives the TEV exactly ONE interpolated per-vertex colour (GPU_PRIMARY_COLOR =
+    // the shade) plus 3 texture samples — and all 3 texture units are taken (0=tex0, 1=tex1, 2=the combiner
+    // literal-0/1 white source, see sWhiteTex). The fragment-lighting colours can't carry an arbitrary varying.
+    // So the fog factor has nowhere to ride EXCEPT the shade alpha (PRIMARY.a). That's fine when the draw never
+    // uses the shade alpha — i.e. fully opaque, no alpha test, no alpha blend. The moment a draw uses its output
+    // alpha, riding the fog there corrupts it:
+    //   • alpha-test foliage (opt_texture_edge/opt_alpha_threshold = the billboarded PLANTS) — fog→0 up close
+    //     zeroes the alpha → §15 discard kills them ("plants vanish as you approach").
+    //   • ANY alpha BLEND (stUseAlpha — over OR modulate = water, portals, light shafts, glass) — the draw is
+    //     treated as opaque, so the fog stage fogs its whole quad to ~100% fog colour at distance = the SOLID
+    //     BLUE RECTANGLES the user saw where translucent surfaces should show the scene through them.
+    // Those all keep the hardware FogLut (per-fragment, f24 1/w — slight distance banding, but they're the
+    // minority and usually close-up where fog is light). Opaque terrain/walls — the bulk of the scene and the
+    // banding the user actually complained about — get smooth per-vertex fog. prg->fog_stage!=0xff already
     // implies fogmode 1 + opt_fog + a free stage.
     const bool perVertexFog = (prg->fog_stage != 0xff) &&
-        !(prg->cc.opt_texture_edge || prg->cc.opt_alpha_threshold || (stUseAlpha && !stModulate));
+        !(prg->cc.opt_texture_edge || prg->cc.opt_alpha_threshold || stUseAlpha);
     float tri[3][VBO_FLOATS_PER_VTX];
     for (uint32_t v = 0; v < nverts; v += 3) {
         for (int j = 0; j < 3; j++) {
