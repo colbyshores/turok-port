@@ -5040,11 +5040,28 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	 * catches a NULL/stale/wild pointer, never a wrong-but-valid one, so re-acquire the CORRECT region
 	 * (NearestRegion at the live position) for the whole cinematic + a window after it — the respawn lands as
 	 * the cinematic ends. Scoped to cinematics, so normal play keeps the game's own region tracking. */
-	{ static int _rw = 0; extern int CCamera__InCinemaMode(CCamera*);
+	{ static int _rw = 0; static CVector3 _rwLast = { 1e30f, 1e30f, 1e30f }; static void *_rwColl = 0;
+	  extern int CCamera__InCinemaMode(CCamera*);
 	  CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
 	  if (CCamera__InCinemaMode(&pThis->m_Camera)) _rw = 30; else if (_rw > 0) _rw--;
-	  if (_pl && (_rw > 0 || PORT_REGION_BAD(_pl->ah.ih.m_pCurrentRegion)))
-	    _pl->ah.ih.m_pCurrentRegion = CScene__NearestRegion(&pThis->m_Scene, &_pl->ah.ih.m_vPos); }
+	  if (_pl && (_rw > 0 || PORT_REGION_BAD(_pl->ah.ih.m_pCurrentRegion))) {
+	    /* ★ KEY-CINEMATIC SLOW-MOTION FIX (3DS): CScene__NearestRegion is an O(nRegions) LINEAR SCAN over
+	     * the whole level (thousands of regions on big levels). The death-fix ran it EVERY frame for the
+	     * entire cinematic + the 30-frame countdown — on the slow ARM11 that scan dominates the frame, so
+	     * a HELD cinematic (key pickup) crawls in slow motion and stays choppy for the ~1s countdown after.
+	     * The re-acquire only needs to run when the region could actually have CHANGED: the player MOVED
+	     * (a respawn/teleport lands in a valid-but-wrong region) OR the collision buffer RELOCATED (the
+	     * cinematic model-swap re-decompresses it at a new address, staling every region pointer). A held,
+	     * non-relocating pose can't change region, so skip the scan. Re-acquire on: region pointer bad, OR
+	     * the collision-cache data ptr changed (relocation), OR a real position move since the last scan.
+	     * Correctness-neutral (region only changes when one of those does); kills the per-frame scan. */
+	    void *_coll = pThis->m_Scene.m_pceCollision ? CCacheEntry__GetData(pThis->m_Scene.m_pceCollision) : (void *)0;
+	    float _dx = _pl->ah.ih.m_vPos.x - _rwLast.x, _dz = _pl->ah.ih.m_vPos.z - _rwLast.z;
+	    if (PORT_REGION_BAD(_pl->ah.ih.m_pCurrentRegion) || _coll != _rwColl || (_dx*_dx + _dz*_dz) > 0.25f) {
+	      _pl->ah.ih.m_pCurrentRegion = CScene__NearestRegion(&pThis->m_Scene, &_pl->ah.ih.m_vPos);
+	      _rwLast = _pl->ah.ih.m_vPos; _rwColl = _coll;
+	    }
+	  } }
 #endif
 	CEngineApp__UpdateCameraAttributes(pThis);
 

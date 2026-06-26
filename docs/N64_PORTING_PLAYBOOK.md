@@ -605,8 +605,36 @@ per-fragment depth clamp the PICA lacks.
 
 ---
 
+## 19. A per-frame O(n) "safety" scan is invisible on PC and crawls on the 3DS — and shows up as SLOW MOTION
+
+**Symptom:** an in-game event (a cinematic, a state transition) runs in **slow motion** on the 3DS, often with a
+few seconds of **choppiness** after, while the PC is perfectly smooth. **Cause pattern:** a host-portability fix
+you added earlier does an **unconditional per-frame O(n) scan** — here, a region re-acquire that called an
+`O(nRegions)` linear scan over the *whole level* (thousands of regions) **every frame** for a cinematic + a
+countdown window (it was a band-aid for stale region pointers after a streaming relocation). Invisible on a fast
+desktop; on the slow ARM11 that scan eats the whole frame.
+
+**Why it reads as SLOW MOTION, not just low fps (the mechanism worth internalizing):** the §8 logic clock runs
+**one logic tick per rendered frame, with a snap-forward cap and NO catch-up** (catch-up would fast-forward-jolt).
+So any frame that exceeds the tick interval (e.g. 33 ms at 30 Hz) advances the game by only one tick while real
+time advances more → **game time falls behind wall time → slow motion**, sustained for as long as the heavy work
+runs. A per-frame cost therefore manifests as *slow-mo*, and the tail (a countdown/window after the event) is the
+choppy recovery. (If you instead see a single stutter, it's a one-frame load hitch, not this.)
+
+**The fix — gate the scan on the actual CHANGE condition, never run it unconditionally.** The expensive scan only
+needs to run when the thing it guards against can have happened. For a region re-acquire: the region changes only
+if the player **moved**, the underlying **buffer relocated** (compare the streaming cache's data pointer), or the
+**pointer went bad** — so scan on `bad || data-ptr-changed || moved>ε`, else skip. A held pose skips every frame.
+**Correctness-neutral** (you re-acquire on exactly the events that can change the answer) and it turns ~30-60
+scans/event into ~1-2. **General rule: any per-frame full scan added for host-portability must be conditioned on a
+cheap "did the guarded thing change?" test — an O(n) loop that's free on PC is a frame-killer on the 3DS, and the
+no-catch-up tick clock turns that into visible slow motion.**
+
+---
+
 *Distilled 2026-06-18 from the Turok: Dinosaur Hunter port (incl. the full classic-ABI audio pipeline: threaded
 synth, software Acmd mixer, bank/rate/placeholder fixes). §17 added 2026-06-26 (the near-clip wall-see-through fix —
 fixed Turok; tried-and-dropped as a HW no-op on Perfect Dark). §18 added 2026-06-26 (the viewmodel mid-frame
-z-clear — 3DS weapon-through-walls fix). See `CLAUDE.md` for the project-specific log and `docs/REFERENCES.md` for
-the per-sibling reference notes.*
+z-clear — 3DS weapon-through-walls fix). §19 added 2026-06-26 (per-frame O(n) safety scan → slow motion on the 3DS;
+the no-catch-up tick clock turns a heavy per-frame cost into slow-mo). See `CLAUDE.md` for the project-specific log
+and `docs/REFERENCES.md` for the per-sibling reference notes.*
