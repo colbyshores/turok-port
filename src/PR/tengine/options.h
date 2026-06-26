@@ -18,6 +18,9 @@ enum OptionSelections
 	OPTIONS_OPACITY,
 	OPTIONS_HANALOG,
 	OPTIONS_VANALOG,
+#ifdef PLATFORM_PORT
+	OPTIONS_DRAWDIST,			// PC+3DS port: draw-distance slider
+#endif
 	OPTIONS_CONTROL,
 #ifndef GERMAN
 	OPTIONS_BLOOD,
@@ -108,6 +111,11 @@ typedef struct COption_t
 	INT32				m_Opacity ;
 	INT32				m_HAnalog ;
 	INT32				m_VAnalog ;
+	/* ★ PORT: the draw-distance slider's value lives in a FILE-SCOPE static in options.c (s_DrawDistSlider),
+	 * NOT a struct field — growing COptions shifts every CEngineApp field after m_Options, and a stale
+	 * incremental build then links mismatched layouts → corrupted cache/texture pointers (the 3DS Luma crash
+	 * + the PC "wrong textures" both came from exactly this). The slider's source of truth is g_cfg_drawdist
+	 * (persisted in turok.cfg); the static only holds the 0..255 bar position. */
 
 	// Options storage (used during attract mode)
 	BOOL				m_OptionsStored ;

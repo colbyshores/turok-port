@@ -1391,6 +1391,10 @@ void CEngineApp__SetupDraw(CEngineApp *pThis)
 #endif	// SCREEN_SHOT
 
 #ifdef USE_FOG
+#ifdef PLATFORM_PORT
+	{ extern int g_cfg_fog; if (g_cfg_fog)		/* PC+3DS: fog master toggle (turok.cfg `fog`) */
+#endif
+	{
 	gSPSetGeometryMode(pThis->m_pDLP++, G_FOG);
 
 	//gSPFogPosition(pThis->m_pDLP++, 992, 1000);
@@ -1398,6 +1402,10 @@ void CEngineApp__SetupDraw(CEngineApp *pThis)
 
 	CEngineApp__GetFogColor(pThis, &r, &g, &b);
    gDPSetFogColor(pThis->m_pDLP++, r, g, b, 255);
+	}
+#ifdef PLATFORM_PORT
+	}
+#endif
 #endif
    //gDPSetCycleType(pThis->m_pDLP++, G_CYC_2CYCLE);
 
@@ -3182,6 +3190,15 @@ void CEngineApp__UpdateCameraAttributes(CEngineApp *pThis)
 		pThis->m_FogColor[i] = (BYTE) max(0, min(255, BlendFLOAT(u, pThis->m_LastFogColor[i], fogColor[i])));
 
 	pThis->m_FogStart	= (DWORD) max(0, min(995, BlendFLOAT(u, pThis->m_LastFogStart, fogStart)));
+
+#ifdef PLATFORM_PORT
+	/* Draw-distance slider: scale the region's TARGET far clip BEFORE the blend. m_FarClip is used for BOTH the
+	 * software geometry cull AND the projection, so scaling it here makes the draw distance track the slider —
+	 * and because the blend's OTHER endpoint (m_LastFarClip) is itself a previously-scaled m_FarClip, the two
+	 * stay consistent, so there is no region-transition overshoot (the "breathing" the post-blend multiply
+	 * caused). The engine's normalized fog then recedes/thins with the extended plane. 1x = stock. */
+	{ extern float g_cfg_drawdist; if (g_cfg_drawdist > 1.0f) farClip *= g_cfg_drawdist; }
+#endif
 
 	pThis->m_FarClip			= BlendFLOAT(u, pThis->m_LastFarClip, farClip);
 	pThis->m_FieldOfView		= BlendFLOAT(u, pThis->m_LastFieldOfView, fieldOfView);

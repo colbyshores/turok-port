@@ -106,6 +106,11 @@ static char	text_exit[] = {0x6B, 0x7B, 0x70, -1};
 static char	text_levelicons[] = {0x82, 0x83, 0x93, 0xeb, 0xa0, 0xa1, -1};
 #endif
 
+#ifdef PLATFORM_PORT
+static char	text_drawdist[] = {"draw distance"};	// PC+3DS port slider label
+static INT32 s_DrawDistSlider = 128;	// draw-distance bar position (0..255). FILE-SCOPE on purpose —
+										// NOT a COptions field (growing CEngineApp = stale-build layout corruption).
+#endif
 
 t_Option options[]=
 {
@@ -114,6 +119,9 @@ t_Option options[]=
 	OPTIONSBIG_SPACING, text_opacity,
 	OPTIONSBIG_SPACING, text_hanalog,
 	OPTIONSBIG_SPACING, text_vanalog,
+#ifdef PLATFORM_PORT
+	OPTIONSBIG_SPACING, text_drawdist,
+#endif
 	OPTIONSMENU_SPACING, text_control_left,
 #ifndef GERMAN
 	OPTIONSMENU_SPACING, text_blood_off,
@@ -225,6 +233,17 @@ void COptions__SetDefaults(COptions *pThis)
 	pThis->m_Opacity = 255 ;
 	pThis->m_HAnalog = 100 ;
 	pThis->m_VAnalog = 100 ;
+#ifdef PLATFORM_PORT
+	/* seed the draw-distance slider from g_cfg_drawdist (1..max -> 0..255; max = 8 PC, 2 New 3DS, 1 OG=locked) */
+	{	extern float g_cfg_drawdist; extern float turok_drawdist_max(void);
+		float mxr = turok_drawdist_max() - 1.0f;
+		int dd = (mxr > 0.01f) ? (int)(((g_cfg_drawdist - 1.0f) / mxr) * 255.0f + 0.5f) : 0;
+		s_DrawDistSlider = (dd < 0) ? 0 : (dd > 255) ? 255 : dd;
+		/* OG 3DS (max==1x): HIDE the row — zero spacing makes the selection bar, text list AND slider
+		 * accumulation all skip it; the text/slider draws and the navigation check Spacing==0 to skip too. */
+		options[OPTIONS_DRAWDIST].Spacing = (mxr <= 0.01f) ? 0 : OPTIONSBIG_SPACING;
+	}
+#endif
 	pThis->m_RHControl = TRUE;
 #ifdef KANJI
 	pThis->m_Blood = BLOOD_GREEN ;
@@ -312,6 +331,12 @@ INT32 COptions__Update(COptions *pThis)
 			pThis->m_Selection++ ;
 			if (pThis->m_Selection >= OPTIONS_END_SELECTION)
 				pThis->m_Selection = 0 ;
+#ifdef PLATFORM_PORT
+			if (pThis->m_Selection == OPTIONS_DRAWDIST && options[OPTIONS_DRAWDIST].Spacing == 0) {  /* OG: skip hidden row */
+				pThis->m_Selection++ ;
+				if (pThis->m_Selection >= OPTIONS_END_SELECTION) pThis->m_Selection = 0 ;
+			}
+#endif
 		}
 
 		// Goto previous selection?
@@ -321,6 +346,12 @@ INT32 COptions__Update(COptions *pThis)
 			pThis->m_Selection-- ;
 			if (pThis->m_Selection < 0)
 				pThis->m_Selection = OPTIONS_END_SELECTION-1 ;
+#ifdef PLATFORM_PORT
+			if (pThis->m_Selection == OPTIONS_DRAWDIST && options[OPTIONS_DRAWDIST].Spacing == 0) {  /* OG: skip hidden row */
+				pThis->m_Selection-- ;
+				if (pThis->m_Selection < 0) pThis->m_Selection = OPTIONS_END_SELECTION-1 ;
+			}
+#endif
 		}
 
 
@@ -390,6 +421,19 @@ INT32 COptions__Update(COptions *pThis)
 				if (pThis->m_VAnalog >255)
 					pThis->m_VAnalog = 255;
 				break ;
+#ifdef PLATFORM_PORT
+			case OPTIONS_DRAWDIST:
+			{	extern float g_cfg_drawdist; extern float turok_drawdist_max(void);
+				s_DrawDistSlider += delta ;
+				if (s_DrawDistSlider < 0)   s_DrawDistSlider = 0;
+				if (s_DrawDistSlider > 255) s_DrawDistSlider = 255;
+				/* ONE slider: far-clip multiplier 1x..max (3x PC, 1.25x New 3DS, 1x OG = locked). The engine's
+				 * fog is normalized to the far plane, so pushing the plane out makes the fog RECEDE and THIN on
+				 * its own (the gradient just stretches over more distance) — exactly the desired look. */
+				g_cfg_drawdist = 1.0f + ((float)s_DrawDistSlider / 255.0f) * (turok_drawdist_max() - 1.0f) ;
+				break ;
+			}
+#endif
 		}
 
 		// check for start button on current item
@@ -739,6 +783,9 @@ void COptions__Draw(COptions *pThis, Gfx **ppDLP)
 			y = OPTIONSMENU_Y ;
 			for (i=0; i<OPTIONS_END_SELECTION; i++)
 			{
+#ifdef PLATFORM_PORT
+				if (i == OPTIONS_DRAWDIST && options[OPTIONS_DRAWDIST].Spacing == 0) continue;  /* OG: hidden draw-dist */
+#endif
 				if (options[i].Spacing == OPTIONSBIG_SPACING)
 				{
 					if (i == pThis->m_Selection)
@@ -849,6 +896,17 @@ void COptions__Draw(COptions *pThis, Gfx **ppDLP)
 
 
 
+
+#ifdef PLATFORM_PORT
+			// DRAW DISTANCE (PC+3DS port slider) — hidden on OG 3DS (Spacing collapsed to 0)
+			if (options[OPTIONS_DRAWDIST].Spacing != 0)
+			{
+				slidex = s_DrawDistSlider *118 / 255;
+				slidey += options[OPTIONS_DRAWDIST].Spacing ;
+				COnScreen__Draw16BitGraphic(ppDLP, (C16BitGraphic *)BarOverlay, x1, slidey+5) ;
+				COnScreen__Draw16BitGraphic(ppDLP, (C16BitGraphic *)SliderOverlay, x1+slidex+2, slidey-3) ;
+			}
+#endif
 
 			// draw heading
 			COnScreen__Draw16BitGraphic(ppDLP,

@@ -29,6 +29,21 @@ int   g_cfg_bake         = 0;        /* 3DS facade texture baking: 0 = OFF (defa
 float g_cfg_stereo_z     = -1.0f;    /* 3DS stereo shear depth term (default 0.04); -1 = compiled default. On-device tuning, real-HW only. */
 float g_cfg_stereo_w     = -1.0f;    /* 3DS stereo shear convergence term (default 0.012); -1 = compiled default. Raise = screen plane nearer. */
 int   g_cfg_gamepad      = 1;        /* PC: 1 = use a connected game controller; 0 = ignore it entirely (escape hatch for a drifting pad that auto-strafes/spins). Env TUROK_GAMEPAD overrides. */
+/* In-game DRAW-DISTANCE slider (single slider; the fog recedes with it because the engine's fog is normalized to
+ * the projection far plane). Defaults = ORIGINAL Turok. Backed by turok.cfg `drawdist` / `fog`. */
+float g_cfg_drawdist     = 1.0f;     /* DRAW DISTANCE multiplier (options slider). 1 = stock far clip; up to turok_drawdist_max() pushes the projection far plane out so the fog recedes/thins and reveals the vista it hid. */
+int   g_cfg_fog          = 1;        /* fog master. 1 = on (stock haze); 0 = off (turok.cfg `fog`). */
+
+/* Draw-distance ceiling. PC = up to 3x (the slider is a PC feature). 3DS is locked at stock 1x (draw distance is
+ * framerate-gated there); the options menu hides the slider row when the max is 1x. */
+float turok_drawdist_max(void)
+{
+#ifdef PLATFORM_3DS
+    return 1.0f;                              /* 3DS: locked at stock (slider row hidden) */
+#else
+    return 3.0f;                              /* PC = up to 3x */
+#endif
+}
 
 static const char *cfg_path(void)
 {
@@ -68,8 +83,15 @@ void turokConfigLoad(void)
         else if (!strcmp(key, "stereo_z"))          g_cfg_stereo_z     = (float)val;
         else if (!strcmp(key, "stereo_w"))          g_cfg_stereo_w     = (float)val;
         else if (!strcmp(key, "gamepad"))           g_cfg_gamepad      = (int)val ? 1 : 0;
+        else if (!strcmp(key, "fog"))               g_cfg_fog          = (int)val ? 1 : 0;
+        else if (!strcmp(key, "drawdist"))          g_cfg_drawdist     = (float)val;
     }
     fclose(f);
+
+    /* Clamp the draw distance to the platform ceiling (PC 3x; 3DS 1x). */
+    { float mx = turok_drawdist_max();
+      if (g_cfg_drawdist > mx)   g_cfg_drawdist = mx;
+      if (g_cfg_drawdist < 1.0f) g_cfg_drawdist = 1.0f; }
 
     g_turok_walk_mode = g_cfg_walk_default;   /* seed the run/walk toggle from the saved default */
     fprintf(stderr, "[config] loaded '%s' (sens=%.2f invert=%d walk=%d win=%dx%d)\n",
