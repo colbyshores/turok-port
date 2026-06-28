@@ -42,13 +42,16 @@ AccessControlInfo:
   SpecialMemoryArrange          : true
 
   # New3DS:
-  SystemModeExt                 : Legacy
+  SystemModeExt                 : 124MB   # New 3DS — full app slice (124MB), so the linear/GPU heap can reach
+                                          # its 56MB cap. Legacy/64MB starves it -> C3D texture OOM = corruption.
   CpuSpeed                      : 268MHz
   EnableL2Cache                 : false
   CanAccessCore2                : true
 
   MemoryType                    : Application
-  SystemMode                    : 64MB
+  SystemMode                    : 96MB    # Old 3DS HIMEM grant (vs the default 64MB) for the same reason.
+                                          # Matches Forsaken's proven himem CIA. A fullscreen game runs no
+                                          # applets, so taking the HIMEM slice is safe.
 
   HandleTableSize: 0x200
 
