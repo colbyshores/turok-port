@@ -309,19 +309,96 @@ s32  osContStartReadData(OSMesgQueue *mq)
 extern s32 inputReadController(s32 idx, void *npad); /* input.c: fill controller 0's pad (PD/banjo contract) */
 void osContGetReadData(OSContPad *pad)               { if (pad) inputReadController(0, pad); }
 
-/* ---- controller pak / pfs (saves) — empty at M1 ------------------------- */
-s32 osPfsInitPak(OSMesgQueue *mq, OSPfs *pfs, int ch){ (void)mq;(void)pfs;(void)ch; return 1; }
-s32 osPfsInit(OSMesgQueue *mq, OSPfs *pfs, int ch)   { (void)mq;(void)pfs;(void)ch; return 1; }
-s32 osPfsNumFiles(OSPfs *pfs, s32 *mx, s32 *used)    { (void)pfs; if(mx)*mx=0; if(used)*used=0; return 0; }
-s32 osPfsFreeBlocks(OSPfs *pfs, s32 *bytes)          { (void)pfs; if(bytes)*bytes=0; return 0; }
+/* ---- Controller Pak (PFS) backed by a FILE ------------------------------
+ * No Controller Pak hardware exists on the host targets, so the N64 save system (the save points + the in-game
+ * save/load screens, control.c/loadsave.c) is left UNCHANGED and its pak I/O is redirected to a host file: a
+ * "virtual pak" — a small directory of fixed-size file slots — persisted verbatim. The game does the exact same
+ * osPfsAllocateFile / osPfsReadWriteFile(PFS_WRITE) on save and osPfsReadWriteFile(PFS_READ) on load; it just
+ * lands in turok.pak instead of a Controller Pak. PC: $TUROK_PAK or ./turok.pak ; 3DS: sdmc:/3ds/turok/turok.pak. */
+/* declare the libc fns we use directly — <string.h> conflicts with os_shim's N64-style bzero/bcmp externs. */
+extern void *memcpy(void *, const void *, size_t);
+extern void *memset(void *, int, size_t);
+extern int   memcmp(const void *, const void *, size_t);
+#ifndef PFS_INITIALIZED
+#define PFS_INITIALIZED 0x1
+#endif
+#define VPAK_FILES   8             /* save slots (the N64 pak fits only a few 7KB Turok saves) */
+#define VPAK_SLOTSZ  8192          /* max bytes per file — a Turok save is up to PERSISTANT_DATA_MAX_SIZE (7000)
+                                      rounded to 256-byte pages = 7168; 8192 (32 pages) gives headroom */
+#define VPAK_MAGIC   0x4B415054u   /* 'TPAK' */
+typedef struct { u8 inuse; u16 company; u32 game; u8 name[16]; u8 ext[4]; u32 size; } VPakEnt;
+typedef struct { u32 magic; VPakEnt ent[VPAK_FILES]; u8 data[VPAK_FILES][VPAK_SLOTSZ]; } VPak;
+static VPak *s_vpak = 0;
+
+static const char *vpak_path(void)
+{
+#ifdef PLATFORM_3DS
+    return "sdmc:/3ds/turok/turok.pak";
+#else
+    const char *e = getenv("TUROK_PAK");
+    return (e && *e) ? e : "turok.pak";
+#endif
+}
+static void vpak_ensure(void)
+{
+    if (s_vpak) return;
+    s_vpak = (VPak *)calloc(1, sizeof(VPak));
+    if (!s_vpak) return;
+    { FILE *f = fopen(vpak_path(), "rb");
+      if (f) { if (fread(s_vpak, sizeof(VPak), 1, f) != 1 || s_vpak->magic != VPAK_MAGIC)
+                   memset(s_vpak, 0, sizeof(VPak));
+               fclose(f); } }
+    s_vpak->magic = VPAK_MAGIC;
+}
+static void vpak_flush(void)
+{
+    if (!s_vpak) return;
+    { FILE *f = fopen(vpak_path(), "wb");
+      if (f) { fwrite(s_vpak, sizeof(VPak), 1, f); fclose(f); } }
+}
+static int vpak_match(const VPakEnt *en, u16 c, u32 g, const u8 *n, const u8 *e)
+{ return en->inuse && en->company == c && en->game == g &&
+         memcmp(en->name, n, 16) == 0 && memcmp(en->ext, e, 4) == 0; }
+
+s32 osPfsInitPak(OSMesgQueue *mq, OSPfs *pfs, int ch){ (void)mq;(void)ch; vpak_ensure(); if(pfs) pfs->status = PFS_INITIALIZED; return s_vpak ? 0 : 1; }
+s32 osPfsInit(OSMesgQueue *mq, OSPfs *pfs, int ch)   { (void)mq;(void)ch; vpak_ensure(); if(pfs) pfs->status = PFS_INITIALIZED; return s_vpak ? 0 : 1; }
+s32 osPfsIsPlug(OSMesgQueue *mq, u8 *p)              { (void)mq; if(p)*p=1; return 0; }   /* controller 0 'has' a pak */
+s32 osPfsNumFiles(OSPfs *pfs, s32 *mx, s32 *used)
+{ (void)pfs; vpak_ensure(); int u=0; for(int i=0;i<VPAK_FILES;i++) if(s_vpak->ent[i].inuse) u++;
+  if(mx)*mx=VPAK_FILES; if(used)*used=u; return 0; }
+s32 osPfsFreeBlocks(OSPfs *pfs, s32 *bytes)
+{ (void)pfs; vpak_ensure(); int u=0; for(int i=0;i<VPAK_FILES;i++) if(s_vpak->ent[i].inuse) u++;
+  if(bytes)*bytes=(VPAK_FILES-u)*VPAK_SLOTSZ; return 0; }
 s32 osPfsAllocateFile(OSPfs *pfs, u16 c, u32 g, u8 *n, u8 *e, int sz, s32 *fn)
-{ (void)pfs;(void)c;(void)g;(void)n;(void)e;(void)sz;(void)fn; return 1; }
+{ (void)pfs; vpak_ensure();
+  if((u32)sz > VPAK_SLOTSZ) return 7;                                 /* PFS_DATA_FULL */
+  for(int i=0;i<VPAK_FILES;i++) if(vpak_match(&s_vpak->ent[i],c,g,n,e)) return 9; /* PFS_ERR_EXIST */
+  for(int i=0;i<VPAK_FILES;i++) if(!s_vpak->ent[i].inuse){
+    VPakEnt *en=&s_vpak->ent[i]; en->inuse=1; en->company=c; en->game=g; en->size=(u32)sz;
+    memcpy(en->name,n,16); memcpy(en->ext,e,4); memset(s_vpak->data[i],0,VPAK_SLOTSZ);
+    if(fn)*fn=i; vpak_flush(); return 0; }
+  return 8; }                                                          /* PFS_DIR_FULL */
+s32 osPfsFindFile(OSPfs *pfs, u16 c, u32 g, u8 *n, u8 *e, s32 *fn)
+{ (void)pfs; vpak_ensure();
+  for(int i=0;i<VPAK_FILES;i++) if(vpak_match(&s_vpak->ent[i],c,g,n,e)){ if(fn)*fn=i; return 0; }
+  return 5; }                                                          /* PFS_ERR_INVALID (not found) */
 s32 osPfsDeleteFile(OSPfs *pfs, u16 c, u32 g, u8 *n, u8 *e)
-{ (void)pfs;(void)c;(void)g;(void)n;(void)e; return 1; }
-s32 osPfsFileState(OSPfs *pfs, s32 fn, OSPfsState *st){ (void)pfs;(void)fn;(void)st; return 1; }
+{ (void)pfs; vpak_ensure();
+  for(int i=0;i<VPAK_FILES;i++) if(vpak_match(&s_vpak->ent[i],c,g,n,e)){ s_vpak->ent[i].inuse=0; vpak_flush(); return 0; }
+  return 5; }
+s32 osPfsFileState(OSPfs *pfs, s32 fn, OSPfsState *st)
+{ (void)pfs; vpak_ensure();
+  if(fn<0||fn>=VPAK_FILES||!s_vpak->ent[fn].inuse) return 5;
+  if(st){ VPakEnt *en=&s_vpak->ent[fn]; st->file_size=en->size; st->game_code=en->game; st->company_code=en->company;
+          memcpy(st->ext_name,en->ext,4); memcpy(st->game_name,en->name,16); }
+  return 0; }
 s32 osPfsReadWriteFile(OSPfs *pfs, s32 fn, u8 m, int o, int sz, u8 *d)
-{ (void)pfs;(void)fn;(void)m;(void)o;(void)sz;(void)d; return 1; }
-s32 osPfsIsPlug(OSMesgQueue *mq, u8 *p)              { (void)mq; if(p)*p=0; return 0; }
+{ (void)pfs; vpak_ensure();
+  if(fn<0||fn>=VPAK_FILES||!s_vpak->ent[fn].inuse) return 5;
+  if(o<0||sz<0||(u32)(o+sz)>VPAK_SLOTSZ) return 5;
+  if(m==1){ memcpy(&s_vpak->data[fn][o], d, (size_t)sz); vpak_flush(); }   /* PFS_WRITE */
+  else    { memcpy(d, &s_vpak->data[fn][o], (size_t)sz); }                  /* PFS_READ  */
+  return 0; }
 
 /* ---- timing / system ---------------------------------------------------- */
 #ifndef PLATFORM_3DS

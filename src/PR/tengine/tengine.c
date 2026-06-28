@@ -4773,20 +4773,6 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	    _pl->ah.ih.m_pCurrentRegion = CScene__NearestRegion(&pThis->m_Scene, &_pl->ah.ih.m_vPos);
 	    TUROK_TRACE("A: per-frame re-acquire done"); } }
 #endif
-#ifdef PLATFORM_PORT
-	/* PORT SAVE-FILE SYSTEM (no Controller Pak exists): AUTO-SAVE the CPersistantData blob to a file whenever
-	 * the player reaches a NEW checkpoint — the points where the N64 would have offered a pak save. Single slot;
-	 * the pause/title "Load" option (and F9) read it back. Gated on a real in-game player + MODE_GAME so it never
-	 * fires on the legal/title screens; the checkpoint is set during a warp, but this only sees the change once
-	 * the level has settled back into MODE_GAME with a valid player, so the saved state is always coherent. */
-	{ static INT32 s_lastSavedCkpt = (INT32)0x80000000;
-	  CGameObjectInstance *_sp = CEngineApp__GetPlayer(pThis);
-	  if (_sp && pThis->m_Mode == MODE_GAME && CTurokMovement.CurrentCheckpoint != s_lastSavedCkpt) {
-	    extern int CSave__QuickSaveToFile(void);
-	    s_lastSavedCkpt = CTurokMovement.CurrentCheckpoint;
-	    CSave__QuickSaveToFile();
-	  } }
-#endif
 
 #ifdef PLATFORM_PORT
 	/* PORT (render-interp DISCONTINUITY guard — fixes the fall-death respawn loop at FPS>TICK): a respawn
