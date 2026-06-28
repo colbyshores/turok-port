@@ -789,6 +789,7 @@ static uint32_t tile_line_or_fallback(int tile, uint32_t num, uint32_t den) {
 static uint8_t *s_bleed_mask = nullptr;
 static size_t   s_bleed_mask_cap = 0;
 static void alpha_bleed_rgba32(uint8_t *buf, int w, int h) {
+    extern int g_cfg_edgetest; const int diag = g_cfg_edgetest; // edgetest 4 = fill MAGENTA (does the bleed reach the rim texels?)
     if (w < 2 || h < 2) return;
     const size_t n = (size_t)w * (size_t)h;
     bool any_t = false, any_o = false;          // need both a sub-cutoff region to fill AND an opaque source
@@ -810,7 +811,12 @@ static void alpha_bleed_rgba32(uint8_t *buf, int w, int h) {
                 const size_t j = (size_t)ny * w + nx;
                 if (mask[j] == 1) { const uint8_t *p = &buf[j*4]; sr += p[0]; sg += p[1]; sb += p[2]; cnt++; }
             }
-            if (cnt) { uint8_t *p = &buf[i*4]; p[0] = (uint8_t)(sr/cnt); p[1] = (uint8_t)(sg/cnt); p[2] = (uint8_t)(sb/cnt); mask[i] = 2; filled = true; }
+            if (cnt) {
+                uint8_t *p = &buf[i*4];
+                if (diag == 4) { p[0] = 255; p[1] = 0; p[2] = 255; } // DIAG: magenta — if the rim turns pink, the bleed DOES reach these texels (so the blue is downstream)
+                else           { p[0] = (uint8_t)(sr/cnt); p[1] = (uint8_t)(sg/cnt); p[2] = (uint8_t)(sb/cnt); }
+                mask[i] = 2; filled = true;
+            }
         }
         if (!filled) break;
         for (size_t i = 0; i < n; i++) if (mask[i] == 2) mask[i] = 1;
