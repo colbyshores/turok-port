@@ -322,8 +322,9 @@ extern int   memcmp(const void *, const void *, size_t);
 #ifndef PFS_INITIALIZED
 #define PFS_INITIALIZED 0x1
 #endif
-#define VPAK_FILES   16            /* directory entries (like the N64 pak's ~16) */
-#define VPAK_SLOTSZ  2048          /* max bytes per file (a Turok save is ~256 = 1 page); 8 pages = headroom */
+#define VPAK_FILES   8             /* save slots (the N64 pak fits only a few 7KB Turok saves) */
+#define VPAK_SLOTSZ  8192          /* max bytes per file — a Turok save is up to PERSISTANT_DATA_MAX_SIZE (7000)
+                                      rounded to 256-byte pages = 7168; 8192 (32 pages) gives headroom */
 #define VPAK_MAGIC   0x4B415054u   /* 'TPAK' */
 typedef struct { u8 inuse; u16 company; u32 game; u8 name[16]; u8 ext[4]; u32 size; } VPakEnt;
 typedef struct { u32 magic; VPakEnt ent[VPAK_FILES]; u8 data[VPAK_FILES][VPAK_SLOTSZ]; } VPak;
