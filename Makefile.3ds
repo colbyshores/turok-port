@@ -36,6 +36,7 @@ TDSXTOOL := $(TOOLS)/3dsxtool
 BANNERTOOL ?= tools/3ds-cia/bannertool
 MAKEROM    ?= tools/3ds-cia/makerom
 CONVERT    ?= convert
+FFMPEG     ?= ffmpeg
 CIA_DIR    := build_3ds/cia
 CIA_IMAGE  ?= turok.jpg
 CIA_ICON   ?= turok.ico
@@ -185,8 +186,12 @@ $(CIA_DIR)/icon.png: $(CIA_ICON)
 $(CIA_DIR)/icon.smdh: $(CIA_DIR)/icon.png
 	$(BANNERTOOL) makesmdh -s "$(APP_TITLE)" -l "$(APP_DESC)" -p "$(APP_AUTHOR)" -i $< -o $@ \
 		-r regionfree -f visible,allow3d,recordusage
-$(CIA_DIR)/banner.bnr: $(CIA_DIR)/banner.png $(CIA_AUDIO)
-	$(BANNERTOOL) makebanner -i $(CIA_DIR)/banner.png -a $(CIA_AUDIO) -o $@
+# HOME banner audio must be stereo 16-bit PCM (a mono CWAV plays silent) — normalize the user WAV first.
+$(CIA_DIR)/banner_audio.wav: $(CIA_AUDIO)
+	@mkdir -p $(@D)
+	$(FFMPEG) -y -loglevel error -i $(CIA_AUDIO) -ac 2 -ar 32000 -c:a pcm_s16le $@
+$(CIA_DIR)/banner.bnr: $(CIA_DIR)/banner.png $(CIA_DIR)/banner_audio.wav
+	$(BANNERTOOL) makebanner -i $(CIA_DIR)/banner.png -a $(CIA_DIR)/banner_audio.wav -o $@
 # stage the retail ROM into the CIA RomFS so the install is self-contained on any console
 $(CIA_ROMFS)/baserom.us.v12.z64: $(CIA_ROM)
 	@mkdir -p $(CIA_ROMFS)
