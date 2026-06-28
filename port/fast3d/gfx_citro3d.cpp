@@ -279,9 +279,11 @@ typedef struct {
     // FOG (§3.3/§20.12): the N64 per-draw fog state, snapshotted from set_fog. fogEnable ⇒ replay binds
     // the PICA fixed-function fog unit (a depth FogLut built from mul/offset + fogColor); else fog off.
     bool     fogEnable; int16_t fogMul, fogOffset; uint32_t fogColor; // fogColor = 0x00BBGGRR for C3D_FogColor
-    bool     perVertexFog;     // fogmode 1: this draw uses the per-vertex fog TEV stage (opaque geom);
-                               // false → keep the hardware FogLut (alpha-tested/blended draws whose output
-                               // alpha must stay intact — the fog factor would otherwise zero their alpha).
+    bool     perVertexFog;     // fogmode 1: this draw rides the fog factor on PRIMARY.a (per-vertex) in the
+                               // appended fog TEV stage — opaque + texel-alpha translucent geom.
+    bool     perDrawFog;       // fogmode 1: shade-alpha draws (can't ride PRIMARY.a) instead use the fog TEV
+                               // stage with a PER-DRAW constant factor (in stageConst[fog_stage].alpha). So no
+                               // opt_fog draw falls back to the banding hardware FogLut — they all do TEV fog.
 } DrawCmd;
 
 static DrawCmd sCmds[MAX_DRAW_CMDS];
@@ -2064,6 +2066,13 @@ static void gfx_citro3d_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size
     }
     const bool alphaUsed = stUseAlpha || prg->cc.opt_texture_edge || prg->cc.opt_alpha_threshold;
     const bool perVertexFog = (prg->fog_stage != 0xff) && !(alphaUsed && alphaUsesShade);
+    // PER-DRAW fog: a fog draw that CAN'T ride PRIMARY.a (its output alpha depends on the shade) instead gets
+    // the fog stage with ONE constant factor for the whole draw (the avg of its verts' f32 fog factors), put
+    // in the fog stage's own GPU_CONSTANT.a — no shade-alpha touched, no texture unit. Constant across the
+    // draw (fine for small/translucent surfaces; flat-but-banding-free for large ones), and it means NO
+    // opt_fog draw uses the f24 hardware FogLut anymore. fogAccum = sum of the per-vertex factors.
+    const bool perDrawFog = (prg->fog_stage != 0xff) && !perVertexFog;
+    float fogAccum = 0.f;
     float tri[3][VBO_FLOATS_PER_VTX];
     for (uint32_t v = 0; v < nverts; v += 3) {
         for (int j = 0; j < 3; j++) {
@@ -2084,9 +2093,11 @@ static void gfx_citro3d_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size
             if (clrOff >= 0) { t[6] = src[clrOff]; t[7] = src[clrOff + 1]; t[8] = src[clrOff + 2]; t[9] = hasAlpha ? src[clrOff + 3] : 1.f; }
             else             { t[6] = 1.f; t[7] = 1.f; t[8] = 1.f; t[9] = 1.f; }
             if (tintMag)     { t[6] = 1.f; t[7] = 0.f; t[8] = 1.f; t[9] = 1.f; } // DIAG magenta override
-            // ★ PER-VERTEX FOG (fogmode 1, OPAQUE draws only): the fog blend stage reads the factor from the
-            // interpolated PRIMARY alpha — override it with the f32 per-vertex fog factor.
-            if (perVertexFog) t[9] = src[prg->off_fog + 3];
+            // ★ PER-VERTEX FOG: the fog stage reads the factor from the interpolated PRIMARY alpha — override
+            // it with the f32 per-vertex fog factor. PER-DRAW fog leaves PRIMARY.a alone (shade alpha intact)
+            // and instead accumulates the factor for the draw-wide constant computed below.
+            if (perVertexFog)     t[9] = src[prg->off_fog + 3];
+            else if (perDrawFog)  fogAccum += src[prg->off_fog + 3];
         }
         if (doTess) {
             emitTessTri(tri[0], tri[1], tri[2], tilesS, tilesT, &wr, 0);
@@ -2123,10 +2134,19 @@ static void gfx_citro3d_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size
                 a = (uint8_t)(buf_vbo[prg->off_input1 + (size_t)(ca - SHADER_INPUT_1) * isz + 3] * 255.f);
             stageConst[s] = ((uint32_t)a << 24) | ((uint32_t)b << 16) | ((uint32_t)g << 8) | r; // ABGR
         }
-        // ★ per-vertex fog: the appended fog stage's CONSTANT is the per-draw fog colour (stFogColor is
-        // 0x00BBGGRR; the TEV const is ABGR, so OR in opaque alpha). Its cRgbSrc was never built by the
-        // combiner, so set it explicitly here (overrides the garbage the loop left at this index).
-        if (prg->fog_stage != 0xff) stageConst[prg->fog_stage] = 0xFF000000u | stFogColor;
+        // ★ fog: the appended fog stage's CONSTANT.rgb is the per-draw fog colour (stFogColor is 0x00BBGGRR;
+        // the TEV const is ABGR). Its cRgbSrc was never built by the combiner, so set it explicitly here. The
+        // CONSTANT.alpha is the FACTOR source for a PER-DRAW fog draw (the avg of its verts' fog factors); for
+        // a per-vertex fog draw the factor comes from PRIMARY.a so the const alpha is unused (leave 0xFF).
+        if (prg->fog_stage != 0xff) {
+            uint32_t fa = 0xFF000000u;
+            if (perDrawFog) {
+                float avg = (nverts > 0) ? fogAccum / (float)nverts : 0.f;
+                int   ib  = (int)(avg * 255.f + 0.5f);
+                fa = (uint32_t)(ib < 0 ? 0 : ib > 255 ? 255 : ib) << 24;
+            }
+            stageConst[prg->fog_stage] = fa | stFogColor;
+        }
         for (int s = prg->num_stages; s < 6; s++) stageConst[s] = 0xFFFFFFFF;
     }
 
@@ -2164,6 +2184,7 @@ static void gfx_citro3d_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size
     cmd->useAlpha = stUseAlpha;
     cmd->modulate = stModulate;
     cmd->perVertexFog = perVertexFog;
+    cmd->perDrawFog   = perDrawFog;
     cmd->chainSel = chainSel;
 #ifdef BK_TRACE
     /* Comprehensive per-draw dump for the dissolve frames (2 lines per draw):
@@ -2486,10 +2507,10 @@ static void applyCmdState(const DrawCmd *cmd) {
     // FOG (§3.3/§20.12) — PICA fixed-function fog unit. Distance fog the GL backend does in its fragment
     // shader; here it masks the N64 draw-distance popup (the villa horizon etc.). Skip redundant rebinds:
     // a level's geometry shares one fog setting, so this fires once then no-ops for the rest of the frame.
-    // Per-vertex-fog draws (opaque, fogmode 1) get fog from the appended TEV stage → keep the hardware
-    // FogLut OFF for them. Everything else (fogmode 0, OR alpha-tested/blended draws under fogmode 1) uses
-    // the stock hardware FogLut below.
-    if (cmd->fogEnable && !cmd->perVertexFog) {
+    // Per-vertex AND per-draw fog draws (fogmode 1) get fog from the appended TEV stage → keep the hardware
+    // FogLut OFF for them (under fogmode 1 every opt_fog draw is one or the other, so the FogLut only serves
+    // fogmode 0, or the rare opt_fog-less draw that still has fogEnable). The f24 FogLut banding is gone.
+    if (cmd->fogEnable && !cmd->perVertexFog && !cmd->perDrawFog) {
         if (!sCurFogOn || cmd->fogMul != sCurFogMul || cmd->fogOffset != sCurFogOff) {
             C3D_FogGasMode(GPU_FOG, GPU_PLAIN_DENSITY, (g_cfg_fogzflip || sFogZFlip));
             C3D_FogLutBind(fogLutGet(cmd->fogMul, cmd->fogOffset));
@@ -2530,11 +2551,27 @@ static void applyCmdState(const DrawCmd *cmd) {
 #endif
     const C3D_TexEnv *chain = (cmd->chainSel == 2) ? prg->envS
                             : (cmd->chainSel == 1) ? prg->envC : prg->env;
-    // The fog stage (index prg->fog_stage) is the LAST stage; apply it only for perVertexFog (opaque) draws.
-    // For alpha-tested/blended draws it's skipped (they keep the hardware FogLut), so apply up to fog_stage.
-    const int effStages = (prg->fog_stage != 0xff && !cmd->perVertexFog) ? prg->fog_stage : prg->num_stages;
+    // The fog stage (index prg->fog_stage) is the LAST stage. Apply it for BOTH per-vertex and per-draw fog
+    // draws; skip it only when the draw has a fog stage but uses neither TEV-fog path (shouldn't happen under
+    // fogmode 1, but keep the guard for safety → that draw would use the FogLut).
+    const bool fogStageActive = cmd->perVertexFog || cmd->perDrawFog;
+    const int effStages = (prg->fog_stage != 0xff && !fogStageActive) ? prg->fog_stage : prg->num_stages;
     for (int i = 0; i < effStages; i++) {
-        C3D_TexEnv e = chain[i];
+        C3D_TexEnv e;
+        if (cmd->perDrawFog && i == prg->fog_stage) {
+            // PER-DRAW fog stage: INTERPOLATE(CONST.rgb=fogColour, PREVIOUS, CONST.alpha=per-draw factor).
+            // Reads the factor from the stage CONSTANT alpha (NOT PRIMARY.a) so the shade alpha is untouched;
+            // alpha = PREVIOUS so the combiner's real (shade-derived) alpha still drives blend/alpha-test.
+            C3D_TexEnvInit(&e);
+            C3D_TexEnvSrc(&e, C3D_RGB, GPU_CONSTANT, GPU_PREVIOUS, GPU_CONSTANT);
+            C3D_TexEnvOpRgb(&e, GPU_TEVOP_RGB_SRC_COLOR, GPU_TEVOP_RGB_SRC_COLOR, GPU_TEVOP_RGB_SRC_ALPHA);
+            C3D_TexEnvFunc(&e, C3D_RGB, GPU_INTERPOLATE);
+            C3D_TexEnvSrc(&e, C3D_Alpha, GPU_PREVIOUS, GPU_PREVIOUS, GPU_PREVIOUS);
+            C3D_TexEnvOpAlpha(&e, GPU_TEVOP_A_SRC_ALPHA, GPU_TEVOP_A_SRC_ALPHA, GPU_TEVOP_A_SRC_ALPHA);
+            C3D_TexEnvFunc(&e, C3D_Alpha, GPU_REPLACE);
+        } else {
+            e = chain[i];
+        }
         e.color = cmd->stageConst[i];
         C3D_SetTexEnv(i, &e);
     }
