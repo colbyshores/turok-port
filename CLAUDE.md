@@ -505,6 +505,51 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
+- **★★ SAVE SYSTEM = the N64 save UNCHANGED, with the Controller Pak backed by a FILE — DONE & MERGED, HW-CONFIRMED
+  (2026-06-27, branch `save-to-file` + `save-cleanup` → master).** The user's directive (verbatim): *"use the N64
+  save system but dump that data to a file and read that data from a file"* — NOT a memory-dump / custom save.
+  The whole N64 save flow (the **save points**, the in-game **save/load screens**, the **checkpoint** logic in
+  `control.c`/`loadsave.c`) is left **completely unchanged**; only its Controller-Pak storage is redirected to a
+  host file. **THE SEAM:** the `osPfs*` (PFS = pak file system) shims in [os_shim.c](port/src/os_shim.c) were
+  **no-op stubs** — which is exactly why the pak read as absent ("no controller pak found"). They now implement a
+  small **virtual pak** (a fixed directory of file slots) persisted verbatim to **`turok.pak`** (PC: `$TUROK_PAK`
+  or `./turok.pak`; 3DS: `sdmc:/3ds/turok/turok.pak`): `osPfsIsPlug` reports a pak present so the screens proceed;
+  `osPfsAllocateFile` + `osPfsReadWriteFile(PFS_WRITE)` write the save on save; `osPfsReadWriteFile(PFS_READ)` /
+  `osPfsFileState` / `osPfsNumFiles` read it back on load. The game makes the **identical** pak calls it always
+  did — they just land in the file. **★ SLOT SIZE matters:** a Turok save is up to `PERSISTANT_DATA_MAX_SIZE`
+  (7000, [persist.h](src/PR/tengine/persist.h#L8)) page-rounded to 7168 bytes — a too-small slot makes
+  `osPfsAllocateFile` return `PFS_DATA_FULL` → the game shows **"no room, game not saved"** (the actual bug hit:
+  first cut at 2048 was too small; slots are now **8192** (32 pages), 8 files). **★ F5/F9 quick-save (the
+  earlier "dump the memory" approach) is KEPT but GATED PC-ONLY** (`#if defined(PLATFORM_PORT) &&
+  !defined(PLATFORM_3DS)` in `loadsave.c`/`tengine.c`/`input.c`; SDL2-only by construction) — a PC dev
+  convenience, verified absent from the 3DS binary (`nm` shows no QuickSave symbols). **★ BACKED OUT (the wrong
+  approach the user stopped):** a parallel custom save — checkpoint AUTO-SAVE + pause/save-point REDIRECTS to the
+  quick-save + a TSA2 position-capture/RETURN-warp respawn — was reverted; the `save-resume-position` branch
+  (TSA2) was abandoned (never merged). **LESSON: when a game already HAS a save system that targets device
+  storage (a Controller Pak / mempak / memory card), DON'T reinvent it — find the storage API seam (here the
+  stubbed `osPfs*`) and back it with a file. The game's save points, slots, screens, and checkpoint-resume all
+  work unchanged; you only move the bytes. And match the storage SIZE the game expects (page-rounded
+  PERSISTANT_DATA_MAX_SIZE), or its own "no room" check fails.**
+
+- **★★ 3DS FOLIAGE BLUE RIM — FIXED & MERGED (2026-06-27, branch `foliage-alpha-fringe` → master; HW-CONFIRMED).**
+  The longstanding light-blue/cyan rim tracing alpha-tested plant silhouettes on the 3DS. **ROOT CAUSE (the user's
+  combiner hypothesis, confirmed by on-HW A/B):** Turok's foliage combiners lerp the colour TOWARD the ENV/PRIM
+  constant as `TEXEL0` fades (e.g. `G_CC_ROB_SELFILLUM_PSEUDO = (PRIM-ENV)*TEXEL0+ENV`, geometry.h). At the
+  bilinear silhouette `TEXEL0` fades toward transparent, so the kept faded-edge fragments shift toward that
+  constant (a blue/cyan) = the rim. The N64's coverage AA smoothed those fragments away; our hard alpha test at a
+  LOW ref (`0x4D`) kept them. **NOT a texture-colour problem** (an alpha-bleed dilation reached the texels —
+  magenta-halo on-device proof — yet the rim stayed) and **NOT fog** (rim present with fog off). **FIX:** raise the
+  texedge alpha-test cutoff **`0x4D → 0xC0`** ([gfx_citro3d.cpp](port/fast3d/gfx_citro3d.cpp) `applyCmdState`,
+  `cmd->alphaRef`) so the faded edge fragments are discarded — rim gone, **bilinear kept**, silhouette slightly
+  tighter (closer to the N64). The diagnostic scaffolding (`turok.cfg edgetest` modes 1 point-sample / 2 no-fog /
+  3 raise-ref / 4 magenta-bleed, and the alpha-bleed itself) was all removed. **★ METHOD (reusable): a HW-only
+  intermittent-class artifact that's invisible on PC GL → localize with a `turok.cfg` flag-gated on-device A/B
+  (no rebuild per try), bisecting cause classes (texture / filter / fog / combiner); the magenta-fill bleed proved
+  "does the fix even reach these texels" unambiguously. LESSON: a "blue line around alpha-tested foliage" on a
+  Fast3D→PICA port is most likely the COMBINER tinting the bilinear faded-alpha edge toward an ENV/PRIM constant,
+  not a texture-colour bleed — raise the texedge alpha cutoff (the N64's coverage AA hid it; a hard alpha test at a
+  low ref reveals it).**
+
 - **★★ 3DS DISTANCE-FOG BANDING — FIXED & MERGED (2026-06-27, branch `fog-geometry-clip` → master;
   USER-CONFIRMED on HW). The 3DS now does ALL distance fog in the TEV (per-vertex + per-draw), the banding
   hardware FogLut is gone, and it's UNCONDITIONAL (no flag — it IS the 3DS fog path). Full writeup:

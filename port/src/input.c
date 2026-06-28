@@ -41,9 +41,12 @@ float g_look_yaw = 0.0f, g_look_pitch = 0.0f;
  * Defined here (always-linked) so the EGL/OSMesa headless builds resolve the symbol. */
 int g_weapon_cycle = 0;
 
-/* Quick-save / quick-load requests (F5 / F9 in the SDL2 backend), consumed + cleared by the tengine.c
- * game-thread hook (CSave__QuickSaveToFile / CLoad__QuickLoadFromFile). Defined here (always-linked). */
+/* PC-ONLY quick-save / quick-load requests (F5 / F9 in the SDL2 backend), consumed by the tengine.c hook.
+ * A PC dev convenience, separate from the in-game N64 save system; the 3DS uses save points + the file-backed
+ * pak (os_shim.c) and has no F5/F9. Gated off 3DS so the whole quick-save path is PC-only. */
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
 int g_quicksave_req = 0, g_quickload_req = 0;
+#endif
 
 s32 inputInit(void) { return 0; }   /* host: the window manager pumps events; nothing to init here */
 
