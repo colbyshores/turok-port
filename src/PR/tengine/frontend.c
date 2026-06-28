@@ -71,15 +71,12 @@ void CLegalScreen__Construct(void)
 *****************************************************************************/
 void CLegalScreen__Update(void)
 {
-#ifdef PLATFORM_PORT
-	/* PORT: hold on the legal screen. The cooperative frame-pump has no real timing, so this
-	 * timer (LegalScreen.m_Time -= frame_increment) hits 0 in ~1 frame and cascades the whole
-	 * intro sequence (legal->logo->iggy->...->attract), each step a full scene reload — the
-	 * game spins re-loading the cartridge and never settles to present. Freezing here keeps it
-	 * in MODE_GAME on the legal screen (renders every frame, capturable). Remove once real
-	 * frame-rate pacing + input drive the intro. */
-	return;
-#endif
+	/* PORT note: this used to early-return under PLATFORM_PORT to FREEZE the legal screen, because the old
+	 * unpaced frame-pump drained m_Time in ~1 frame and cascaded the whole intro (legal->logo->iggy->...->
+	 * attract) into a cartridge-reload spin. The §8 logic-tick decouple now paces the timer correctly (one
+	 * frame_increment per 30Hz tick), so the intro runs at its intended rate → the freeze is removed and the
+	 * normal N64 attract flow (legal → intro logos → title → idle demo) is restored. A dev warp (TUROK_WARP /
+	 * turok.cfg `warp`) still skips straight to a level for testing. */
 	if (!validcontrollers)
 		return ;
 
