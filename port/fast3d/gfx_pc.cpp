@@ -775,6 +775,55 @@ static uint32_t tile_line_or_fallback(int tile, uint32_t num, uint32_t den) {
     return line;
 }
 
+#ifdef PLATFORM_3DS
+// ★ ALPHA-BLEED (edge dilation) — 3DS only. N64 textures keep the RGB of fully-TRANSPARENT (alpha==0) texels;
+// for foliage/sprite sheets that RGB is usually a blue/cyan sprite-sheet background. The PICA bilinear-filters
+// the colour and alpha independently, so at an alpha-tested silhouette the kept edge fragment's colour is a
+// blend of the opaque leaf and its TRANSPARENT neighbours → a coloured halo ("blue line around the plants",
+// longstanding). Fix: dilate the opaque RGB outward into transparent texels so the filter has no foreign colour
+// to pull in. Alpha is left untouched (the alpha-test/blend silhouette is identical), and mips (generated after
+// this from the bled data) inherit the clean edge. PC GL is the ground truth and is NOT bled (gate below).
+static uint8_t *s_bleed_mask = nullptr;
+static size_t   s_bleed_mask_cap = 0;
+static void alpha_bleed_rgba32(uint8_t *buf, int w, int h) {
+    if (w < 2 || h < 2) return;
+    const size_t n = (size_t)w * (size_t)h;
+    bool any_t = false, any_o = false;          // skip fully-opaque or fully-transparent (nothing to dilate)
+    for (size_t i = 0; i < n; i++) { uint8_t a = buf[i*4+3]; if (a) any_o = true; else any_t = true; if (any_o && any_t) break; }
+    if (!any_t || !any_o) return;
+    if (s_bleed_mask_cap < n) { uint8_t *m = (uint8_t*)realloc(s_bleed_mask, n); if (!m) return; s_bleed_mask = m; s_bleed_mask_cap = n; }
+    uint8_t *mask = s_bleed_mask;               // 1 = source (opaque or already-filled), 0 = still transparent
+    for (size_t i = 0; i < n; i++) mask[i] = buf[i*4+3] ? 1 : 0;
+    for (int pass = 0; pass < 2; pass++) {       // 2 passes = the bilinear 2x2 footprint at a sharp edge
+        bool filled = false;
+        for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) {
+            const size_t i = (size_t)y * w + x;
+            if (mask[i]) continue;
+            int sr = 0, sg = 0, sb = 0, cnt = 0; // average over 8-neighbour SOURCES (mask==1, not this-pass fills==2)
+            for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) {
+                if (!dx && !dy) continue;
+                int nx = x + dx, ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                const size_t j = (size_t)ny * w + nx;
+                if (mask[j] == 1) { const uint8_t *p = &buf[j*4]; sr += p[0]; sg += p[1]; sb += p[2]; cnt++; }
+            }
+            if (cnt) { uint8_t *p = &buf[i*4]; p[0] = (uint8_t)(sr/cnt); p[1] = (uint8_t)(sg/cnt); p[2] = (uint8_t)(sb/cnt); mask[i] = 2; filled = true; }
+        }
+        if (!filled) break;
+        for (size_t i = 0; i < n; i++) if (mask[i] == 2) mask[i] = 1;
+    }
+}
+#endif
+
+// Single upload chokepoint: alpha-bleed (3DS only) then hand the RGBA32 buffer to the backend. On PC this is a
+// straight pass-through (no bleed) so the GL ground truth is byte-identical to before.
+static void turok_upload_texture(int width, int height, bool gen_mipmaps) {
+#ifdef PLATFORM_3DS
+    alpha_bleed_rgba32(tex_upload_buffer, width, height);
+#endif
+    gfx_rapi->upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
+}
+
 static void import_texture_rgba16(int tile, const LoadedTexture& loaded_texture, bool gen_mipmaps) {
     const uint8_t* addr = loaded_texture.addr;
     const uint32_t size_bytes = loaded_texture.size_bytes;
@@ -802,7 +851,7 @@ static void import_texture_rgba16(int tile, const LoadedTexture& loaded_texture,
     const uint32_t width = safe_line / 2;
     const uint32_t height = size_bytes / safe_line;
 
-	gfx_rapi->upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
+	turok_upload_texture(width, height, gen_mipmaps);
     // DumpTexture(loaded_texture.otr_path, rgba32_buf, width, height);
 }
 
@@ -832,7 +881,7 @@ static void import_texture_rgba32(int tile, const LoadedTexture& loaded_texture,
     const uint32_t safe_line = tile_line_or_fallback(tile, 2, 1);
     const uint32_t width = safe_line / 2;
     const uint32_t height = (size_bytes / 2) / safe_line;
-	gfx_rapi->upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
+	turok_upload_texture(width, height, gen_mipmaps);
     // DumpTexture(loaded_texture.otr_path, addr, width, height);
 }
 
@@ -862,7 +911,7 @@ static void import_texture_ia4(int tile, const LoadedTexture& loaded_texture, bo
     const uint32_t width = safe_line * 2;
     const uint32_t height = size_bytes / safe_line;
 
-	gfx_rapi->upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
+	turok_upload_texture(width, height, gen_mipmaps);
     // DumpTexture(loaded_texture.otr_path, rgba32_buf, width, height);
 }
 
@@ -889,7 +938,7 @@ static void import_texture_ia8(int tile, const LoadedTexture& loaded_texture, bo
     const uint32_t width = safe_line;
     const uint32_t height = size_bytes / safe_line;
 
-	gfx_rapi->upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
+	turok_upload_texture(width, height, gen_mipmaps);
     // DumpTexture(loaded_texture.otr_path, rgba32_buf, width, height);
 }
 
@@ -916,7 +965,7 @@ static void import_texture_ia16(int tile, const LoadedTexture& loaded_texture, b
     const uint32_t width = safe_line / 2;
     const uint32_t height = size_bytes / safe_line;
 
-	gfx_rapi->upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
+	turok_upload_texture(width, height, gen_mipmaps);
     // DumpTexture(loaded_texture.otr_path, rgba32_buf, width, height);
 }
 
@@ -944,7 +993,7 @@ static void import_texture_i4(int tile, const LoadedTexture& loaded_texture, boo
     const uint32_t width = safe_line * 2;
     const uint32_t height = size_bytes / safe_line;
 
-	gfx_rapi->upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
+	turok_upload_texture(width, height, gen_mipmaps);
     // DumpTexture(loaded_texture.otr_path, rgba32_buf, width, height);
 }
 
@@ -970,7 +1019,7 @@ static void import_texture_i8(int tile, const LoadedTexture& loaded_texture, boo
     const uint32_t width = safe_line;
     const uint32_t height = size_bytes / safe_line;
 
-	gfx_rapi->upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
+	turok_upload_texture(width, height, gen_mipmaps);
     // DumpTexture(loaded_texture.otr_path, rgba32_buf, width, height);
 }
 
@@ -1028,7 +1077,7 @@ static void import_texture_ci4(int tile, const LoadedTexture& loaded_texture, bo
     const uint32_t width = result_line_size * 2;
     const uint32_t height = size_bytes / result_line_size;
 
-	gfx_rapi->upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
+	turok_upload_texture(width, height, gen_mipmaps);
 }
 
 static void import_texture_ci8(int tile, const LoadedTexture& loaded_texture, bool gen_mipmaps) {
@@ -1059,7 +1108,7 @@ static void import_texture_ci8(int tile, const LoadedTexture& loaded_texture, bo
     const uint32_t width = result_line_size;
     const uint32_t height = size_bytes / result_line_size;
 
-	gfx_rapi->upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
+	turok_upload_texture(width, height, gen_mipmaps);
 }
 
 #ifdef PLATFORM_3DS
