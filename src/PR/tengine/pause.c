@@ -1419,9 +1419,13 @@ INT32 CPause__Update(CPause *pThis)
 				case TITLE_LOAD:
 					ReturnValue = -1 ;
 					pThis->m_Mode = PAUSE_FADEDOWN ;
-
+#ifdef PLATFORM_PORT
+					/* No Controller Pak — load directly from the auto-save file (see PAUSE_LOAD). */
+					{ extern int CLoad__QuickLoadFromFile(void); CLoad__QuickLoadFromFile(); }
+#else
 					CLoad__Construct(&GetApp()->m_Load) ;
 					GetApp()->m_bLoad = TRUE ;
+#endif
 					break ;
 
 				case TITLE_OPTIONS:
@@ -1510,9 +1514,14 @@ INT32 CPause__Update(CPause *pThis)
 				case PAUSE_LOAD:
 					ReturnValue = -1 ;
 					pThis->m_Mode = PAUSE_FADEDOWN ;
-
+#ifdef PLATFORM_PORT
+					/* No Controller Pak — load directly from the auto-save file (restarts at the saved
+					 * checkpoint via SetupFadeTo(MODE_RESETLEVEL)), bypassing the pak load screen. */
+					{ extern int CLoad__QuickLoadFromFile(void); CLoad__QuickLoadFromFile(); }
+#else
 					CLoad__Construct(&GetApp()->m_Load) ;
 					GetApp()->m_bLoad = TRUE ;
+#endif
 					break ;
 
 #ifdef PAUSE_SAVE
