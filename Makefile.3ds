@@ -44,7 +44,7 @@ APP_TITLE        ?= Turok
 APP_DESC         ?= Turok: Dinosaur Hunter
 APP_AUTHOR       ?= Acclaim / Iguana
 APP_PRODUCT_CODE ?= CTR-P-TURK
-APP_UNIQUE_ID    ?= 0xff3ff
+APP_UNIQUE_ID    ?= 0xf7053
 
 BUILD   := build_3ds
 OBJDIR  := $(BUILD)/obj
