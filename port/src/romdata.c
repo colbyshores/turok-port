@@ -35,13 +35,30 @@ static const char *DEFAULT_CARTDATA[] = {
  * SD-card ROM, since there are no env vars. Shared by romdataInit AND the audio bank loads (audio.c) — the
  * audio used bare getenv("TUROK_ROM"), which is NULL on 3DS, so the SFX/SEQ banks never loaded and the SFX
  * player dereferenced a NULL bank. */
+#ifdef PLATFORM_3DS
+/* libctru: Result romfsMountSelf(const char*) mounts the title's own RomFS at "<name>:/".
+ * (romfsInit() is only a static-inline wrapper in the header, so we can't link to it; call the
+ * real exported symbol directly to avoid pulling in <3ds.h>, whose u8/u32 typedefs clash with ultra64.h.) */
+extern int romfsMountSelf(const char *name);
+#endif
+
 const char *turokRomPath(void)
 {
     const char *rom = getenv("TUROK_ROM");
+    if (rom && *rom) return rom;            /* explicit override always wins */
 #ifdef PLATFORM_3DS
-    if (!rom || !*rom) rom = "sdmc:/3ds/turok/baserom.us.v12.z64";
+    /* A CIA install carries baserom.us.v12.z64 inside its RomFS, so the game is fully
+     * self-contained on ANY console (no SD-card ROM needed). Mount it once and read from
+     * romfs:/; fall back to the SD card for .3dsx dev runs, which have no RomFS appended. */
+    {
+        static int s_romfs = -1;            /* -1 untried, 1 mounted, 0 failed */
+        if (s_romfs < 0) s_romfs = (romfsMountSelf("romfs") == 0) ? 1 : 0;
+        if (s_romfs == 1) return "romfs:/baserom.us.v12.z64";
+    }
+    return "sdmc:/3ds/turok/baserom.us.v12.z64";
+#else
+    return rom;                             /* NULL -> caller uses the dev cartdata.dat fallback */
 #endif
-    return rom;
 }
 
 /* Load the cart data blob into the static segment. Returns 0 on success. */
@@ -57,11 +74,7 @@ int romdataInit(void)
      * cartdata.dat (root word 0x0b, index size 0x38), so the whole cart cache / offset / RNC
      * path works unchanged — but it's the RETAIL v1.2 content, not the v49 dev cartdata.dat
      * (the two share a root header but their data is ~99% different). */
-    { const char *rom = getenv("TUROK_ROM"); FILE *rf;
-#ifdef PLATFORM_3DS
-      /* 3DS: no env vars — default to the retail ROM on the SD card (Path B). */
-      if (!rom || !*rom) rom = "sdmc:/3ds/turok/baserom.us.v12.z64";
-#endif
+    { const char *rom = turokRomPath(); FILE *rf;   /* PC: $TUROK_ROM (NULL->dev path). 3DS: romfs:/ or SD. */
       if (rom && *rom) {
         rf = fopen(rom, "rb");
         if (!rf) { fprintf(stderr, "[romdata] FATAL: TUROK_ROM=%s not found\n", rom); return -1; }
