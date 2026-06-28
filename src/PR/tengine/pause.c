@@ -5,6 +5,7 @@
 #include "pause.h"
 #include "audio.h"
 #include "gfx16bit.h"
+#include "onscrn.h"      /* ONSCRN_SW16 — the PAUSE heading reads a big-endian C16BitGraphic header field */
 #include "tmove.h"
 #include "version.h"
 
@@ -1992,9 +1993,11 @@ void CPause__Draw(CPause *pThis, Gfx **ppDLP)
 
 			// draw heading
 			COnScreen__Init16BitDraw(ppDLP, (int)(255 * pThis->m_Alpha)) ;
+			// ★ m_Width is a BIG-ENDIAN C16BitGraphic header field — read RAW here it byte-swaps to garbage on
+			// the LE host, so the heading centred way off the box (PC + 3DS). Swap it like onscrn.c's own reads.
 			COnScreen__Draw16BitGraphic(ppDLP,
 												(C16BitGraphic *)PauseOverlay,
-												320/2 - (((C16BitGraphic *)PauseOverlay)->m_Width/2), PAUSE_Y+8) ;
+												320/2 - (ONSCRN_SW16(((C16BitGraphic *)PauseOverlay)->m_Width)/2), PAUSE_Y+8) ;
 
 
 #ifndef SHIP_IT
