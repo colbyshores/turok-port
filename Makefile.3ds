@@ -38,6 +38,7 @@ MAKEROM    ?= tools/3ds-cia/makerom
 CONVERT    ?= convert
 CIA_DIR    := build_3ds/cia
 CIA_IMAGE  ?= turok.jpg
+CIA_ICON   ?= turok.ico
 CIA_AUDIO  ?= turok.wav
 APP_TITLE        ?= Turok
 APP_DESC         ?= Turok: Dinosaur Hunter
@@ -175,9 +176,10 @@ cia: $(OUTPUT).cia
 $(CIA_DIR)/banner.png: $(CIA_IMAGE)
 	@mkdir -p $(@D)
 	$(CONVERT) $< -resize 256x128! $@
-$(CIA_DIR)/icon.png: $(CIA_IMAGE)
+$(CIA_DIR)/icon.png: $(CIA_ICON)
 	@mkdir -p $(@D)
-	$(CONVERT) $< -resize 48x48^ -gravity center -extent 48x48 $@
+	@frame=$$(identify "$(CIA_ICON)" | awk '{split($$3,d,"x"); print d[1]*d[2]" "NR-1}' | sort -n | tail -1 | awk '{print $$2}'); \
+	$(CONVERT) "$(CIA_ICON)[$$frame]" -resize 48x48^ -gravity center -extent 48x48 $@
 $(CIA_DIR)/icon.smdh: $(CIA_DIR)/icon.png
 	$(BANNERTOOL) makesmdh -s "$(APP_TITLE)" -l "$(APP_DESC)" -p "$(APP_AUTHOR)" -i $< -o $@
 $(CIA_DIR)/banner.bnr: $(CIA_DIR)/banner.png $(CIA_AUDIO)

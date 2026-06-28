@@ -18,7 +18,9 @@ chmod +x bannertool
 ```
 
 ## Inputs (also gitignored, user-supplied like the ROM)
-- `turok.jpg` (repo root) — banner + icon art. Resized by the build to **256×128** (banner) and **48×48** (icon).
+- `turok.jpg` (repo root) — **banner** art. Resized by the build to **256×128**.
+- `turok.ico` (repo root) — **HOME-menu icon** art. The build picks the largest frame of the multi-size `.ico`
+  and downscales it to **48×48** (a plain `.png`/`.jpg` works too — override `CIA_ICON=`).
 - `turok.wav` (repo root) — banner audio (any PCM WAV; bannertool converts it to CWAV).
 
 ## Build
