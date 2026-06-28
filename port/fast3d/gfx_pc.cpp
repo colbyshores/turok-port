@@ -813,7 +813,7 @@ static void alpha_bleed_rgba32(uint8_t *buf, int w, int h) {
             }
             if (cnt) {
                 uint8_t *p = &buf[i*4];
-                if (diag == 4) { p[0] = 255; p[1] = 0; p[2] = 255; } // DIAG: magenta — if the rim turns pink, the bleed DOES reach these texels (so the blue is downstream)
+                if (diag == 4) { p[0] = 255; p[1] = 0; p[2] = 255; p[3] = 255; } // DIAG: OPAQUE magenta — a magenta halo around leaves proves the bleed ran on this texture (vs no halo = not reaching it)
                 else           { p[0] = (uint8_t)(sr/cnt); p[1] = (uint8_t)(sg/cnt); p[2] = (uint8_t)(sb/cnt); }
                 mask[i] = 2; filled = true;
             }
