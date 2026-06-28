@@ -2272,7 +2272,12 @@ static void gfx_citro3d_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size
     }
 #endif
     cmd->alphaTest = (prg->cc.opt_texture_edge || prg->cc.opt_alpha_threshold);
-    cmd->alphaRef = prg->cc.opt_texture_edge ? 0x4D : 0x08;
+    // ★ texedge (CVG_X_ALPHA = foliage/alpha-tested sprites) cutoff RAISED 0x4D -> 0xC0. The N64's coverage AA
+    // smoothed the faded silhouette fragments away; our hard alpha test kept them, and the foliage combiner
+    // (e.g. G_CC_ROB_SELFILLUM_PSEUDO: (PRIM-ENV)*TEXEL0+ENV) tints the colour toward the ENV/PRIM constant as
+    // TEXEL0 fades at the bilinear edge → a blue/cyan rim around plants (HW-confirmed). A higher cutoff discards
+    // those faded edge fragments → no rim, keeps bilinear (slightly tighter silhouette, closer to the N64 look).
+    cmd->alphaRef = prg->cc.opt_texture_edge ? 0xC0 : 0x08;
     cmd->vpX = stVpX; cmd->vpY = stVpY; cmd->vpW = stVpW; cmd->vpH = stVpH;
     cmd->scX = stScX; cmd->scY = stScY; cmd->scW = stScW; cmd->scH = stScH;
     cmd->scissorOn = stScissorOn;

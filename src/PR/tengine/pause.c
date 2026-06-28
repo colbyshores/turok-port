@@ -5,6 +5,7 @@
 #include "pause.h"
 #include "audio.h"
 #include "gfx16bit.h"
+#include "onscrn.h"      /* ONSCRN_SW16 — the PAUSE heading reads a big-endian C16BitGraphic header field */
 #include "tmove.h"
 #include "version.h"
 
@@ -1203,8 +1204,17 @@ INT32 CPause__Update(CPause *pThis)
 					// do save
 					if (ReturnValue == REQUESTOR_YES)
 					{
+#ifdef PLATFORM_PORT
+						/* No Controller Pak - write the save FILE instead of the pak save screen (which would
+						 * report "no controller pak found"), then return to the game like the NO branch below.
+						 * Auto-save covers checkpoints; this is the explicit save-point save. */
+						{ extern int CSave__QuickSaveToFile(void); CSave__QuickSaveToFile(); }
+						GetApp()->m_Pause.m_Mode = PAUSE_FADEDOWN ;
+						GetApp()->m_bPause = FALSE ;
+#else
 						CSave__Construct(&GetApp()->m_Save) ;
 						GetApp()->m_bSave = TRUE ;
+#endif
 					}
 					// return to game
 					else
@@ -1418,9 +1428,13 @@ INT32 CPause__Update(CPause *pThis)
 				case TITLE_LOAD:
 					ReturnValue = -1 ;
 					pThis->m_Mode = PAUSE_FADEDOWN ;
-
+#ifdef PLATFORM_PORT
+					/* No Controller Pak — load directly from the auto-save file (see PAUSE_LOAD). */
+					{ extern int CLoad__QuickLoadFromFile(void); CLoad__QuickLoadFromFile(); }
+#else
 					CLoad__Construct(&GetApp()->m_Load) ;
 					GetApp()->m_bLoad = TRUE ;
+#endif
 					break ;
 
 				case TITLE_OPTIONS:
@@ -1509,9 +1523,14 @@ INT32 CPause__Update(CPause *pThis)
 				case PAUSE_LOAD:
 					ReturnValue = -1 ;
 					pThis->m_Mode = PAUSE_FADEDOWN ;
-
+#ifdef PLATFORM_PORT
+					/* No Controller Pak — load directly from the auto-save file (restarts at the saved
+					 * checkpoint via SetupFadeTo(MODE_RESETLEVEL)), bypassing the pak load screen. */
+					{ extern int CLoad__QuickLoadFromFile(void); CLoad__QuickLoadFromFile(); }
+#else
 					CLoad__Construct(&GetApp()->m_Load) ;
 					GetApp()->m_bLoad = TRUE ;
+#endif
 					break ;
 
 #ifdef PAUSE_SAVE
@@ -1992,9 +2011,11 @@ void CPause__Draw(CPause *pThis, Gfx **ppDLP)
 
 			// draw heading
 			COnScreen__Init16BitDraw(ppDLP, (int)(255 * pThis->m_Alpha)) ;
+			// ★ m_Width is a BIG-ENDIAN C16BitGraphic header field — read RAW here it byte-swaps to garbage on
+			// the LE host, so the heading centred way off the box (PC + 3DS). Swap it like onscrn.c's own reads.
 			COnScreen__Draw16BitGraphic(ppDLP,
 												(C16BitGraphic *)PauseOverlay,
-												320/2 - (((C16BitGraphic *)PauseOverlay)->m_Width/2), PAUSE_Y+8) ;
+												320/2 - (ONSCRN_SW16(((C16BitGraphic *)PauseOverlay)->m_Width)/2), PAUSE_Y+8) ;
 
 
 #ifndef SHIP_IT
