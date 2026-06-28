@@ -39,7 +39,11 @@ void __system_allocateHeaps(void)   /* strong -> overrides libctru's weak defaul
     u32 avail = osGetMemRegionFree(MEMREGION_APPLICATION) & ~0xFFFu;
 
     const u32 SAFETY   = 16u * 1024u * 1024u;  /* FCRAM left UNMAPPED for kernel thread-TLS + shared-mem maps */
-    const u32 MAIN_RSV = 16u * 1024u * 1024u;  /* main (malloc) heap reserve — Turok's big pools are static BSS, so this is plenty */
+    /* ★ OG-3DS (regular 64MB) has a much smaller `avail` than a New 3DS (124MB), so its GPU/linear heap is
+     * tight even with the lomem 16-bit textures. Trim the main-heap reserve on OG to hand the linear heap
+     * more room; main only holds audio banks + misc malloc (~5MB; the big game pools are static BSS), so
+     * 10MB is plenty. On a New 3DS the linear heap hits LIN_CAP first, so the larger reserve is unchanged. */
+    const u32 MAIN_RSV = (avail < (80u << 20)) ? (10u * 1024u * 1024u) : (16u * 1024u * 1024u);
     const u32 LIN_CAP  = 56u * 1024u * 1024u;  /* ★ GPU/LINEAR heap = where Citro3D textures live (gfx_citro3d's "scratch ram").
                                                 * Was 24 MB (a conservative cap from the boot investigation — but the ACTUAL boot
                                                 * fix was the memset override, not heap headroom). 24 MB is too small for a
