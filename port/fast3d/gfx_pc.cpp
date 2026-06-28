@@ -776,25 +776,28 @@ static uint32_t tile_line_or_fallback(int tile, uint32_t num, uint32_t den) {
 }
 
 #ifdef PLATFORM_3DS
-// ★ ALPHA-BLEED (edge dilation) — 3DS only. N64 textures keep the RGB of fully-TRANSPARENT (alpha==0) texels;
-// for foliage/sprite sheets that RGB is usually a blue/cyan sprite-sheet background. The PICA bilinear-filters
-// the colour and alpha independently, so at an alpha-tested silhouette the kept edge fragment's colour is a
-// blend of the opaque leaf and its TRANSPARENT neighbours → a coloured halo ("blue line around the plants",
-// longstanding). Fix: dilate the opaque RGB outward into transparent texels so the filter has no foreign colour
-// to pull in. Alpha is left untouched (the alpha-test/blend silhouette is identical), and mips (generated after
-// this from the bled data) inherit the clean edge. PC GL is the ground truth and is NOT bled (gate below).
+// ★ ALPHA-BLEED (edge dilation) — 3DS only. N64 textures keep the RGB of their TRANSPARENT texels; for foliage/
+// sprite sheets that RGB is a blue/cyan sprite-sheet background. The PICA bilinear-filters colour and alpha
+// independently, so at an alpha-tested silhouette the kept edge fragment's colour blends the opaque leaf with its
+// transparent neighbours → a coloured halo (the longstanding "blue line around the plants"). Fix: dilate the
+// opaque RGB outward into transparent texels so the filter has no foreign colour to pull in. ★ "Transparent" =
+// alpha BELOW the alpha-test cutoff, NOT just alpha==0: Turok's foliage backgrounds carry a small NON-ZERO alpha
+// (the alpha==0-only version missed them — proven on HW, where point-sampling, which discards everything under the
+// ref, killed the rim but the bleed didn't). BLEED_OPAQUE_MIN (>= the 0x4D texedge ref) is the source threshold.
+// Alpha is left untouched (identical silhouette); mips inherit the clean edge. PC GL is NOT bled (gate below).
+#define BLEED_OPAQUE_MIN 0x80                   // a texel is a colour SOURCE only if alpha >= this (clearly opaque)
 static uint8_t *s_bleed_mask = nullptr;
 static size_t   s_bleed_mask_cap = 0;
 static void alpha_bleed_rgba32(uint8_t *buf, int w, int h) {
     if (w < 2 || h < 2) return;
     const size_t n = (size_t)w * (size_t)h;
-    bool any_t = false, any_o = false;          // skip fully-opaque or fully-transparent (nothing to dilate)
-    for (size_t i = 0; i < n; i++) { uint8_t a = buf[i*4+3]; if (a) any_o = true; else any_t = true; if (any_o && any_t) break; }
+    bool any_t = false, any_o = false;          // need both a sub-cutoff region to fill AND an opaque source
+    for (size_t i = 0; i < n; i++) { uint8_t a = buf[i*4+3]; if (a >= BLEED_OPAQUE_MIN) any_o = true; else any_t = true; if (any_o && any_t) break; }
     if (!any_t || !any_o) return;
     if (s_bleed_mask_cap < n) { uint8_t *m = (uint8_t*)realloc(s_bleed_mask, n); if (!m) return; s_bleed_mask = m; s_bleed_mask_cap = n; }
-    uint8_t *mask = s_bleed_mask;               // 1 = source (opaque or already-filled), 0 = still transparent
-    for (size_t i = 0; i < n; i++) mask[i] = buf[i*4+3] ? 1 : 0;
-    for (int pass = 0; pass < 2; pass++) {       // 2 passes = the bilinear 2x2 footprint at a sharp edge
+    uint8_t *mask = s_bleed_mask;               // 1 = source (opaque or already-filled), 0 = below-cutoff (fill)
+    for (size_t i = 0; i < n; i++) mask[i] = (buf[i*4+3] >= BLEED_OPAQUE_MIN) ? 1 : 0;
+    for (int pass = 0; pass < 4; pass++) {       // 4 passes covers the bilinear footprint even slightly minified
         bool filled = false;
         for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) {
             const size_t i = (size_t)y * w + x;
