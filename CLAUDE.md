@@ -505,26 +505,39 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
-- **★ 3DS DISTANCE-FOG BANDING (per-vertex fog) — INVESTIGATED, PARKED on branch `fog-geometry-clip` (2026-06-26).
-  Full writeup: [`docs/3DS_FOG_INVESTIGATION.md`](docs/3DS_FOG_INVESTIGATION.md).** The PICA FogLut bands at
-  distance because its hardware fog index is **f24 `1/w`** (validated on PC by crushing the factor to 24-bit).
-  Fix direction = compute the fog factor f32 **per-vertex** (`turok.cfg fogmode 1`, default 0 = stock FogLut, so
-  master is unaffected). **HARDWARE WALL:** the TEV's only per-vertex input is the ONE shade colour
-  (`GPU_PRIMARY_COLOR`); all 3 texture units are taken (0/1 = textures, **2 = the load-bearing white source for
-  the combiner `0`/`1` literals — freeing it is infeasible**, no other constant-1.0 TEV source), and
-  fragment-lighting can't carry an arbitrary varying. So the factor can only ride the **shade alpha**
-  (`PRIMARY.a`). The fog stage preserves the combiner alpha (`alpha = PREVIOUS`), so the precise safe gate is
-  **exclude only when (alpha is used: blend OR alpha-test) AND (the effective alpha pipe references the shade)**
-  — covers opaque + texel-alpha translucent geometry (`956119e`). **OPEN: "solid blue rectangles in mid-air"**
-  (foggy temple) persist through every classification (opaque-only `dde1472` AND the shade-alpha gate `956119e`)
-  → they're NOT explained by per-vertex-fog classification. **NEXT (don't guess again): A/B `fogmode 0` vs `1` at
-  that spot + a one-shot on-device diagnostic dumping the offending draws' combiner id / alpha source / blend
-  mode** to decide if it's a blend/decode bug, a FogLut over-fog, or a true shade-alpha translucent surface (for
-  which the one untried lever is a per-DRAW constant fog factor in the appended stage's own free `GPU_CONSTANT.a`
-  — no shade-alpha, no texture unit). **LESSON: per-vertex fog on a Fast3D→PICA port has no free per-vertex
-  channel (3 texture units occupied incl. the literal source; one shade colour) — fog must ride the shade alpha,
-  which is safe only for draws whose output alpha doesn't depend on it; gate on shade-alpha USAGE, not
-  "translucent". Generalize once resolved.**
+- **★★ 3DS DISTANCE-FOG BANDING — FIXED & MERGED (2026-06-27, branch `fog-geometry-clip` → master;
+  USER-CONFIRMED on HW). The 3DS now does ALL distance fog in the TEV (per-vertex + per-draw), the banding
+  hardware FogLut is gone, and it's UNCONDITIONAL (no flag — it IS the 3DS fog path). Full writeup:
+  [`docs/3DS_FOG_INVESTIGATION.md`](docs/3DS_FOG_INVESTIGATION.md); generalized →
+  [playbook §20](docs/N64_PORTING_PLAYBOOK.md).** User: *"the fog not rendering on geometry at certain angles…
+  this has always been an issue."* **ROOT CAUSE:** the PICA fixed-function FogLut is indexed by the **f24 `1/w`**
+  hardware fog value, whose coarse precision at distance BANDS / drops fog on far geometry (validated on PC by
+  crushing the fog factor to 24-bit — it reproduced). **FIX:** compute the fog factor in **f32** and apply fog as
+  an appended **TEV INTERPOLATE stage** (`out = lerp(prev, fogColour, factor)`), feeding the PICA a `[0,1]` value
+  it interpolates accurately — sidestepping the f24 index entirely. **THE HARD PART = where the factor rides.**
+  The PICA gives the TEV only ONE interpolated per-vertex value (`GPU_PRIMARY_COLOR` = the shade); all 3 texture
+  units are taken (0/1 = textures, **2 = the load-bearing white source for the combiner `0`/`1` literals — can't
+  free it, no other constant-1.0 TEV source**); fragment-lighting can't carry an arbitrary varying. So the factor
+  can only ride the **shade alpha (`PRIMARY.a`)** — which is safe only when the draw's output alpha doesn't depend
+  on the shade. Hence **two paths, chosen per draw** (`gfx_citro3d.cpp`):
+  - **`perVertexFog`** — factor rides `PRIMARY.a` (smooth per-vertex). Used when the alpha is unused (opaque) OR
+    derived from the TEXTURE (`texel.a` — most water/glass/light/sprites). Gate: `!(alphaUsed && alphaUsesShade)`,
+    where `alphaUsesShade` = `SHADER_INPUT_1` appears in the effective alpha pipe.
+  - **`perDrawFog`** — for shade-alpha draws (foliage `texel.a*shade.a`, shade-alpha blends): the fog stage reads
+    the factor from its OWN free `GPU_CONSTANT.alpha` = the avg of the draw's verts' f32 factors. `PRIMARY.a`
+    untouched, stage alpha = `PREVIOUS` (combiner alpha intact for blend/alpha-test). Constant across the draw
+    (flat-but-banding-free; fine for the small/translucent surfaces this serves).
+  Together they cover EVERY `opt_fog` draw → no game geometry uses the f24 FogLut (now a vestigial fallback for
+  the rare opt_fog-less-but-fogEnable draw). **THE SOLVE:** the *"solid blue rectangles in mid-air"* (foggy
+  temple) were shade-alpha translucent surfaces the f24 FogLut was OVER-FOGGING to ~100% fog colour at distance;
+  routing them through `perDrawFog` (accurate f32 factor) fixed them — **user-confirmed.** All four diagnostic
+  knobs (`turok.cfg fogmode`/`fogscale`/`fogbias`/`fogzflip`) were scaffolding and are REMOVED; the fog is now
+  always-on. **LESSON: per-vertex fog on a Fast3D→PICA port has NO free per-vertex channel (3 texture units
+  occupied incl. the literal source; one shade colour) — the fog factor must ride the shade alpha, which is safe
+  only when the draw's output alpha doesn't depend on it. So gate on shade-alpha USAGE (not "is it translucent"),
+  and for the draws that DO use shade alpha, carry a PER-DRAW factor in the fog stage's own `GPU_CONSTANT.alpha`.
+  Never index the fog by f24 `1/w` — it bands at distance, which on real HW reads as "fog doesn't render at
+  certain angles/depths."**
 
 - **★★ KEY-PICKUP CINEMATIC SLOW-MOTION = a per-frame O(nRegions) region re-acquire — FIXED (2026-06-26, commit
   `1a7e95b`, branch `key-pickup-slowdown`, merged to master; USER-CONFIRMED FIXED on HW).** User: picking up

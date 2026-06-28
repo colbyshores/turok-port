@@ -202,9 +202,9 @@ struct ShaderProgram {
     uint8_t  off_uv1;          // tex1 u (0xff if none)
     uint8_t  off_input1;       // first colour input (0xff if none)
     uint8_t  off_fog;          // fog block in buf_vbo (0xff if none): [r,g,b,FACTOR]; factor at +3
-    uint8_t  fog_stage;        // ★ per-vertex-fog (fogmode 1): index of the appended fog INTERPOLATE
-                               // stage, 0xff if none. The fog factor rides the interpolated PRIMARY
-                               // alpha; the fog colour is the per-draw stageConst[fog_stage].
+    uint8_t  fog_stage;        // ★ distance fog: index of the appended fog INTERPOLATE stage, 0xff if none.
+                               // The fog colour is the per-draw stageConst[fog_stage]; the factor source is
+                               // PRIMARY.alpha (per-vertex) or this stage's CONSTANT.alpha (per-draw).
     // Three precomputed stage chains differing only in how INPUT_1/INPUT_2 map to
     // the single PICA vertex colour (see tevSrc). draw_triangles picks per-draw by
     // testing which input actually varies across the batch (SM64 two-colour tris):
@@ -279,11 +279,11 @@ typedef struct {
     // FOG (§3.3/§20.12): the N64 per-draw fog state, snapshotted from set_fog. fogEnable ⇒ replay binds
     // the PICA fixed-function fog unit (a depth FogLut built from mul/offset + fogColor); else fog off.
     bool     fogEnable; int16_t fogMul, fogOffset; uint32_t fogColor; // fogColor = 0x00BBGGRR for C3D_FogColor
-    bool     perVertexFog;     // fogmode 1: this draw rides the fog factor on PRIMARY.a (per-vertex) in the
-                               // appended fog TEV stage — opaque + texel-alpha translucent geom.
-    bool     perDrawFog;       // fogmode 1: shade-alpha draws (can't ride PRIMARY.a) instead use the fog TEV
-                               // stage with a PER-DRAW constant factor (in stageConst[fog_stage].alpha). So no
-                               // opt_fog draw falls back to the banding hardware FogLut — they all do TEV fog.
+    bool     perVertexFog;     // this draw rides the fog factor on PRIMARY.a (per-vertex) in the appended fog
+                               // TEV stage — opaque + texel-alpha translucent geom.
+    bool     perDrawFog;       // shade-alpha draws (can't ride PRIMARY.a) instead use the fog TEV stage with a
+                               // PER-DRAW constant factor (in stageConst[fog_stage].alpha). Together these two
+                               // cover every opt_fog draw, so none falls back to the banding hardware FogLut.
 } DrawCmd;
 
 static DrawCmd sCmds[MAX_DRAW_CMDS];
@@ -310,7 +310,6 @@ static bool    sFogEnable = true;
 // Dev-only: flip the hardware fog depth index direction (near↔far). Calibrated once on HW, then baked.
 static bool    sFogZFlip = false;
 // Fog diagnostic tunables (turok.cfg, port/src/config.c). Defaults = stock no-op.
-extern "C" { extern float g_cfg_fogscale; extern float g_cfg_fogbias; extern int g_cfg_fogzflip; extern int g_cfg_fogmode; }
 static int   stVpX, stVpY, stVpW, stVpH;
 static int   stScX, stScY, stScW, stScH; static bool stScissorOn = false;
 static int16_t stTexUnit[2] = { -1, -1 };
@@ -703,15 +702,18 @@ static void buildTev(struct ShaderProgram *prg) {
     sBuildI2Const = false; sBuildSwap = false;
     prg->num_stages = stages;
 
-    // ★ PER-VERTEX FOG (fogmode 1): append a fog blend as the FINAL TEV stage to all three chains.
-    //   out.rgb = INTERPOLATE(CONSTANT[fogColor], PREVIOUS, PRIMARY.alpha) = fogColor·f + prev·(1−f),
-    //   where f = the per-vertex fog factor riding the interpolated PRIMARY alpha (set in the repack).
-    //   alpha = PREVIOUS (untouched, so alpha-test/blend still see the combiner's alpha). The fog colour
-    //   is the per-draw stageConst[fog_stage]. This replaces the per-fragment hardware FogLut (disabled
-    //   in applyCmdState when fogmode==1), whose f24 1/w index banded/dropped fog at distance. Only when
-    //   there's a free stage (PICA has 6; Turok combiners use ≤4, so room).
+    // ★ DISTANCE FOG (3DS) — append a fog blend as the FINAL TEV stage to all three chains. This is THE 3DS
+    //   fog path (it fully replaces the PICA fixed-function FogLut for game geometry — see the §FOG block in
+    //   applyCmdState). The PICA's hardware fog unit indexes the FogLut by the f24 `1/w` value, whose coarse
+    //   precision at distance BANDS / drops fog on far geometry; computing the fog factor in f32 (per-vertex,
+    //   like the PC/GL backend) and feeding the TEV a [0,1] value sidesteps that entirely.
+    //   out.rgb = INTERPOLATE(CONSTANT[fogColor], PREVIOUS, factor) = fogColor·f + prev·(1−f). The FACTOR
+    //   source is chosen PER DRAW in the repack: PRIMARY.alpha for a per-vertex-fog draw, or this stage's own
+    //   CONSTANT.alpha for a per-draw-fog draw (see perVertexFog/perDrawFog). alpha = PREVIOUS (untouched, so
+    //   alpha-test/blend still see the combiner's real alpha). Appended only when there's a free stage (PICA
+    //   has 6; Turok combiners use ≤4, so room) — the rare 6-stage opt_fog combiner falls back to the FogLut.
     prg->fog_stage = 0xff;
-    if (cc->opt_fog && g_cfg_fogmode == 1 && stages < 6) {
+    if (cc->opt_fog && stages < 6) {
         C3D_TexEnv *chains[3] = { &prg->env[stages], &prg->envC[stages], &prg->envS[stages] };
         for (int c = 0; c < 3; c++) {
             C3D_TexEnv *e = chains[c];
@@ -2038,7 +2040,7 @@ static void gfx_citro3d_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size
     // The blur (sPrevSceneTex, a full-screen 1:1 ghost) uses its own orient so the smear isn't mirrored;
     // the lens (sGameFbTex, a distortion) keeps sSnapOrient.
     const int  fbOrient = (sPendingFbBind == &sPrevSceneTex) ? sBlurOrient : sSnapOrient;
-    // ★ PER-VERTEX FOG is a per-DRAW choice (fogmode 1). It needs a [0,1] factor delivered to the TEV per
+    // ★ PER-VERTEX FOG is a per-DRAW choice. It needs a [0,1] factor delivered to the TEV per
     // fragment, and on this PICA pipeline the ONLY interpolated per-vertex value the TEV can read is the one
     // shade colour (GPU_PRIMARY_COLOR) — all 3 texture units are taken (0=tex0, 1=tex1, 2=the load-bearing
     // combiner literal-0/1 white source, see sWhiteTex; freeing it would break every combiner that uses a 0/1
@@ -2371,14 +2373,9 @@ static void buildTransform(C3D_Mtx *m, float eyeSign, float level, float zoom) {
 static struct { bool used; int16_t mul, offset; C3D_FogLut lut; } sFogLutCache[FOGLUT_CACHE];
 static int sFogLutNext = 0;
 static C3D_FogLut *fogLutGet(int16_t mul, int16_t offset) {
-    // FOG DIAGNOSTIC (turok.cfg fogscale/fogbias): dial the N64 fog line on HW to pin whether the
-    // "fog drops out at distance/angle" is a strength/calibration miss (tunable fixes it) or the f24
-    // 1/w precision floor (it doesn't — needs per-vertex fog). Stock = scale 1, bias 0 (no-op).
-    { int m = (int)((float)mul * g_cfg_fogscale);
-      int o = (int)((float)offset * g_cfg_fogscale + g_cfg_fogbias);
-      if (m >  32767) m =  32767; else if (m < -32768) m = -32768;
-      if (o >  32767) o =  32767; else if (o < -32768) o = -32768;
-      mul = (int16_t)m; offset = (int16_t)o; }
+    // Builds/caches the PICA hardware FogLut for the rare opt_fog-less-but-fogEnable draw (game geometry uses
+    // the TEV fog stage instead — see buildTev). The f24 1/w index this LUT is sampled by is exactly the
+    // precision floor the TEV path was added to avoid, so this is now a vestigial fallback path.
     for (int i = 0; i < FOGLUT_CACHE; i++)
         if (sFogLutCache[i].used && sFogLutCache[i].mul == mul && sFogLutCache[i].offset == offset)
             return &sFogLutCache[i].lut;
@@ -2389,7 +2386,7 @@ static C3D_FogLut *fogLutGet(int16_t mul, int16_t offset) {
     //   slopes → a wildly wrong LUT → everything fogged. And the LUT stores VISIBILITY, not density.)
     // The hardware fog index is linear in 1/w; for a perspective projection z/w is linear in 1/w too,
     // so z/w is linear in the LUT fraction. i=0..128 maps near→far (z/w = 2*t-1, t=i/128); zFlip
-    // selects whether the hw index runs near→far or far→near (calibrated on HW via fogzflip.txt).
+    // selects whether the hw index runs near→far or far→near (sFogZFlip).
     float val[129];
     for (int i = 0; i <= 128; i++) {
         float t  = (float)i / 128.0f;        // LUT fraction
@@ -2507,12 +2504,12 @@ static void applyCmdState(const DrawCmd *cmd) {
     // FOG (§3.3/§20.12) — PICA fixed-function fog unit. Distance fog the GL backend does in its fragment
     // shader; here it masks the N64 draw-distance popup (the villa horizon etc.). Skip redundant rebinds:
     // a level's geometry shares one fog setting, so this fires once then no-ops for the rest of the frame.
-    // Per-vertex AND per-draw fog draws (fogmode 1) get fog from the appended TEV stage → keep the hardware
-    // FogLut OFF for them (under fogmode 1 every opt_fog draw is one or the other, so the FogLut only serves
-    // fogmode 0, or the rare opt_fog-less draw that still has fogEnable). The f24 FogLut banding is gone.
+    // Per-vertex AND per-draw fog draws get fog from the appended TEV stage → keep the hardware FogLut OFF for
+    // them. Every opt_fog draw is one or the other, so the FogLut now only serves the rare opt_fog-less draw
+    // that still has fogEnable. The f24 1/w FogLut banding is gone from all game geometry.
     if (cmd->fogEnable && !cmd->perVertexFog && !cmd->perDrawFog) {
         if (!sCurFogOn || cmd->fogMul != sCurFogMul || cmd->fogOffset != sCurFogOff) {
-            C3D_FogGasMode(GPU_FOG, GPU_PLAIN_DENSITY, (g_cfg_fogzflip || sFogZFlip));
+            C3D_FogGasMode(GPU_FOG, GPU_PLAIN_DENSITY, sFogZFlip);
             C3D_FogLutBind(fogLutGet(cmd->fogMul, cmd->fogOffset));
             sCurFogMul = cmd->fogMul; sCurFogOff = cmd->fogOffset;
         }
@@ -2552,8 +2549,8 @@ static void applyCmdState(const DrawCmd *cmd) {
     const C3D_TexEnv *chain = (cmd->chainSel == 2) ? prg->envS
                             : (cmd->chainSel == 1) ? prg->envC : prg->env;
     // The fog stage (index prg->fog_stage) is the LAST stage. Apply it for BOTH per-vertex and per-draw fog
-    // draws; skip it only when the draw has a fog stage but uses neither TEV-fog path (shouldn't happen under
-    // fogmode 1, but keep the guard for safety → that draw would use the FogLut).
+    // draws; skip it only when the draw has a fog stage but uses neither TEV-fog path (shouldn't happen — every
+    // opt_fog draw is one or the other — but keep the guard for safety → that draw would use the FogLut).
     const bool fogStageActive = cmd->perVertexFog || cmd->perDrawFog;
     const int effStages = (prg->fog_stage != 0xff && !fogStageActive) ? prg->fog_stage : prg->num_stages;
     for (int i = 0; i < effStages; i++) {

@@ -632,9 +632,50 @@ no-catch-up tick clock turns that into visible slow motion.**
 
 ---
 
+## 20. Distance fog on a Fast3D→PICA port — never index it by f24 `1/w`; do it in the TEV (and there is no free per-vertex channel)
+
+**Symptom:** on the 3DS, distance fog **bands or drops out on far geometry at certain camera angles/depths** — and
+some translucent surfaces render as **solid fog-colour quads** (e.g. flat blue panels) at distance. PC/GL is fine.
+
+**Root cause:** the PICA fixed-function **FogLut is indexed by the hardware `1/w` value in f24** (1 sign, 7 exp,
+16 mantissa). At distance `1/w` is tiny and f24's mantissa can't resolve it, so the fog index quantises hard → the
+fog *bands*, and a heavily-fogged surface snaps to ~100% fog colour. (Confirm the f24 theory cheaply on the PC
+backend: crush the PC fog factor through a 24-bit-float round-trip — if the banding reproduces, it's the index
+precision, which the LUT resolution can't fix.)
+
+**Fix:** stop using the FogLut for game geometry. Compute the fog factor in **f32** and apply fog as an **appended
+TEV INTERPOLATE stage**: `out.rgb = lerp(prev, fogColour, factor)`, `out.a = PREVIOUS` (leave the combiner's real
+alpha for blend/alpha-test). Feeding the GPU a `[0,1]` factor it interpolates linearly sidesteps the f24 `1/w`
+index entirely. (The GL backend already does fog in its fragment shader — this brings the PICA to parity.)
+
+**The hard part — there is NO free per-vertex channel for the factor.** The PICA TEV reads exactly ONE
+interpolated per-vertex value (`GPU_PRIMARY_COLOR` = the shade) plus texture samples — and all 3 texture units are
+typically occupied (two real textures + **the white texture that sources the combiner's 0/1 literals**, which is
+load-bearing and can't be freed; there's no other constant-1.0 TEV source). Fragment-lighting colours can't carry
+an arbitrary varying. So the factor can only ride the **shade alpha (`PRIMARY.a`)** — which corrupts any draw whose
+**output alpha depends on the shade**. The robust answer is **two per-draw fog paths**:
+
+- **Per-vertex fog** — factor rides `PRIMARY.a` (smooth gradient). Safe when the alpha is unused (opaque) or comes
+  from the **texture** (`texel.a` — most water/glass/light/sprite translucency). Gate precisely on shade-alpha
+  USAGE, *not* "is it translucent": exclude only when `(alpha is used: blend OR alpha-test) AND (the effective
+  alpha combiner pipe references the shade input)`.
+- **Per-draw fog** — for the remaining shade-alpha draws (foliage `texel.a*shade.a`, shade-alpha blends): give the
+  fog stage a **single constant factor for the whole draw** (the avg of its verts' f32 factors) carried in the fog
+  stage's **own free `GPU_CONSTANT.alpha`**. `PRIMARY.a` stays the real shade alpha. It's flat across the draw
+  (banding-free; fine for the small/translucent surfaces it serves) but it's an accurate f32 factor, not f24 `1/w`.
+
+Together they cover every fogged draw, so nothing falls back to the banding FogLut. **General rules:** (1) a
+"fog doesn't render at certain angles/depths" report on a PICA port is the **f24 `1/w` FogLut index**, not a
+calibration miss — move fog into the TEV. (2) There is **no free per-vertex channel** on a typical Fast3D→PICA
+combiner pipeline; fog rides the shade alpha, so gate it on shade-alpha *usage*, and carry a **per-draw constant**
+factor (in the fog stage's own constant) for the draws that genuinely use the shade alpha.
+
+---
+
 *Distilled 2026-06-18 from the Turok: Dinosaur Hunter port (incl. the full classic-ABI audio pipeline: threaded
 synth, software Acmd mixer, bank/rate/placeholder fixes). §17 added 2026-06-26 (the near-clip wall-see-through fix —
 fixed Turok; tried-and-dropped as a HW no-op on Perfect Dark). §18 added 2026-06-26 (the viewmodel mid-frame
 z-clear — 3DS weapon-through-walls fix). §19 added 2026-06-26 (per-frame O(n) safety scan → slow motion on the 3DS;
-the no-catch-up tick clock turns a heavy per-frame cost into slow-mo). See `CLAUDE.md` for the project-specific log
-and `docs/REFERENCES.md` for the per-sibling reference notes.*
+the no-catch-up tick clock turns a heavy per-frame cost into slow-mo). §20 added 2026-06-27 (distance fog in the
+TEV, not the f24 `1/w` FogLut — and the no-free-per-vertex-channel constraint that forces per-vertex + per-draw fog
+paths). See `CLAUDE.md` for the project-specific log and `docs/REFERENCES.md` for the per-sibling reference notes.*

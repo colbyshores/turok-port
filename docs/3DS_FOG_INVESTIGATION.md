@@ -1,7 +1,14 @@
-# 3DS distance-fog investigation (branch `fog-geometry-clip`) — PARKED 2026-06-26
+# 3DS distance-fog — RESOLVED 2026-06-27 (merged to master)
 
-Status: **UNRESOLVED, parked.** The per-vertex-fog approach is on the `fog-geometry-clip` branch behind
-`turok.cfg fogmode 1` (default `0` = stock, so master/play builds are unaffected). Resume from "Next step".
+Status: **FIXED, USER-CONFIRMED on HW, merged.** The 3DS now does ALL distance fog in the TEV (per-vertex where
+the shade alpha is free, per-draw constant where it isn't); the banding f24 `1/w` hardware FogLut is no longer
+used for any game geometry. It is **unconditional** — there is no `fogmode`/`fogscale`/`fogbias`/`fogzflip`
+knob anymore (all four were diagnostic scaffolding and were removed). The "Next step" investigation plan below
+is kept as the historical record of how it was solved; **the per-draw lever was implemented (`7e93535`) and it
+was the fix** — the "solid blue rectangles" were shade-alpha translucent surfaces the f24 FogLut over-fogged.
+
+See CLAUDE.md §10 (the ★★ DISTANCE-FOG entry) and [playbook §20](N64_PORTING_PLAYBOOK.md) for the distilled
+result + the generalizable lesson. The sections below are the original investigation log.
 
 ---
 
