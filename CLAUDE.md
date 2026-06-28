@@ -505,18 +505,33 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
-- **★ 3DS CIA PACKAGING — `make -f Makefile.3ds cia` → `build_3ds/turok.cia` (installable HOME-menu app)
-  (2026-06-27, branch `3ds-cia` → master).** In addition to the `.3dsx`, the build can now produce a CIA with a
-  proper banner + icon. The pipeline (Makefile.3ds `cia` target): resize **`turok.jpg`** → 256×128 banner +
-  48×48 icon (ImageMagick `convert`), `bannertool makesmdh` (icon→SMDH) + `bannertool makebanner` (banner PNG +
-  **`turok.wav`** audio → `.bnr`), then `makerom -f cia` with [port/3ds/turok.rsf](port/3ds/turok.rsf) (the
-  committed standard homebrew RSF; unique-id `0xff3ff`, app metadata are Makefile vars). **`makerom` +
-  `bannertool` are NOT in devkitPro** — they live (gitignored) in `tools/3ds-cia/` (`makerom` from 3DSGuy/
-  Project_CTR, `bannertool` from carstene1ns/3ds-bannertool; see [tools/3ds-cia/README.md](tools/3ds-cia/README.md)
-  to obtain them). **NOT committed (gitignored like the ROM):** `turok.jpg`/`turok.wav` (user-supplied art/audio),
-  the tool binaries, and the generated `.cia`/`.bnr`/`.smdh`/`.png`. RSF gotchas hit while wiring it: makerom
-  rejects `KernelFlags`; `AccessControlInfo` needs an explicit `SystemCallAccess` list; don't double-specify
-  `IdealProcessor`/`AffinityMask`; let makerom derive the ProgramId (don't set it).
+- **★ 3DS CIA PACKAGING — `make -f Makefile.3ds cia` → `build_3ds/turok.cia` (installable, SELF-CONTAINED HOME-menu
+  app) (2026-06-27, branches `3ds-cia`/`3ds-cia-icon`/`3ds-cia-visible`/`3ds-cia-uid` + ROM-bundle → master;
+  HW-CONFIRMED installs+shows).** In addition to the `.3dsx`, the build produces a CIA with a banner + icon + the
+  bundled ROM. Pipeline (Makefile.3ds `cia` target): resize **`turok.jpg`** → 256×128 banner; **`turok.ico`** → 48×48
+  icon (largest `.ico` frame → `convert`); `bannertool makesmdh` (icon→SMDH) + `bannertool makebanner` (banner PNG +
+  **`turok.wav`** audio → `.bnr`); then `makerom -f cia` with [port/3ds/turok.rsf](port/3ds/turok.rsf). **`makerom` +
+  `bannertool` are NOT in devkitPro** — gitignored in `tools/3ds-cia/` (3DSGuy/Project_CTR + carstene1ns/3ds-bannertool;
+  see [tools/3ds-cia/README.md](tools/3ds-cia/README.md)). **NOT committed (gitignored like the ROM):** `turok.jpg`/
+  `turok.ico`/`turok.wav` + the ROM + the tool binaries + the generated `.cia`/`.bnr`/`.smdh`/`.png`.
+  **★★ THREE non-obvious things were needed before it would INSTALL+SHOW+RUN on any console (each a distinct fix):**
+  (1) **SMDH `visible` flag** — `bannertool makesmdh` with NO `-f` defaults the SMDH app-flags to 0; without the
+  `visible` bit (0x01, flags u32 @ SMDH+0x2028) **HOME HIDES an installed title** (it installs fine, just never
+  appears). Pass `-f visible,allow3d,recordusage -r regionfree`. (2) **UNIQUE-ID COLLISION** — the devkitPro homebrew
+  template unique-id **`0xff3ff`** is shared by countless homebrew (incl. the **sm64-3ds** port), so title id
+  `000400000FF3FF00` collided and HOME kept the other title's slot → ours never showed. Use a distinct
+  `APP_UNIQUE_ID` (now **`0xf7053`** → `000400000F705300`). (3) **BUNDLE THE ROM via RomFS** so the install works on
+  consoles with no SD-card ROM: makerom packs a romfs dir (the Makefile stages `baserom.us.v12.z64` into
+  `build_3ds/cia/romfs/`) via an RSF `RomFs: RootPath: $(APP_ROMFS_DIR)` section; at runtime
+  [romdata.c](port/src/romdata.c) `turokRomPath()` mounts it with **`romfsMountSelf("romfs")`** (NB `romfsInit()` is a
+  static-inline header wrapper, NOT a linkable symbol — call `romfsMountSelf` directly; and DON'T `#include <3ds.h>`
+  in romdata.c, its u8/u32 typedefs clash with ultra64.h — just `extern int romfsMountSelf(const char*)`) and reads
+  `romfs:/baserom.us.v12.z64`, falling back to the SD path for `.3dsx` dev runs (which have no RomFS). CIA grows
+  773KB → ~9.2MB. **EARLIER RSF gotchas:** makerom rejects `KernelFlags`; `AccessControlInfo` needs an explicit
+  `SystemCallAccess` list; don't double-specify `IdealProcessor`/`AffinityMask`; let makerom derive the ProgramId.
+  **LESSON: a homebrew CIA that "installs but doesn't appear" is almost always the missing SMDH `visible` flag OR a
+  unique-id collision (esp. the `0xff3ff` template default vs sm64-3ds); and to ship it standalone, bundle the asset
+  ROM in the CIA's RomFS and read it via `romfsMountSelf` (the `romfsInit` inline won't link).**
 
 - **★★ SAVE SYSTEM = the N64 save UNCHANGED, with the Controller Pak backed by a FILE — DONE & MERGED, HW-CONFIRMED
   (2026-06-27, branch `save-to-file` + `save-cleanup` → master).** The user's directive (verbatim): *"use the N64

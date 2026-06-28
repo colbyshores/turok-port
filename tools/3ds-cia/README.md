@@ -22,6 +22,12 @@ chmod +x bannertool
 - `turok.ico` (repo root) — **HOME-menu icon** art. The build picks the largest frame of the multi-size `.ico`
   and downscales it to **48×48** (a plain `.png`/`.jpg` works too — override `CIA_ICON=`).
 - `turok.wav` (repo root) — banner audio (any PCM WAV; bannertool converts it to CWAV).
+- `baserom.us.v12.z64` (repo root) — the retail ROM. **Bundled into the CIA's RomFS** so the install is
+  fully self-contained on any console (the game reads `romfs:/baserom.us.v12.z64`; no SD-card ROM needed).
+  Override the source with `CIA_ROM=`. (The `.3dsx` build has no RomFS, so it still reads the SD-card ROM.)
+
+The CIA's title gets a **distinct unique-id** (`APP_UNIQUE_ID = 0xf7053`) so it doesn't collide with other
+homebrew on the template default `0xff3ff`, and the SMDH is built `visible` (else HOME hides an installed title).
 
 ## Build
 ```sh

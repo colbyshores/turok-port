@@ -17,6 +17,11 @@ Option:
   MediaFootPadding        : false
   EnableCrypt             : false
 
+# Bundled assets: the build stages baserom.us.v12.z64 into this dir so the CIA is self-contained
+# (the game reads it from romfs:/ — no SD-card ROM needed). Path is supplied via -DAPP_ROMFS_DIR.
+RomFs:
+  RootPath                : $(APP_ROMFS_DIR)
+
 AccessControlInfo:
   CoreVersion                   : 2
 

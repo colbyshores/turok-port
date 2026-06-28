@@ -40,6 +40,8 @@ CIA_DIR    := build_3ds/cia
 CIA_IMAGE  ?= turok.jpg
 CIA_ICON   ?= turok.ico
 CIA_AUDIO  ?= turok.wav
+CIA_ROM    ?= baserom.us.v12.z64
+CIA_ROMFS  := $(CIA_DIR)/romfs
 APP_TITLE        ?= Turok
 APP_DESC         ?= Turok: Dinosaur Hunter
 APP_AUTHOR       ?= Acclaim / Iguana
@@ -185,10 +187,15 @@ $(CIA_DIR)/icon.smdh: $(CIA_DIR)/icon.png
 		-r regionfree -f visible,allow3d,recordusage
 $(CIA_DIR)/banner.bnr: $(CIA_DIR)/banner.png $(CIA_AUDIO)
 	$(BANNERTOOL) makebanner -i $(CIA_DIR)/banner.png -a $(CIA_AUDIO) -o $@
-$(OUTPUT).cia: $(OUTPUT).elf $(CIA_DIR)/icon.smdh $(CIA_DIR)/banner.bnr port/3ds/turok.rsf
+# stage the retail ROM into the CIA RomFS so the install is self-contained on any console
+$(CIA_ROMFS)/baserom.us.v12.z64: $(CIA_ROM)
+	@mkdir -p $(CIA_ROMFS)
+	cp -f $(CIA_ROM) $@
+$(OUTPUT).cia: $(OUTPUT).elf $(CIA_DIR)/icon.smdh $(CIA_DIR)/banner.bnr $(CIA_ROMFS)/baserom.us.v12.z64 port/3ds/turok.rsf
 	$(MAKEROM) -f cia -target t -exefslogo -elf $(OUTPUT).elf -rsf port/3ds/turok.rsf \
 		-icon $(CIA_DIR)/icon.smdh -banner $(CIA_DIR)/banner.bnr -o $@ \
-		-DAPP_TITLE="$(APP_TITLE)" -DAPP_PRODUCT_CODE="$(APP_PRODUCT_CODE)" -DAPP_UNIQUE_ID="$(APP_UNIQUE_ID)"
+		-DAPP_TITLE="$(APP_TITLE)" -DAPP_PRODUCT_CODE="$(APP_PRODUCT_CODE)" -DAPP_UNIQUE_ID="$(APP_UNIQUE_ID)" \
+		-DAPP_ROMFS_DIR="$(CIA_ROMFS)"
 	@echo "[3ds] built $@"
 
 clean:
