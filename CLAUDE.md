@@ -533,6 +533,33 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   unique-id collision (esp. the `0xff3ff` template default vs sm64-3ds); and to ship it standalone, bundle the asset
   ROM in the CIA's RomFS and read it via `romfsMountSelf` (the `romfsInit` inline won't link).**
 
+- **★★ CIA MEMORY MODE + OG-3DS LOMEM (64MB) TEXTURE TIER (2026-06-27, branch `og3ds-lomem`).** The installed CIA
+  showed **texture corruption that the `.3dsx` never had** — because the `.3dsx` inherits the Homebrew Launcher's
+  extended memory, but the CIA's RSF was `SystemModeExt: Legacy` / `SystemMode: 64MB`, so as a native Application
+  the GPU/linear heap (sys_3ds.c hands it up to 56MB — where Citro3D textures live) got squeezed to ~13MB →
+  **C3D texture OOM = stale/garbage slots = corruption.** TWO parts:
+  - **THE FIX FOR NEW 3DS = `SystemModeExt: 124MB`** in [turok.rsf](port/3ds/turok.rsf) (the full N3DS app slice).
+    ★ Do NOT add `SystemMode: 96MB` (OG HIMEM) — Forsaken's DEFAULT CIA deliberately omits it because **the 96MB
+    grant crashes some OG-3DS HOME menus** (a NULL write in the menu process, before our code runs); its 96MB build
+    is a separate opt-in CIA. So OG-3DS stays standard **64MB**.
+  - **OG-3DS FIT = a runtime LOMEM texture tier** ([gfx_citro3d.cpp](port/fast3d/gfx_citro3d.cpp), 3DS-only file).
+    On an Old 3DS (`APT_CheckNew3DS()==false` → `sLomem`, set at init), the **main texture upload stores 16-bit**
+    (`GPU_RGB565` opaque / `GPU_RGBA4` has-alpha) **instead of `GPU_RGBA8`** — HALF the texture FCRAM — so the
+    working set fits the OG 64MB slice. ★ KEY INSIGHT making it a tiny, UV-safe change: the **8×8 Morton tile order
+    is identical across RGBA8/RGB565/RGBA4**, so after the existing swizzle into `sTexScratch` (RGBA8) it's just an
+    **in-place per-texel repack** (`scratchToLo16`: `u16[i]` at byte 2i never overruns the `u32[i]` at byte 4i read
+    → forward in-place is safe); **dimensions/UVs are UNCHANGED**. Opaque (all α==0xFF) → RGB565 (5/6/5, no
+    banding); has-alpha → RGBA4. Both upload paths (mip `C3D_TexInitMipmap` + per-level, and the normal
+    `C3D_TexInit`) take the format. **New 3DS keeps full RGBA8** (`sLomem=false` → byte-identical to before). Plus
+    [sys_3ds.c](port/src/sys_3ds.c) trims the main-heap reserve (16→10MB) **only when `avail < 80MB`** (OG), giving
+    its tight linear heap ~19MB (N3DS hits the 56MB cap first, unchanged). **VALIDATED in Mandarine OG mode**
+    (`is_new_3ds=false` → `sLomem=true`): boots, runs warp-0, and renders **correctly** (walls/grass/enemy/weapon/
+    HUD all textured, no garbage). **Remaining: real-OG-hardware memory-fit confirmation** (Mandarine doesn't model
+    OG's 64MB limit). **LESSON: a CIA-only texture corruption that the `.3dsx` lacks is a MEMORY-MODE gap — the CIA
+    runs in the RSF's Application slice while the `.3dsx` gets HBL's extended memory; grant `SystemModeExt: 124MB`
+    for N3DS, and for OG (which must stay 64MB — HIMEM crashes OG HOME) add a 16-bit lomem texture tier. The repack
+    is free because PICA Morton tiling is format-independent, so it's an in-place u32→u16 pass with no UV change.**
+
 - **★★ SAVE SYSTEM = the N64 save UNCHANGED, with the Controller Pak backed by a FILE — DONE & MERGED, HW-CONFIRMED
   (2026-06-27, branch `save-to-file` + `save-cleanup` → master).** The user's directive (verbatim): *"use the N64
   save system but dump that data to a file and read that data from a file"* — NOT a memory-dump / custom save.

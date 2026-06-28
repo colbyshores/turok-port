@@ -393,6 +393,13 @@ static uint32_t *sTexScratch = NULL;
 static uint32_t *sMipLin0 = NULL;  // linear POT RGBA8 level-0 + bake tiling buffer
 static uint32_t *sMipLin1 = NULL;  // per-mip box-downsample scratch (RGBA8)
 
+// ★ OG-3DS LOMEM (64MB budget). True on an Old 3DS (APT_CheckNew3DS==false), set at init. When set, the
+// main texture upload stores 16-bit (RGB565 opaque / RGBA4 alpha) instead of RGBA8 — HALF the texture FCRAM
+// — so the texture working set fits the OG-3DS regular 64MB Application slice (no HIMEM). A New 3DS keeps
+// full RGBA8 (sLomem=false → the upload path below is byte-identical to before). Dimensions/UVs are
+// UNCHANGED, so this is purely a per-texel format swap. gfx_citro3d.cpp only compiles for PLATFORM_3DS.
+static bool sLomem = false;
+
 // ── CONTENT-KEYED pre-tile bake state (see the BAKE_* defines) ────────────────
 // Bakes are keyed by texture CONTENT (hash), NOT slot id, so they SURVIVE gfx_pc's slot
 // churn — a periodic cache wipe / eviction re-imports a facade to a new slot, but the same
@@ -940,6 +947,24 @@ static void swizzleTex16(const uint32_t *lin, uint16_t *dst, uint32_t w, uint32_
         }
 }
 
+// ── OG-3DS lomem: repack an already-tiled PICA RGBA8 word (R<<24|G<<16|B<<8|A, the layout rgba_to_abgr
+//    writes) to 16-bit IN PLACE in sTexScratch. The 8x8 Morton tile order is identical for RGBA8/RGB565/
+//    RGBA4, so a per-texel repack at the same linear index needs no re-swizzle; u16[i] (byte 2i) never
+//    overruns the u32[i] (byte 4i) we read, so the forward in-place pass is safe. Halves texture FCRAM.
+static inline uint16_t pica8_to_rgb565(uint32_t v) {
+    uint32_t r=(v>>24)&0xFF, g=(v>>16)&0xFF, b=(v>>8)&0xFF;
+    return (uint16_t)(((r>>3)<<11) | ((g>>2)<<5) | (b>>3));
+}
+static inline uint16_t pica8_to_rgba4(uint32_t v) {
+    uint32_t r=(v>>24)&0xFF, g=(v>>16)&0xFF, b=(v>>8)&0xFF, a=v&0xFF;
+    return (uint16_t)(((r>>4)<<12) | ((g>>4)<<8) | ((b>>4)<<4) | (a>>4));
+}
+static inline void scratchToLo16(uint32_t texels, bool opaque) {
+    uint16_t *d = (uint16_t *)sTexScratch; const uint32_t *s = sTexScratch;
+    if (opaque) for (uint32_t i = 0; i < texels; i++) d[i] = pica8_to_rgb565(s[i]);
+    else        for (uint32_t i = 0; i < texels; i++) d[i] = pica8_to_rgba4(s[i]);
+}
+
 // ── bake: dedicated slot pool over [TEX_POOL_USABLE, TEX_POOL_SIZE) ──
 static int bakeAllocSlot(void) {
     if (!sBakeFreeInit) {
@@ -1445,6 +1470,17 @@ static void gfx_citro3d_upload_texture(const uint8_t *rgba32, uint32_t width, ui
     if (pw > 1024) pw = 1024;
     if (ph > 1024) ph = 1024;
 
+    // ★ OG-3DS lomem: pick the 16-bit format for this texture. Opaque (all alpha==0xFF) -> RGB565 (5/6/5,
+    // no banding); has-alpha -> RGBA4 (4-bit alpha, carries translucency). N3DS keeps RGBA8 (loFmt unused).
+    bool texOpaque = true;
+    GPU_TEXCOLOR loFmt = GPU_RGB565;
+    if (sLomem) {
+        const uint32_t *sc = (const uint32_t *)rgba32;
+        const uint32_t n = width * height;
+        for (uint32_t i = 0; i < n; i++) if ((sc[i] >> 24) != 0xFFu) { texOpaque = false; break; }
+        loFmt = texOpaque ? GPU_RGB565 : GPU_RGBA4;
+    }
+
     if (pw == width && ph == height) {
         swizzleTexture(rgba32, sTexScratch, width, height);
         sTexScaleS[id] = 1.f; sTexScaleT[id] = 1.f;
@@ -1493,7 +1529,7 @@ static void gfx_citro3d_upload_texture(const uint8_t *rgba32, uint32_t width, ui
         // write into NULL (data abort, FAR≈8). Skip the texture instead of crashing (it draws untextured —
         // applyCmdState checks sTexValid before binding). Same class as the §23.2 bake guard, on the
         // normal upload path (which was unguarded). Mandarine's larger heap masks this → HW-only.
-        if (!C3D_TexInitMipmap(&sTexPool[id], (u16)pw, (u16)ph, GPU_RGBA8)) {
+        if (!C3D_TexInitMipmap(&sTexPool[id], (u16)pw, (u16)ph, sLomem ? loFmt : GPU_RGBA8)) {
             sTexOomCount++; // production memlog counter
 #if PD_DEBUG3DS
             { char b[80]; snprintf(b, sizeof(b), "TEXOOM mip id=%d %ux%u freeKB=%u", id, (unsigned)pw, (unsigned)ph, (unsigned)(linearSpaceFree() >> 10)); plat3dsBootLog(b); }
@@ -1517,14 +1553,16 @@ static void gfx_citro3d_upload_texture(const uint8_t *rgba32, uint32_t width, ui
                 lin = sMipLin1;
             }
             swizzleTexture((const uint8_t *)lin, sTexScratch, lw, lh);
+            if (sLomem) scratchToLo16(lw * lh, texOpaque);  // RGBA8 scratch -> 16-bit in place (OG budget)
             C3D_TexLoadImage(&sTexPool[id], sTexScratch, GPU_TEXFACE_2D, Lv);
         }
         C3D_TexFlush(&sTexPool[id]);
         sTexHasMips[id] = true;
         sTexMipCount++; sTexMipBytes += (size_t)pw * ph * 4 / 3; // ~33% chain
     } else {
+        if (sLomem) scratchToLo16((uint32_t)pw * ph, texOpaque);  // RGBA8 scratch -> 16-bit in place (OG budget)
         // ★ OOM GUARD (real-HW #84): see the mip branch above — skip on FCRAM exhaustion, don't memcpy into NULL.
-        if (!C3D_TexInit(&sTexPool[id], pw, ph, GPU_RGBA8)) { // normal level textures: full RGBA8 (RGBA4 bands them)
+        if (!C3D_TexInit(&sTexPool[id], pw, ph, sLomem ? loFmt : GPU_RGBA8)) { // N3DS: full RGBA8; OG: 16-bit
             sTexOomCount++; // production memlog counter
 #if PD_DEBUG3DS
             { char b[80]; snprintf(b, sizeof(b), "TEXOOM id=%d %ux%u freeKB=%u", id, (unsigned)pw, (unsigned)ph, (unsigned)(linearSpaceFree() >> 10)); plat3dsBootLog(b); }
@@ -2833,6 +2871,12 @@ static void gfx_citro3d_init(void) {
     shaderProgramInit(&sShaderProg);
     shaderProgramSetVsh(&sShaderProg, &sShaderDVLB->DVLE[0]);
     sUniTransform = shaderInstanceGetUniformLocation(sShaderProg.vertexShader, "transform");
+
+    // ★ OG-3DS LOMEM: an Old 3DS runs the CIA in the regular 64MB Application slice (no HIMEM — the 96MB
+    // grant crashes some OG HOME menus), so the GPU/linear heap is tight. Store textures 16-bit to halve
+    // their FCRAM and fit the budget. A New 3DS (124MB via SystemModeExt) keeps full RGBA8. (APT is up by
+    // the time gfx init runs, unlike __system_allocateHeaps which must infer the tier from the heap size.)
+    { bool isN3ds = false; APT_CheckNew3DS(&isN3ds); sLomem = !isN3ds; }
 
     // Fog master toggle (sdmc fog.txt, default ON) — read once so the user can A/B distance fog on HW.
     { FILE *fg = fopen("sdmc:/3ds/perfectdark/fog.txt", "r");
