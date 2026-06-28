@@ -104,8 +104,21 @@ Concretely:
 The **per-draw constant-factor** idea is the one untried lever that needs no free channel: the appended fog
 stage has its OWN `GPU_CONSTANT` (unused by the combiner), so a single per-draw fog factor (computed CPU-side
 from the draw's representative depth) could fog shade-alpha translucent surfaces without touching `PRIMARY.a`.
-It's constant across the draw (fine for small billboards, flat for large planes) but banding-free. Evaluate it
-only after the diagnostic confirms the rectangles are actually shade-alpha translucent surfaces.
+It's constant across the draw (fine for small billboards, flat for large planes) but banding-free.
+
+### IMPLEMENTED 2026-06-27 (`7e93535`) — per-draw constant fog
+
+Built the per-draw lever (`cmd->perDrawFog` in `gfx_citro3d.cpp`): a fog draw whose alpha depends on the shade
+(`!perVertexFog`) now also gets the appended fog TEV stage, but the INTERPOLATE factor comes from the fog
+stage's own `GPU_CONSTANT.alpha` = the avg of the draw's verts' f32 fog factors (accumulated in the repack).
+`PRIMARY.a` is untouched and the stage alpha = `PREVIOUS`, so blend/alpha-test still see the real combiner
+alpha. Net: under `fogmode 1` EVERY `opt_fog` draw does TEV fog (per-vertex where the shade alpha is free,
+per-draw constant where it isn't) — the f24 hardware FogLut is no longer used for any `opt_fog` geometry.
+
+**If the blue rectangles persist even now**, they are NOT fog at all (the FogLut is fully out of the picture
+for them) — pivot to the blend/decode angle: A/B `fogmode 0` (they'll look the same if it's not fog), then the
+one-shot on-device diagnostic to dump the offending draws' combiner id / alpha source / blend mode. A surface
+that renders opaque-blue with the entire fog path removed is a translucency (blend/decode) bug, not a fog bug.
 
 ## Diagnostic knobs currently on the branch (clean up on resolve/merge)
 
