@@ -1204,17 +1204,8 @@ INT32 CPause__Update(CPause *pThis)
 					// do save
 					if (ReturnValue == REQUESTOR_YES)
 					{
-#ifdef PLATFORM_PORT
-						/* No Controller Pak - write the save FILE instead of the pak save screen (which would
-						 * report "no controller pak found"), then return to the game like the NO branch below.
-						 * Auto-save covers checkpoints; this is the explicit save-point save. */
-						{ extern int CSave__QuickSaveToFile(void); CSave__QuickSaveToFile(); }
-						GetApp()->m_Pause.m_Mode = PAUSE_FADEDOWN ;
-						GetApp()->m_bPause = FALSE ;
-#else
 						CSave__Construct(&GetApp()->m_Save) ;
 						GetApp()->m_bSave = TRUE ;
-#endif
 					}
 					// return to game
 					else
@@ -1428,13 +1419,9 @@ INT32 CPause__Update(CPause *pThis)
 				case TITLE_LOAD:
 					ReturnValue = -1 ;
 					pThis->m_Mode = PAUSE_FADEDOWN ;
-#ifdef PLATFORM_PORT
-					/* No Controller Pak — load directly from the auto-save file (see PAUSE_LOAD). */
-					{ extern int CLoad__QuickLoadFromFile(void); CLoad__QuickLoadFromFile(); }
-#else
+
 					CLoad__Construct(&GetApp()->m_Load) ;
 					GetApp()->m_bLoad = TRUE ;
-#endif
 					break ;
 
 				case TITLE_OPTIONS:
@@ -1523,14 +1510,9 @@ INT32 CPause__Update(CPause *pThis)
 				case PAUSE_LOAD:
 					ReturnValue = -1 ;
 					pThis->m_Mode = PAUSE_FADEDOWN ;
-#ifdef PLATFORM_PORT
-					/* No Controller Pak — load directly from the auto-save file (restarts at the saved
-					 * checkpoint via SetupFadeTo(MODE_RESETLEVEL)), bypassing the pak load screen. */
-					{ extern int CLoad__QuickLoadFromFile(void); CLoad__QuickLoadFromFile(); }
-#else
+
 					CLoad__Construct(&GetApp()->m_Load) ;
 					GetApp()->m_bLoad = TRUE ;
-#endif
 					break ;
 
 #ifdef PAUSE_SAVE
