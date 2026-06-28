@@ -2937,10 +2937,12 @@ void CLoad__ExtractData(void)
 	GetApp()->m_BossFlags			 				= persist->BossFlags ;
 }
 
-#ifdef PLATFORM_PORT
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
 /*--------------------------------------------------------------------------------------------------------
- * PORT: file-based quick-save / quick-load. The N64 persists CPersistantData to the Controller Pak (PFS);
- * on the host we write that SAME blob (inventory, keys, ammo, health, checkpoint, options) to a plain file.
+ * PC-ONLY file-based quick-save / quick-load (F5 / F9). A dev convenience SEPARATE from the in-game N64 save
+ * system — on 3DS, saving goes through the save points + the file-backed Controller Pak (os_shim.c), so this
+ * whole path is gated off 3DS. The N64 persists CPersistantData to the Controller Pak (PFS); here we write
+ * that SAME blob (inventory, keys, ammo, health, checkpoint, options) to a plain file.
  * It's host-order on both targets (x86 and 3DS ARM are little-endian), guarded by a magic+size header. The
  * captured state is exactly what the native pak-save stores (CSave__PrepareData), and quick-load applies it
  * then restarts the level at the saved checkpoint — mirroring the pause-menu load (CLoad__Update, ~:695).

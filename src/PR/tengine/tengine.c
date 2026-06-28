@@ -4899,10 +4899,11 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	  g_look_yaw = g_look_pitch = 0.0f; }
 #endif
 
-#ifdef PLATFORM_PORT
-	/* PORT quick-save / quick-load (F5 / F9 in the SDL2 backend set the request flags in input.c). Consume
-	 * on the game thread, in active gameplay only. Quick-save writes the persist blob to a host file;
-	 * quick-load applies it and restarts the level at the saved checkpoint (see loadsave.c). */
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+	/* PC-ONLY quick-save / quick-load (F5 / F9 in the SDL2 backend set the request flags in input.c). A PC dev
+	 * convenience, separate from the in-game N64 save system (save points + the file-backed pak); the 3DS has
+	 * no F5/F9. Consume on the game thread, in active gameplay only. Quick-save writes the persist blob to a
+	 * host file; quick-load applies it and restarts the level at the saved checkpoint (see loadsave.c). */
 	{ extern int g_quicksave_req, g_quickload_req;
 	  extern int CSave__QuickSaveToFile(void); extern int CLoad__QuickLoadFromFile(void);
 	  /* headless self-test: fire quick-save/-load at a given gameplay-frame (default off). */
