@@ -181,7 +181,8 @@ $(CIA_DIR)/icon.png: $(CIA_ICON)
 	@frame=$$(identify "$(CIA_ICON)" | awk '{split($$3,d,"x"); print d[1]*d[2]" "NR-1}' | sort -n | tail -1 | awk '{print $$2}'); \
 	$(CONVERT) "$(CIA_ICON)[$$frame]" -resize 48x48^ -gravity center -extent 48x48 $@
 $(CIA_DIR)/icon.smdh: $(CIA_DIR)/icon.png
-	$(BANNERTOOL) makesmdh -s "$(APP_TITLE)" -l "$(APP_DESC)" -p "$(APP_AUTHOR)" -i $< -o $@
+	$(BANNERTOOL) makesmdh -s "$(APP_TITLE)" -l "$(APP_DESC)" -p "$(APP_AUTHOR)" -i $< -o $@ \
+		-r regionfree -f visible,allow3d,recordusage
 $(CIA_DIR)/banner.bnr: $(CIA_DIR)/banner.png $(CIA_AUDIO)
 	$(BANNERTOOL) makebanner -i $(CIA_DIR)/banner.png -a $(CIA_AUDIO) -o $@
 $(OUTPUT).cia: $(OUTPUT).elf $(CIA_DIR)/icon.smdh $(CIA_DIR)/banner.bnr port/3ds/turok.rsf
