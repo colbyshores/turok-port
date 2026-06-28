@@ -505,6 +505,19 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
+- **★ 3DS CIA PACKAGING — `make -f Makefile.3ds cia` → `build_3ds/turok.cia` (installable HOME-menu app)
+  (2026-06-27, branch `3ds-cia` → master).** In addition to the `.3dsx`, the build can now produce a CIA with a
+  proper banner + icon. The pipeline (Makefile.3ds `cia` target): resize **`turok.jpg`** → 256×128 banner +
+  48×48 icon (ImageMagick `convert`), `bannertool makesmdh` (icon→SMDH) + `bannertool makebanner` (banner PNG +
+  **`turok.wav`** audio → `.bnr`), then `makerom -f cia` with [port/3ds/turok.rsf](port/3ds/turok.rsf) (the
+  committed standard homebrew RSF; unique-id `0xff3ff`, app metadata are Makefile vars). **`makerom` +
+  `bannertool` are NOT in devkitPro** — they live (gitignored) in `tools/3ds-cia/` (`makerom` from 3DSGuy/
+  Project_CTR, `bannertool` from carstene1ns/3ds-bannertool; see [tools/3ds-cia/README.md](tools/3ds-cia/README.md)
+  to obtain them). **NOT committed (gitignored like the ROM):** `turok.jpg`/`turok.wav` (user-supplied art/audio),
+  the tool binaries, and the generated `.cia`/`.bnr`/`.smdh`/`.png`. RSF gotchas hit while wiring it: makerom
+  rejects `KernelFlags`; `AccessControlInfo` needs an explicit `SystemCallAccess` list; don't double-specify
+  `IdealProcessor`/`AffinityMask`; let makerom derive the ProgramId (don't set it).
+
 - **★★ SAVE SYSTEM = the N64 save UNCHANGED, with the Controller Pak backed by a FILE — DONE & MERGED, HW-CONFIRMED
   (2026-06-27, branch `save-to-file` + `save-cleanup` → master).** The user's directive (verbatim): *"use the N64
   save system but dump that data to a file and read that data from a file"* — NOT a memory-dump / custom save.

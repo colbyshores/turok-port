@@ -30,6 +30,21 @@ PICASSO  := $(TOOLS)/picasso
 BIN2S    := $(TOOLS)/bin2s
 TDSXTOOL := $(TOOLS)/3dsxtool
 
+# --- CIA packaging (HOME-menu installable) -----------------------------------
+# makerom + bannertool are not in devkitPro; their binaries live in tools/3ds-cia/ (see tools/3ds-cia/README.md).
+# Inputs are user-supplied (gitignored, like the ROM): turok.jpg (banner+icon art) + turok.wav (banner audio).
+BANNERTOOL ?= tools/3ds-cia/bannertool
+MAKEROM    ?= tools/3ds-cia/makerom
+CONVERT    ?= convert
+CIA_DIR    := build_3ds/cia
+CIA_IMAGE  ?= turok.jpg
+CIA_AUDIO  ?= turok.wav
+APP_TITLE        ?= Turok
+APP_DESC         ?= Turok: Dinosaur Hunter
+APP_AUTHOR       ?= Acclaim / Iguana
+APP_PRODUCT_CODE ?= CTR-P-TURK
+APP_UNIQUE_ID    ?= 0xff3ff
+
 BUILD   := build_3ds
 OBJDIR  := $(BUILD)/obj
 TARGET  := turok
@@ -118,7 +133,7 @@ SHADER_O := $(OBJDIR)/shaders/gfx_citro3d_shbin.o
 
 ALL_O := $(GAME_O) $(TSND_O) $(GU_O) $(PORT_O) $(PCXX_O)
 
-.PHONY: all objects clean
+.PHONY: all objects clean cia
 .DEFAULT_GOAL := all
 all: $(OUTPUT).3dsx
 objects: $(ALL_O)
@@ -155,5 +170,23 @@ $(OUTPUT).3dsx: $(OUTPUT).elf
 	$(TDSXTOOL) $< $@
 	@echo "[3ds] built $@"
 
+# --- CIA (installable): resize turok.jpg -> 256x128 banner + 48x48 icon, pack banner (with turok.wav) + SMDH.
+cia: $(OUTPUT).cia
+$(CIA_DIR)/banner.png: $(CIA_IMAGE)
+	@mkdir -p $(@D)
+	$(CONVERT) $< -resize 256x128! $@
+$(CIA_DIR)/icon.png: $(CIA_IMAGE)
+	@mkdir -p $(@D)
+	$(CONVERT) $< -resize 48x48^ -gravity center -extent 48x48 $@
+$(CIA_DIR)/icon.smdh: $(CIA_DIR)/icon.png
+	$(BANNERTOOL) makesmdh -s "$(APP_TITLE)" -l "$(APP_DESC)" -p "$(APP_AUTHOR)" -i $< -o $@
+$(CIA_DIR)/banner.bnr: $(CIA_DIR)/banner.png $(CIA_AUDIO)
+	$(BANNERTOOL) makebanner -i $(CIA_DIR)/banner.png -a $(CIA_AUDIO) -o $@
+$(OUTPUT).cia: $(OUTPUT).elf $(CIA_DIR)/icon.smdh $(CIA_DIR)/banner.bnr port/3ds/turok.rsf
+	$(MAKEROM) -f cia -target t -exefslogo -elf $(OUTPUT).elf -rsf port/3ds/turok.rsf \
+		-icon $(CIA_DIR)/icon.smdh -banner $(CIA_DIR)/banner.bnr -o $@ \
+		-DAPP_TITLE="$(APP_TITLE)" -DAPP_PRODUCT_CODE="$(APP_PRODUCT_CODE)" -DAPP_UNIQUE_ID="$(APP_UNIQUE_ID)"
+	@echo "[3ds] built $@"
+
 clean:
-	rm -rf $(OBJDIR) $(OUTPUT).elf $(OUTPUT).3dsx $(OUTPUT).map $(BUILD)/gfx_citro3d.shbin
+	rm -rf $(OBJDIR) $(OUTPUT).elf $(OUTPUT).3dsx $(OUTPUT).cia $(CIA_DIR) $(OUTPUT).map $(BUILD)/gfx_citro3d.shbin

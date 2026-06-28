@@ -74,6 +74,14 @@
 build_port/
 build_3ds/
 
+# --- 3DS CIA packaging: user-supplied art/audio (like the ROM) + 3rd-party tool binaries ---
+# (gitignore has no inline comments — keep patterns bare)
+/turok.jpg
+/turok.wav
+/turok.cia
+/tools/3ds-cia/*
+!/tools/3ds-cia/README.md
+
 # --- Old DOS/VisualC engine project + sound assets inside tengine ---
 src/PR/tengine/dosvers/
 src/PR/tengine/sounds/
