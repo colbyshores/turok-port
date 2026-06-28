@@ -2272,7 +2272,12 @@ static void gfx_citro3d_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size
     }
 #endif
     cmd->alphaTest = (prg->cc.opt_texture_edge || prg->cc.opt_alpha_threshold);
-    cmd->alphaRef = prg->cc.opt_texture_edge ? 0x4D : 0x08;
+    // ★ texedge (CVG_X_ALPHA = foliage/alpha-tested sprites) cutoff RAISED 0x4D -> 0xC0. The N64's coverage AA
+    // smoothed the faded silhouette fragments away; our hard alpha test kept them, and the foliage combiner
+    // (e.g. G_CC_ROB_SELFILLUM_PSEUDO: (PRIM-ENV)*TEXEL0+ENV) tints the colour toward the ENV/PRIM constant as
+    // TEXEL0 fades at the bilinear edge → a blue/cyan rim around plants (HW-confirmed). A higher cutoff discards
+    // those faded edge fragments → no rim, keeps bilinear (slightly tighter silhouette, closer to the N64 look).
+    cmd->alphaRef = prg->cc.opt_texture_edge ? 0xC0 : 0x08;
     cmd->vpX = stVpX; cmd->vpY = stVpY; cmd->vpW = stVpW; cmd->vpH = stVpH;
     cmd->scX = stScX; cmd->scY = stScY; cmd->scW = stScW; cmd->scH = stScH;
     cmd->scissorOn = stScissorOn;
@@ -2471,7 +2476,6 @@ static void applyCmdState(const DrawCmd *cmd) {
     bool atEn; GPU_TESTFUNC atFunc; int atRef;
     if (cmd->alphaTest) {
         atEn = true; atFunc = GPU_GREATER; atRef = cmd->alphaRef;
-        { extern int g_cfg_edgetest; if (g_cfg_edgetest == 3) atRef = 0xC0; } // foliage-edge A/B (mode 3): tighter silhouette
     } else {
 #ifdef PLATFORM_3DS
         // ★★ PICA BLEND ZERO-COVERAGE CORRECTNESS RULE (general; first found as the torch-flame "yellow square").
@@ -2508,8 +2512,7 @@ static void applyCmdState(const DrawCmd *cmd) {
     // Per-vertex AND per-draw fog draws get fog from the appended TEV stage → keep the hardware FogLut OFF for
     // them. Every opt_fog draw is one or the other, so the FogLut now only serves the rare opt_fog-less draw
     // that still has fogEnable. The f24 1/w FogLut banding is gone from all game geometry.
-    extern int g_cfg_edgetest; const bool edgeNoFog = (g_cfg_edgetest == 2 && cmd->alphaTest); // foliage A/B (mode 2)
-    if (cmd->fogEnable && !cmd->perVertexFog && !cmd->perDrawFog && !edgeNoFog) {
+    if (cmd->fogEnable && !cmd->perVertexFog && !cmd->perDrawFog) {
         if (!sCurFogOn || cmd->fogMul != sCurFogMul || cmd->fogOffset != sCurFogOff) {
             C3D_FogGasMode(GPU_FOG, GPU_PLAIN_DENSITY, sFogZFlip);
             C3D_FogLutBind(fogLutGet(cmd->fogMul, cmd->fogOffset));
@@ -2553,7 +2556,7 @@ static void applyCmdState(const DrawCmd *cmd) {
     // The fog stage (index prg->fog_stage) is the LAST stage. Apply it for BOTH per-vertex and per-draw fog
     // draws; skip it only when the draw has a fog stage but uses neither TEV-fog path (shouldn't happen — every
     // opt_fog draw is one or the other — but keep the guard for safety → that draw would use the FogLut).
-    const bool fogStageActive = (cmd->perVertexFog || cmd->perDrawFog) && !edgeNoFog;
+    const bool fogStageActive = cmd->perVertexFog || cmd->perDrawFog;
     const int effStages = (prg->fog_stage != 0xff && !fogStageActive) ? prg->fog_stage : prg->num_stages;
     for (int i = 0; i < effStages; i++) {
         C3D_TexEnv e;
@@ -2592,7 +2595,6 @@ static void applyCmdState(const DrawCmd *cmd) {
         // …and THIS draw's filter (same shared-state flaw → the intermittent "wrong mip level" blur).
         if (cmd->filt0 != 0xFF) {
             GPU_TEXTURE_FILTER_PARAM ff = cmd->filt0 ? GPU_LINEAR : GPU_NEAREST;
-            { extern int g_cfg_edgetest; if (g_cfg_edgetest == 1 && cmd->alphaTest) ff = GPU_NEAREST; } // foliage A/B (mode 1)
             C3D_TexSetFilter(&sTexPool[cmd->tex0], ff, ff);
             if (sTexHasMips[cmd->tex0]) C3D_TexSetFilterMipmap(&sTexPool[cmd->tex0], sMipNearest ? GPU_NEAREST : GPU_LINEAR);
         }

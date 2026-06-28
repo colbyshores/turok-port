@@ -50,15 +50,6 @@ int   g_cfg_widescreen   = 1;        /* 1 = Hor+ widescreen (project at the outp
  * 3DS HW via turok.cfg `nearclip`: lower (2) if a wall still clips, higher (8) if distant z-fighting appears. */
 float g_cfg_nearclip     = 4.0f;
 
-/* FOLIAGE EDGE DIAGNOSTIC (3DS): the user reports a uniform light-blue rim tracing the alpha-tested plant
- * silhouettes. Alpha-bleeding the texture (a colour-fringe fix) did NOT remove it, so it's added after the
- * texture. These on-HW A/B modes localize it (turok.cfg `edgetest <n>`; one at a time, reboot, report):
- *   1 = POINT-SAMPLE alpha-tested draws (GPU_NEAREST). Rim gone => a bilinear EDGE effect (colour or alpha).
- *   2 = NO FOG on alpha-tested draws (skip the TEV fog stage + FogLut). Rim gone => it's the distance fog.
- *   3 = RAISE the alpha-test ref on alpha-tested draws (tighter silhouette). Rim gone => partial-coverage rim.
- * 0 = off (default). Applied in gfx_citro3d.cpp applyCmdState/replay. */
-int   g_cfg_edgetest     = 0;
-
 /* Draw-distance ceiling. PC = up to 3x (the slider is a PC feature). 3DS is locked at stock 1x (draw distance is
  * framerate-gated there); the options menu hides the slider row when the max is 1x. */
 float turok_drawdist_max(void)
@@ -113,7 +104,6 @@ void turokConfigLoad(void)
         else if (!strcmp(key, "drawdist"))          g_cfg_drawdist     = (float)val;
         else if (!strcmp(key, "widescreen"))        g_cfg_widescreen   = (int)val ? 1 : 0;
         else if (!strcmp(key, "nearclip"))          g_cfg_nearclip     = (float)val;
-        else if (!strcmp(key, "edgetest"))          g_cfg_edgetest     = (int)val;
     }
     fclose(f);
 
