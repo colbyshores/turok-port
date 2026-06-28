@@ -42,16 +42,18 @@ AccessControlInfo:
   SpecialMemoryArrange          : true
 
   # New3DS:
-  SystemModeExt                 : 124MB   # New 3DS — full app slice (124MB), so the linear/GPU heap can reach
-                                          # its 56MB cap. Legacy/64MB starves it -> C3D texture OOM = corruption.
+  SystemModeExt                 : 124MB   # New 3DS — full app slice (124MB), so the linear/GPU heap reaches
+                                          # its 56MB cap. Legacy starves it -> C3D texture OOM = corruption.
+                                          # (This is the fix for the .3dsx-clean / CIA-corrupt regression.)
   CpuSpeed                      : 268MHz
   EnableL2Cache                 : false
   CanAccessCore2                : true
 
   MemoryType                    : Application
-  SystemMode                    : 96MB    # Old 3DS HIMEM grant (vs the default 64MB) for the same reason.
-                                          # Matches Forsaken's proven himem CIA. A fullscreen game runs no
-                                          # applets, so taking the HIMEM slice is safe.
+  # SystemMode (OG-3DS HIMEM 96MB) is DELIBERATELY OMITTED: the HIMEM grant crashes some OG-3DS HOME menus
+  # (a NULL write in the menu process, BEFORE our code runs) — Forsaken hit this on multiple OG units and
+  # omits it too. So OG-3DS runs in standard 64MB Application mode (a New 3DS still gets 124MB via
+  # SystemModeExt above). TODO for OG-3DS texture fit at 64MB: a lomem (256²) texture tier like Forsaken's.
 
   HandleTableSize: 0x200
 
