@@ -2474,7 +2474,17 @@ static bool         sStDTest; static GPU_TESTFUNC sStDFunc; static GPU_WRITEMASK
 static float        sStZoff = -1.0f;
 static int          sStBlend = -1;                 // 0 opaque · 1 modulate · 2 alpha-over
 static bool         sStAtEn;  static GPU_TESTFUNC sStAtFunc; static int sStAtRef = -1;
-static inline void  cmdStateInvalidate(void) { sStValid = false; }
+// ── TEV-stage dedup — extends the depth/blend/alpha dedup above to the COMBINER config, the costliest
+// per-draw state: up to 6 C3D_SetTexEnv writes rebuilding the whole combiner EVERY draw (and again per eye
+// under stereo). Turok submits long runs of same-combiner draws (e.g. all the fogged world geometry shares
+// one fog-stage combiner), so when the effective TEV config is unchanged — program, chain select, fog stage,
+// stage count, AND every per-stage CONSTANT colour — we skip the entire re-upload. The fog stage is part of
+// that combiner, so this directly cuts the fog's per-draw overhead. Reset by cmdStateInvalidate() at each
+// replay pass / direct-write boundary (same points, same proof, as the depth/blend dedup). 3DS-only file.
+static const void  *sTevPrg = (void*)0;
+static int          sTevChain = -1, sTevEff = -1, sTevFogStage = -1, sTevPerDrawFog = -1;
+static uint32_t     sTevConst[6] = {0};
+static inline void  cmdStateInvalidate(void) { sStValid = false; sTevPrg = (void*)0; }
 
 static void applyCmdState(const DrawCmd *cmd) {
     // depth — mirror the OpenGL backend's ZMODE logic:
@@ -2607,6 +2617,13 @@ static void applyCmdState(const DrawCmd *cmd) {
     // opt_fog draw is one or the other — but keep the guard for safety → that draw would use the FogLut).
     const bool fogStageActive = cmd->perVertexFog || cmd->perDrawFog;
     const int effStages = (prg->fog_stage != 0xff && !fogStageActive) ? prg->fog_stage : prg->num_stages;
+    // DEDUP: skip the whole combiner re-upload when this draw's effective TEV config matches the last one.
+    // Signature = program + chain + fog-stage layout + per-stage constants (the only things that vary).
+    bool tevSame = (sTevPrg == (const void*)prg && sTevChain == cmd->chainSel && sTevEff == effStages
+                 && sTevFogStage == (int)prg->fog_stage && sTevPerDrawFog == (int)cmd->perDrawFog);
+    if (tevSame) for (int i = 0; i < effStages; i++)
+        if (sTevConst[i] != cmd->stageConst[i]) { tevSame = false; break; }
+    if (!tevSame) {
     for (int i = 0; i < effStages; i++) {
         C3D_TexEnv e;
         if (cmd->perDrawFog && i == prg->fog_stage) {
@@ -2628,6 +2645,11 @@ static void applyCmdState(const DrawCmd *cmd) {
     }
     for (int i = effStages; i < 6; i++)
         C3D_TexEnvInit(C3D_GetTexEnv(i));
+        // record this combiner config so the next identical draw skips the re-upload
+        sTevPrg = (const void*)prg; sTevChain = cmd->chainSel; sTevEff = effStages;
+        sTevFogStage = prg->fog_stage; sTevPerDrawFog = cmd->perDrawFog;
+        for (int i = 0; i < effStages; i++) sTevConst[i] = cmd->stageConst[i];
+    }
 #if defined(BK_TEX0_ONLY) || defined(BK_PRIM_ONLY)
     }
 #endif
