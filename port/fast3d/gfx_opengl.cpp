@@ -688,14 +688,21 @@ static void gfx_opengl_clear_shaders(void) {
     shader_program_pool.clear();
 }
 
+/* LEAK-TEST (TUROK_LEAKTEST; removable): live GL texture count, so the heartbeat can see a per-reload
+ * texture leak in the SHARED gfx_pc layer reflected in the PC backend. */
+static int s_gl_tex_live = 0;
+extern "C" int gfx_debug_gl_tex_live(void) { return s_gl_tex_live; }
+
 static GLuint gfx_opengl_new_texture(void) {
     GLuint ret;
     glGenTextures(1, &ret);
+    s_gl_tex_live++;
     return ret;
 }
 
 static void gfx_opengl_delete_texture(uint32_t texID) {
     glDeleteTextures(1, &texID);
+    s_gl_tex_live--;
 }
 
 static void gfx_opengl_select_texture(int tile, GLuint texture_id, bool linear_filter) {

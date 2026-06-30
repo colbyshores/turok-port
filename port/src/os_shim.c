@@ -185,13 +185,25 @@ s32 osPiStartDma(OSIoMesg *mb, s32 pri, s32 dir, u32 devAddr, void *vAddr,
  * The gfx path never calls this; it masks KSEG0 inline in seg_addr. (-m32: 32-bit ptr.) */
 u32 osVirtualToPhysical(void *p) { return (u32)(uintptr_t)p; }
 
+/* ── 3DS freeze WATCHDOG breadcrumbs ─────────────────────────────────────────
+ * A spin/GPU-wedge with no crash dump leaves boot.log silent mid-frame, so the
+ * trace can't say WHICH subsystem hung. Set a coarse phase marker at each
+ * per-frame stage + a monotonic heartbeat; the independent ndsp audio thread
+ * (audio_3ds.c) logs the last phase + frame if the heartbeat stops advancing.
+ * Harmless on PC (plain globals, never read there). */
+volatile const char *g_turok_phase = "boot";
+volatile unsigned    g_turok_hb    = 0;
+
 /* ---- SP (graphics/audio task) — virtual RCP: gfx task -> Fast3D ---------- */
 extern void turokGfxRun(void *dl);          /* turok_gfx.c -> gfx_run (F3DEX interp) */
 void osSpTaskLoad(OSTask *t)        { (void)t; }   /* load is a no-op; we run on StartGo */
 void osSpTaskStartGo(OSTask *t)
 {
-    if (t && t->t.type == M_GFXTASK)
+    if (t && t->t.type == M_GFXTASK) {
+        g_turok_phase = "gfx_run";              /* watchdog: in the F3DEX interpreter */
         turokGfxRun(t->t.data_ptr);             /* interpret this frame's display list */
+        g_turok_phase = "gfx_done";
+    }
     /* M_AUDTASK is handled by the software mixer (M4); ignored here. */
 }
 void osSpTaskYield(void)            { }
@@ -282,9 +294,12 @@ void osViSwapBuffer(void *frameBuf)
         } else { g_turok_logic_tick = 1; g_tick_interval_ns = 0; }
     }
 #endif
+    g_turok_phase = "present";   /* watchdog: in the GPU submit/present (a wedge here = stuck on the GPU) */
     turokGfxEndFrame();          /* finish + present this frame's Fast3D rendering */
     turokVideoSwap(frameBuf);    /* frame count; capture PNG if requested; longjmp at max */
     turokGfxStartFrame();        /* open the next frame */
+    g_turok_phase = "game";      /* watchdog: about to run the next frame's GAME update (collision/AI/camera) */
+    g_turok_hb++;                /* heartbeat: the audio-thread watchdog reads this to detect a stall */
 }
 s32  osDpSetNextBuffer(void *p, u64 sz)              { (void)p;(void)sz; return 0; }
 

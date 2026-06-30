@@ -4747,6 +4747,27 @@ void CEngineApp__NewLife(CEngineApp *pThis)
 void CEngineApp__UpdateGAME(CEngineApp *pThis)
 {
 #ifdef PLATFORM_PORT
+	/* ── LEAK-TEST HARNESS (TUROK_LEAKTEST=1; PLATFORM_PORT, fully removable). Reproduces the Lost City
+	 * teleporter-reload resource leak headlessly + FAST on the PC ground truth: pin GOD MODE (so automated
+	 * roaming/falls can't kill the player) and force a level RELOAD every TUROK_LEAKTEST_PERIOD frames (the
+	 * same MODE_RESETLEVEL → CScene__Construct churn a portal triggers). The heartbeat in turok_main.c then
+	 * watches the SHARED resource registries (texcache/framebuffers/GL textures/RSS) for per-reload growth;
+	 * a leak there hits PC, 3DS (VRAM) and N64 alike, so its fix belongs in shared code (un-gated). */
+	{ static int _lt = -1, _ltper = 120; extern int g_leaktest_reloads;
+	  extern char *getenv(const char *); extern int atoi(const char *);
+	  extern int g_cfg_leaktest;   /* 3DS/Mandarine trigger (turok.cfg `leaktest N`) — no env vars on 3DS */
+	  if (_lt < 0) { const char *e = getenv("TUROK_LEAKTEST"); _lt = (e && atoi(e)) ? 1 : 0;
+	                 const char *p = getenv("TUROK_LEAKTEST_PERIOD"); if (p && atoi(p) > 0) _ltper = atoi(p);
+	                 if (!_lt && g_cfg_leaktest > 0) { _lt = 1; _ltper = g_cfg_leaktest; } }
+	  if (_lt) {
+	    pThis->m_dwCheatFlags |= CHEATFLAG_INVINCIBILITY;            /* god mode: roaming/falls can't kill us */
+	    if (pThis->m_Warp == WARP_NOT_WARPING && game_frame_number > 0 && (game_frame_number % _ltper) == 0) {
+	      g_leaktest_reloads++;
+	      CEngineApp__SetupFadeTo(pThis, MODE_RESETLEVEL);          /* churn a teleporter-style level reload */
+	    }
+	  } }
+#endif
+#ifdef PLATFORM_PORT
 	/* render-interpolation state: the player's true pos+yaw at the last two logic ticks. The render draws
 	 * the player (and thus the camera that follows it + the 1st-person weapon) at lerp(prev,cur,alpha) so
 	 * motion is smooth at 60fps despite 30Hz logic. Snapshot below after CTMove; restore after the task. */
