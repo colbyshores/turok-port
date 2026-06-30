@@ -4763,7 +4763,33 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	    pThis->m_dwCheatFlags |= CHEATFLAG_INVINCIBILITY;            /* god mode: roaming/falls can't kill us */
 	    if (pThis->m_Warp == WARP_NOT_WARPING && game_frame_number > 0 && (game_frame_number % _ltper) == 0) {
 	      g_leaktest_reloads++;
-	      CEngineApp__SetupFadeTo(pThis, MODE_RESETLEVEL);          /* churn a teleporter-style level reload */
+	      /* ROAM: teleport the player a bounded random STEP across the level (a "drunk walk" that stays near
+	       * valid geometry), then re-acquire its region — so the streaming loads DIFFERENT areas' textures +
+	       * combiners + effects, not just the spawn set. A static spawn only loads ~13-48 textures and never
+	       * triggers framebuffer effects; this gives an accurate full-level read. Every 3rd step ALSO forces a
+	       * level reload (the teleporter-style cart churn). god mode + the per-frame region re-acquire keep it
+	       * alive + grounded; the render-interp discontinuity guard re-snaps on the jump. */
+	      CGameObjectInstance *_pl = CEngineApp__GetPlayer(pThis);
+	      if (_pl) {
+	        static int _haveC = 0; static float _cx, _cz;
+	        if (!_haveC) { _cx = _pl->ah.ih.m_vPos.x; _cz = _pl->ah.ih.m_vPos.z; _haveC = 1; }  /* capture spawn center once */
+	        unsigned _r = (unsigned)game_frame_number * 2654435761u;    /* Knuth LCG hash → pseudo-random step */
+	        /* CUMULATIVE walk (steps through CONNECTED geometry, so it loads real area textures — a teleport to a
+	         * random absolute point lands in OOB pockets), CLAMPED to a radius around spawn so it can't drift
+	         * infinitely off-map (that's what crashed: ~14k units OOB). Small ±512 steps avoid hopping walls into
+	         * the void; if a step would exceed the radius, pull back halfway toward spawn instead. */
+	        float _dx = (float)((int)((_r >> 4)  & 0x3FF) - 512);       /* ±512-unit step */
+	        float _dz = (float)((int)((_r >> 17) & 0x3FF) - 512);
+	        float _nx = _pl->ah.ih.m_vPos.x + _dx, _nz = _pl->ah.ih.m_vPos.z + _dz;
+	        if ((_nx - _cx) * (_nx - _cx) + (_nz - _cz) * (_nz - _cz) > (8000.0f * 8000.0f)) {
+	          _nx = _cx + (_pl->ah.ih.m_vPos.x - _cx) * 0.5f;          /* too far → step back toward spawn */
+	          _nz = _cz + (_pl->ah.ih.m_vPos.z - _cz) * 0.5f;
+	        }
+	        _pl->ah.ih.m_vPos.x = _nx; _pl->ah.ih.m_vPos.z = _nz;
+	        _pl->ah.ih.m_pCurrentRegion = CScene__NearestRegion(&pThis->m_Scene, &_pl->ah.ih.m_vPos);
+	      }
+	      if ((g_leaktest_reloads % 3) == 0)
+	        CEngineApp__SetupFadeTo(pThis, MODE_RESETLEVEL);          /* every 3rd step: teleporter-style reload churn */
 	    }
 	  } }
 #endif
