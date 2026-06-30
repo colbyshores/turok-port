@@ -163,6 +163,31 @@ static int ringHasFree(void)
            sWaveBufs[sCurBuf].status == NDSP_WBUF_FREE;
 }
 
+/* FREEZE WATCHDOG (runs on this independent ndsp thread, so a main-thread spin/GPU-wedge can't stop it).
+ * The main loop bumps g_turok_hb once per present (os_shim.c) and sets g_turok_phase at each per-frame
+ * stage. If the heartbeat stops advancing for ~3s the main thread is hung; log the last phase (gfx_run /
+ * present / game) + frame so the next freeze's boot.log NAMES the stuck subsystem. Gated on `debug 1` (via
+ * plat3dsBootLog) so a clean play build is silent; logs ONCE per stall. */
+static void audioWatchdogTick(void)
+{
+    extern volatile const char *g_turok_phase;
+    extern volatile unsigned    g_turok_hb;
+    extern void plat3dsLogv(const char*, ...);
+    static unsigned lastHb = 0xFFFFFFFFu;
+    static u64      lastChangeTick = 0;
+    static int      fired = 0;
+    u64 now = svcGetSystemTick();
+    unsigned hb = g_turok_hb;
+    if (hb != lastHb) { lastHb = hb; lastChangeTick = now; fired = 0; return; }
+    if (lastChangeTick == 0) { lastChangeTick = now; return; }
+    /* SYSCLOCK_ARM11 ticks ~268MHz; ~3s threshold. Only arm once frames have started (hb advanced). */
+    if (!fired && lastHb != 0xFFFFFFFFu && (now - lastChangeTick) > (u64)SYSCLOCK_ARM11 * 3ULL) {
+        plat3dsLogv("WATCHDOG STALL: main thread hung in phase=%s after frame hb=%u (~3s no progress)",
+                    g_turok_phase ? g_turok_phase : "?", hb);
+        fired = 1;
+    }
+}
+
 static void audioThreadMain(void *arg)
 {
     (void)arg;
@@ -176,6 +201,7 @@ static void audioThreadMain(void *arg)
             audioEndFrame();       /* -> ndsp ring */
             RecursiveLock_Unlock(&sSynthLock);
         }
+        audioWatchdogTick();             /* freeze detector (logs the hung phase once per stall) */
         svcSleepThread(2 * 1000000LL);   /* 2ms poll pacing — never spin */
     }
 }

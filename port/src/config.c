@@ -49,6 +49,8 @@ int   g_cfg_widescreen   = 1;        /* 1 = Hor+ widescreen (project at the outp
  * play while leaving far-plane depth precision far better than the N64 had (24-bit, near/far=4/1024). Tune on
  * 3DS HW via turok.cfg `nearclip`: lower (2) if a wall still clips, higher (8) if distant z-fighting appears. */
 float g_cfg_nearclip     = 4.0f;
+int   g_cfg_memlog       = 0;        /* 3DS: 1 = emit the per-second MEM heartbeat (linFreeKB/linMinKB/texOOM) to boot.log (needs `debug 1`). Diagnostic for the FCRAM/linear-heap pressure that drops alpha textures then wedges the GPU. */
+int   g_cfg_fogclamp     = 6;        /* 3DS: max combiner stages that still get the appended TEV fog stage. 6 = stock (fog on any draw with a free stage, can hit the 6-stage PICA ceiling). Lower (e.g. 4) clamps busy combiners back to the hardware FogLut so dense fogged levels (Lost City) can't run the GPU to the stage limit. turok.cfg `fogclamp`. */
 
 /* Draw-distance ceiling. PC = up to 3x (the slider is a PC feature). 3DS is locked at stock 1x (draw distance is
  * framerate-gated there); the options menu hides the slider row when the max is 1x. */
@@ -104,6 +106,8 @@ void turokConfigLoad(void)
         else if (!strcmp(key, "drawdist"))          g_cfg_drawdist     = (float)val;
         else if (!strcmp(key, "widescreen"))        g_cfg_widescreen   = (int)val ? 1 : 0;
         else if (!strcmp(key, "nearclip"))          g_cfg_nearclip     = (float)val;
+        else if (!strcmp(key, "memlog"))            g_cfg_memlog       = (int)val ? 1 : 0;
+        else if (!strcmp(key, "fogclamp"))          g_cfg_fogclamp     = (int)val;
     }
     fclose(f);
 
@@ -115,6 +119,10 @@ void turokConfigLoad(void)
     /* Clamp the near clip to a sane range (0.5..16). 16 = stock; below ~0.5 risks close-up z precision. */
     if (g_cfg_nearclip > 16.0f) g_cfg_nearclip = 16.0f;
     if (g_cfg_nearclip < 0.5f)  g_cfg_nearclip = 0.5f;
+
+    /* Clamp the fog stage cap to 0..6. 0 = no TEV fog at all (all FogLut); 6 = stock. */
+    if (g_cfg_fogclamp > 6) g_cfg_fogclamp = 6;
+    if (g_cfg_fogclamp < 0) g_cfg_fogclamp = 0;
 
     g_turok_walk_mode = g_cfg_walk_default;   /* seed the run/walk toggle from the saved default */
     fprintf(stderr, "[config] loaded '%s' (sens=%.2f invert=%d walk=%d win=%dx%d)\n",

@@ -533,6 +533,47 @@ game files are acceptable. Keep them minimal and listed here so they're reviewab
   unique-id collision (esp. the `0xff3ff` template default vs sm64-3ds); and to ship it standalone, bundle the asset
   ROM in the CIA's RomFS and read it via `romfsMountSelf` (the `romfsInit` inline won't link).**
 
+- **★★ LOST CITY (level 3) INTERMITTENT HARD FREEZE = GPU/GSP COMMAND PRESSURE, not a leak — FIXED via per-draw
+  TEV combiner DEDUP + fog-stage clamp (2026-06-30, branch `state-dedup`; USER-CONFIRMED "never crashed" on HW).**
+  User: a long Lost City session intermittently HARD-FROZE (no crash dump), with transparent textures (spiderwebs,
+  enemy-projectile sprites) going OPAQUE shortly before. **ROOT CAUSE: it was NEVER a memory/resource leak** — it's
+  the PICA200/GSP wedging under sustained GPU **command** load in a dense, fully-fogged level. **How it was proven
+  (the method is the lesson):** built a gated leak-repro harness (god mode + forced level reloads + a clamped
+  roam-teleport that walks the bot across the level so it loads the full texture/combiner set) + a per-second
+  heartbeat watching EVERY resource — and ran it on BOTH the **PC ground truth** (132+ reloads, full-level roam:
+  texture-cache/GL-texture/framebuffer/RSS all BOUNDED + flat) **and Mandarine** (`vramSpaceFree()`/linear flat
+  across 39 reloads, `texOOM=0`). Resource leaks RULED OUT on two independent platforms. Corroborating signals all
+  agreed: 3DS telemetry showed **stable `linFreeKB`, `texOOM=0`**, the freeze is **GPU-side** (the audio-thread
+  watchdog caught `phase=present`/`gpu_frameend`), it's **system-wide** (the final hard wedge stops even the audio
+  thread → a kernel/GSP GPU hang), and **Mandarine CANNOT reproduce the freeze** (HLE doesn't model the ARM11/GPU
+  timing that wedges real silicon — the project's signature "HW-only intermittent = silicon/timing" pattern). The
+  "opaque silhouettes" were a red herring re leaks: with `texOOM=0` the textures uploaded fine; they're the bilinear
+  alpha-edge / combiner issue, NOT a missing-texture OOM. **THE FIX (two stacked load levers, both gated/3DS):**
+  (1) **`fogclamp` (turok.cfg, default 6=stock)** — Turok does per-fragment distance fog in the TEV (an appended
+  `INTERPOLATE` stage on every fogged draw, [gfx_citro3d.cpp](port/fast3d/gfx_citro3d.cpp) ~713) to match the N64's
+  smooth fog instead of the banding hardware FogLut; in a fully-fogged level that runs busy combiners at/near the
+  **6-stage PICA ceiling**. `fogclamp 4` reverts combiners with ≥4 stages to the hardware FogLut (PD's path) so they
+  never hit the ceiling — measurably cut the recoverable GPU stalls **3→0** and extended survival. (2) **★ PER-DRAW
+  TEV STATE DEDUP** ([gfx_citro3d.cpp](port/fast3d/gfx_citro3d.cpp) `applyCmdState`) — `applyCmdState` re-issued up to
+  **6 `C3D_SetTexEnv` calls (the whole combiner, incl. the fog stage) on EVERY draw, and AGAIN per eye under stereo**.
+  Turok submits long runs of same-combiner draws (all fogged world geo shares one fog-stage combiner), so it shadows
+  the **effective** TEV config — program ptr + chain select + fog-stage layout + every per-stage CONSTANT colour —
+  and SKIPS the re-upload when unchanged (extends the existing depth/blend/alpha dedup from the billboard fix; reset
+  at the same `cmdStateInvalidate()` boundaries — per replay pass / direct write). **Pure optimization** (identical
+  state applied, just not redundantly) → cuts GSP command volume (the exact wedge pressure) + the fog's per-draw cost,
+  helps EVERY level, ~doubles under stereo. **VERIFIED:** Mandarine renders Lost City byte-identically (textures/fog/
+  foliage/HUD/weapon all correct), resources flat over reloads, 0 crash/anomaly; **user-confirmed on HW "runs nicer"
+  + a full Lost City session NEVER crashed.** **★ PICA HAS 6 TEV STAGES** (libctru `GPUREG_TEXENV0..5`), not 5 — a
+  common misremember; the code's `< 6` loops are correct. **LESSONS: (1)** a HW-only intermittent FREEZE-no-dump that
+  HLE can't reproduce + all resources bounded = a **GPU/GSP command-pressure wedge** (or silicon timing), NOT a leak —
+  prove it by instrumenting EVERY resource on PC **and** the emulator before chasing a leak. **(2)** the cure is to
+  REDUCE GPU work: a Fast3D→PICA backend re-uploads the whole combiner per draw (N64 DL re-asserts state every draw) —
+  **dedup the per-draw GPU state** (TEV stages + depth/blend/alpha), a pure perf win that doubles under stereo and
+  directly relieves the wedge. **(3)** authentic per-fragment effects (TEV fog) push the PICA's 6-stage ceiling hard;
+  a `fogclamp`-style fallback-to-FogLut for busy combiners buys headroom without losing the look on the common draws.
+  Generalize to any dense Fast3D→Citro3D level + the Vita/Dreamcast backends. The gated GPU watchdog (audio-thread,
+  logs the hung `phase=` on a ~3s stall) + the mem/VRAM heartbeat (`memlog 1`) were kept for future triage.
+
 - **★★ CIA MEMORY MODE + OG-3DS LOMEM (64MB) TEXTURE TIER (2026-06-27, branch `og3ds-lomem`).** The installed CIA
   showed **texture corruption that the `.3dsx` never had** — because the `.3dsx` inherits the Homebrew Launcher's
   extended memory, but the CIA's RSF was `SystemModeExt: Legacy` / `SystemMode: 64MB`, so as a native Application
