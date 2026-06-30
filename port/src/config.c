@@ -51,7 +51,6 @@ int   g_cfg_widescreen   = 1;        /* 1 = Hor+ widescreen (project at the outp
 float g_cfg_nearclip     = 4.0f;
 int   g_cfg_memlog       = 0;        /* 3DS: 1 = emit the per-second MEM heartbeat (linFreeKB/linMinKB/texOOM) to boot.log (needs `debug 1`). Diagnostic for the FCRAM/linear-heap pressure that drops alpha textures then wedges the GPU. */
 int   g_cfg_fogclamp     = 6;        /* 3DS: max combiner stages that still get the appended TEV fog stage. 6 = stock (fog on any draw with a free stage, can hit the 6-stage PICA ceiling). Lower (e.g. 4) clamps busy combiners back to the hardware FogLut so dense fogged levels (Lost City) can't run the GPU to the stage limit. turok.cfg `fogclamp`. */
-int   g_cfg_leaktest     = 0;        /* DEBUG (removable): >0 = run the leak-repro harness (god mode + a forced level reload every N frames). Env TUROK_LEAKTEST overrides on PC; this is the 3DS/Mandarine trigger (no env vars there). turok.cfg `leaktest`. */
 
 /* Draw-distance ceiling. PC = up to 3x (the slider is a PC feature). 3DS is locked at stock 1x (draw distance is
  * framerate-gated there); the options menu hides the slider row when the max is 1x. */
@@ -109,7 +108,6 @@ void turokConfigLoad(void)
         else if (!strcmp(key, "nearclip"))          g_cfg_nearclip     = (float)val;
         else if (!strcmp(key, "memlog"))            g_cfg_memlog       = (int)val ? 1 : 0;
         else if (!strcmp(key, "fogclamp"))          g_cfg_fogclamp     = (int)val;
-        else if (!strcmp(key, "leaktest"))          g_cfg_leaktest     = (int)val;
     }
     fclose(f);
 

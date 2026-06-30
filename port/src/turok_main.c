@@ -48,45 +48,11 @@ static long     g_max_frames = 0;          /* 0 = run unbounded */
 static long     g_capture_frame = -1;      /* -1 = no capture */
 static const char *g_capture_path = "turok_frame.png";
 
-/* ── LEAK-TEST heartbeat (TUROK_LEAKTEST=1; PLATFORM_PORT, removable). Watches the SHARED resource
- * registries + process RSS for a per-teleporter-reload leak (the Lost City 3DS-freeze root, hunted on the
- * fast PC ground truth). A monotonic climb across reloads = a shared-code leak → fix un-gated. */
-int g_leaktest_reloads = 0;   /* bumped by the tengine.c driver on each forced reload */
-#ifndef PLATFORM_3DS
-extern int gfx_debug_texcache_size(void);
-extern int gfx_debug_freeids_size(void);
-extern int gfx_debug_fb_count(void);
-extern int gfx_debug_gl_tex_live(void);
-static long leaktest_rss_kb(void)
-{
-    FILE *f = fopen("/proc/self/statm", "r");
-    long total = 0, res = 0;
-    if (!f) return -1;
-    if (fscanf(f, "%ld %ld", &total, &res) != 2) res = 0;
-    fclose(f);
-    return (res * (long)sysconf(_SC_PAGESIZE)) / 1024;
-}
-static void leaktest_heartbeat(long frame)
-{
-    static int en = -1;
-    if (en < 0) { const char *e = getenv("TUROK_LEAKTEST"); en = (e && atoi(e)) ? 1 : 0; }
-    if (!en) return;
-    if ((frame % 60) != 0) return;
-    fprintf(stderr, "[LEAK] frame=%ld reloads=%d rssKB=%ld texCache=%d freeIds=%d fbs=%d glTex=%d\n",
-            frame, g_leaktest_reloads, leaktest_rss_kb(),
-            gfx_debug_texcache_size(), gfx_debug_freeids_size(),
-            gfx_debug_fb_count(), gfx_debug_gl_tex_live());
-}
-#else
-static void leaktest_heartbeat(long frame) { (void)frame; }
-#endif
-
 /* Called from os_shim's osViSwapBuffer once per presented frame. */
 void turokVideoSwap(void *frameBuf)
 {
     (void)frameBuf;
     g_frame++;
-    leaktest_heartbeat(g_frame);
     if (g_frame <= 8 || (g_frame % 60) == 0)
         fprintf(stderr, "[turok] frame %ld\n", g_frame);
     /* NOTE: capture is done in turokGfxEndFrame (keyed to REAL render frames), NOT here —

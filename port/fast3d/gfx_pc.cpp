@@ -267,13 +267,6 @@ static bool fbActive = 0;
 static std::map<int, FBInfo>::iterator active_fb;
 static std::map<int, FBInfo> framebuffers;
 
-/* ── LEAK-TEST instrumentation (TUROK_LEAKTEST; removable). Shared accessors so the per-frame heartbeat
- * (turok_main.c) can watch the SHARED resource registries for a teleporter-reload leak — these are the
- * structures that, if they grow per reload, leak on PC, 3DS (VRAM), AND N64. */
-extern "C" int gfx_debug_texcache_size(void) { return (int)gfx_texture_cache.map.size(); }
-extern "C" int gfx_debug_freeids_size(void)  { return (int)gfx_texture_cache.free_texture_ids.size(); }
-extern "C" int gfx_debug_fb_count(void)       { return (int)framebuffers.size(); }
-
 static constexpr float clampf(const float x, const float min, const float max) {
     return (x < min) ? min : (x > max) ? max : x;
 }
