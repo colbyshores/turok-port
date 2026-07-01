@@ -505,6 +505,35 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
+- **★★ WIDESCREEN DEATH-CINEMATIC SKY = BLACK L/R BARS — FIXED (2026-07-01, branch `widescreen-death-sky`; PC
+  verified headless, 3DS shares the fix, awaiting HW confirm).** User: on PC AND 3DS the death cinematics show
+  vertical BLACK-BAR voids on the LEFT/RIGHT (not a stereo-shear artifact — happens with the 3D slider at 0);
+  "the sky is still 4:3 during death animations." **ROOT CAUSE (render seam, shared PC+3DS — the whole widescreen
+  system is `#ifdef PLATFORM_PORT`, and `gfx_pc.cpp` is NEVER compiled for N64, so the native N64 build stays
+  4:3):** in a cinematic the LETTERBOX is realized by the SCISSOR (band y≈48..192, [camera.c
+  CCamera__DisplayListSetup](src/PR/tengine/camera.c#L1054)), and Turok issues its full-width backdrop/fog fill
+  via `gDPScisFillRectangle`. The scissor clips that fill to the band, so it reaches
+  [gfx_dp_fill_rectangle](port/fast3d/gfx_pc.cpp#L2628) full-WIDTH but NOT full-HEIGHT (e.g. `0,48,319,190`). The
+  existing "fullscreen fade/clear broaden" required `uly<=0 && lry>=239*4` (full height too), so it **missed the
+  letterboxed fill** → [gfx_draw_rectangle](port/fast3d/gfx_pc.cpp#L2437)'s 2D pillarbox (`gfx_ws_pillarbox`)
+  shrank it to the central 4:3 → black L/R bars. With the sky texture ON, the translucent CLD_SURF sky drew over
+  the black 4:3 backdrop, so the side bands read as **darker/near-black bars** (the user's "sky is 4:3"). **FIX:**
+  broaden ANY full-WIDTH fill's X to the whole screen (broaden Y only when it ALSO spans full height = a true
+  fullscreen fade/clear); the scissor still confines the letterbox band, so it only widens. **★ METHOD (reusable —
+  headless widescreen capture):** the EGL/OSMesa headless path was hardwired to 320×240 (4:3) so it could NEVER
+  reproduce a widescreen bug; added `TUROK_WIN_W/H` to [turok_main.c](port/src/turok_main.c) `turokGfxInit`
+  (PC-only, default 320×240, inert for SDL2 which self-sizes via `g_cfg_win_w/h`) → capture at 1280×720, force a
+  death via a temporary gated `TUROK_FALLDEATH` hook (fall-death camera sits BELOW Turok looking UP at the sky,
+  [cinecam.c](src/PR/tengine/cinecam.c#L351)), and A/B with a `TUROK_NOSKY` toggle. The **sky-off** capture showed
+  the backdrop fill pillarboxed to 4:3 with black L/R; a `TUROK_FILLLOG` trace caught the exact culprit rect
+  `(0,192,1276,760)` = pixels `(0,48,319,190)` fullW=1 fullH=0. All scaffolding removed after. **REGRESSION-SAFE:**
+  the only full-width UI fill is the map background ([map.c:307](src/PR/tengine/map.c#L307), `0,0,319,239`) which is
+  full-HEIGHT and already broadened; HUD box borders ([onscrn.c](src/PR/tengine/onscrn.c#L2096)) aren't full-width
+  so they stay 4:3-centered. **LESSON: on a widescreen Fast3D port, the "fullscreen fade/clear must cover the whole
+  widescreen" broaden must trigger on full-WIDTH (not full-SCREEN) — a cinematic/letterbox SCISSOR clips a
+  full-screen fill to a band, so it arrives full-width-but-not-full-height and the full-screen test misses it,
+  leaving the backdrop pillarboxed to 4:3 = black side bars (masked to "dark bars" behind a translucent sky).**
+
 - **★ 3DS CIA PACKAGING — `make -f Makefile.3ds cia` → `build_3ds/turok.cia` (installable, SELF-CONTAINED HOME-menu
   app) (2026-06-27, branches `3ds-cia`/`3ds-cia-icon`/`3ds-cia-visible`/`3ds-cia-uid` + ROM-bundle → master;
   HW-CONFIRMED installs+shows).** In addition to the `.3dsx`, the build produces a CIA with a banner + icon + the
