@@ -145,6 +145,19 @@ void CSun__ReadZDepth(CSun *pThis, Gfx **ppDLP)
 	pSource = &zbuffer[alignedX + y*SCREEN_WD];
 	pDest = (unsigned short*) pSunFrame->m_DepthData;
 
+#ifdef PLATFORM_PORT
+	/* PORT: the N64 reads the z-buffer back into m_DepthData by pointing the RDP color image at an
+	 * OFF-SCREEN buffer (pDest) and copying an 8x1 z-block there with a texrect at N64 (0,0)-(7,0). The
+	 * Fast3D port does NOT honor that color-image redirect, so the copy texrect renders to the REAL
+	 * framebuffer instead — a small black rectangle at the top of the centered 4:3 band (widescreen maps
+	 * N64 x=0 to ~the left edge of the 4:3 region), visible whenever the sun is in view (looking up).
+	 * Skip the readback DL entirely and mark the sun UNOCCLUDED (all depth samples at the far value) so
+	 * the lens-flare/glare opacity still reads fully visible when the sun is in the frustum. */
+	{ int i; for (i = 0; i < 8; i++) pDest[i] = 0xffff; }
+	(void) pSource;
+	return;
+#endif
+
 	// read value from Z buffer
 	gDPLoadTextureBlock(((*ppDLP)++),
 							  RDP_ADDRESS(pSource), G_IM_FMT_RGBA, G_IM_SIZ_16b,
