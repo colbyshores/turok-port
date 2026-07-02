@@ -594,8 +594,21 @@ extern u64					rmon_stack[];
 // Memory pool for dynamic allocations
 /////////////////////////////////////////////////////////////////////////////
 
-// 1448k
-#define MEMORY_POOL_SIZE 	0x16A000
+// 1448k on the N64 (0x16A000). ★ PORT: this cart-cache streaming pool is the SAME size the N64 shipped,
+// but the port's true per-frame working set already EXCEEDS it on some levels even at spawn (measured:
+// level 3 needs ~1.77MB at spawn vs the 1.45MB pool), and dense combat pushes it far higher. When the pool
+// can't fit a frame's pinned working set, CCartCache__RequestBlock SILENTLY DROPS the block load
+// (CCartCache__Alloc returns NULL) -> the enemy's GEOMETRY never loads, so its AI runs (it fires at you)
+// but its model is invisible ("soldiers invisible but firing", worst on the biggest levels like level 2/3).
+// We have RAM to spare on the host, so enlarge the pool well past any single level's working set. The pool
+// is a real free-list allocator (i3D_mallocPool, coalescing) over this static array, so enlarging is safe.
+#if defined(PLATFORM_3DS)
+#define MEMORY_POOL_SIZE 	0x800000    /* 8MB — 3DS main FCRAM; ~4x the measured combat headroom */
+#elif defined(PLATFORM_PORT)
+#define MEMORY_POOL_SIZE 	0x2000000   /* 32MB — PC, trivially available */
+#else
+#define MEMORY_POOL_SIZE 	0x16A000    /* N64: unchanged (real hardware budget) */
+#endif
 extern u32 dynamic_memory_pool[];
 
 // message queue
