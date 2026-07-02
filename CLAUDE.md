@@ -505,6 +505,38 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
+- **★★ ENEMIES INVISIBLE BUT FIRING (esp. LEVEL 2) = CART-CACHE POOL TOO SMALL — FIXED (2026-07-01, branch
+  `pc-port-fixes`, commit `d71e1d1`).** User: "enemies sometimes don't appear on the PC version; especially level
+  2 — the soldiers were invisible but firing at me invisibly." **ROOT CAUSE:** the cart-cache STREAMING pool
+  (`dynamic_memory_pool`, [MEMORY_POOL_SIZE](src/PR/tengine/tengine.h#L598)) was still the N64's **1.45MB
+  (`0x16A000`)**, but the port's true per-frame WORKING SET already EXCEEDS it. When a frame's *pinned* working set
+  (all the `ResetAge`'d world geo + textures + collision + every on-screen enemy's geometry/anims) doesn't fit,
+  [CCartCache__Alloc](src/PR/tengine/cart.c#L1441) returns NULL and [CCartCache__RequestBlock](src/PR/tengine/cart.c#L1597)
+  **SILENTLY DROPS the block load** (the `if (pData || alreadyRetreiving)` guard is false → the notify is dealloc'd,
+  the block never loads). So an on-screen enemy's GEOMETRY block never becomes resident:
+  [CGameObjectInstance__Draw](src/PR/tengine/romstruc.c#L8607) runs the AI (the enemy SHOOTS), passes the
+  bounds/AI_VISIBLE/view-volume gates, but bails at the `if (pceGeometry)` gate (romstruc.c ~8862) and emits **no
+  model**. Worst on the biggest levels (more competing blocks) and intermittent (depends which block loses the
+  per-frame alloc race) = exactly the report. **★ CONFIRMED by controlled experiment (all scaffolding removed):**
+  a temp free-list high-water probe showed the STOCK pool at **99.8% full at level-3 spawn (2888 bytes free)** with
+  just a patrol; a 32MB measurement pool showed the TRUE spawn+patrol working set reaching **~1.77MB (level 3) —
+  already OVER the 1.45MB pool BEFORE any dense combat**; and shrinking the pool to 256KB made `CCartCache__RequestBlock`
+  visibly drop block loads (`POOL_FULL`). The 32MB run PLATEAUED at <1.8MB (bounded — NOT a leak; it's a modestly
+  larger working set, ~1.2× the N64 budget, from Path B retail assets being finished/larger + higher detail).
+  **FIX:** enlarge the pool well past any single level's working set — **32MB on PC, 8MB on 3DS** (main FCRAM, ~4×
+  the combat headroom), **N64 unchanged at 1.45MB** (`#if PLATFORM_3DS / #elif PLATFORM_PORT / #else`; PLATFORM_3DS
+  checked first since it also defines PLATFORM_PORT). The pool is a real coalescing free-list allocator
+  ([i3D_mallocPool](src/PR/tengine/memory.c)) over the static array, so enlarging is safe. Verified: all warps load
+  rc=0, level 2 renders unchanged (4806 colours), PC+3DS build clean. **★ NOTE re the old "48MB cache didn't help"
+  note (the collision-relocation entry): that was a DIFFERENT failure — blocks age out and re-decompress at a new
+  address by DESIGN (age-based discard) regardless of room, so a big pool can't stop RELOCATION. But this
+  invisible-enemy bug is alloc-FAILURE (`pData==NULL` when everything's pinned), which a big pool DIRECTLY fixes.
+  Don't conflate the two.** **LESSON: an N64 game's streaming cache is sized for the N64's exact working set; a port
+  that loads finished/retail assets, renders at higher detail, or pins more blocks per frame can silently exceed it,
+  and the cache's failure mode is to DROP the load (returning stale/NULL), which surfaces as an enemy whose AI runs
+  but whose model never appears. On the host, just make the pool big enough — but MEASURE the true working set first
+  (a bounded plateau confirms it's a fit problem, not a leak).**
+
 - **★★ WIDESCREEN DEATH-CINEMATIC SKY = BLACK L/R BARS — FIXED & MERGED (2026-07-01, branch `widescreen-death-sky`
   → master; USER-CONFIRMED on 3DS HW + PC verified headless).** User: on PC AND 3DS the death cinematics show
   vertical BLACK-BAR voids on the LEFT/RIGHT (not a stereo-shear artifact — happens with the 3D slider at 0);

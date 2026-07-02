@@ -603,7 +603,7 @@ extern u64					rmon_stack[];
 // We have RAM to spare on the host, so enlarge the pool well past any single level's working set. The pool
 // is a real free-list allocator (i3D_mallocPool, coalescing) over this static array, so enlarging is safe.
 #if defined(PLATFORM_3DS)
-#define MEMORY_POOL_SIZE 	0x800000    /* 8MB — 3DS main FCRAM; ~4x the measured combat headroom */
+#define MEMORY_POOL_SIZE 	0x400000    /* 4MB — fits OG 3DS 64MB budget; ~2x the measured 1.77MB working set */
 #elif defined(PLATFORM_PORT)
 #define MEMORY_POOL_SIZE 	0x2000000   /* 32MB — PC, trivially available */
 #else
