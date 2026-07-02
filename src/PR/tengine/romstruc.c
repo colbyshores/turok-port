@@ -8763,7 +8763,18 @@ void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 						|| pThis->m_pBoss
 						|| pThis->ah.ih.m_pEA->m_InteractiveAnim
 						|| !pThis->m_AI.m_Health
-						|| (distFromPlayerSquared < SQR(AI_DISTANCE)) )
+						|| (distFromPlayerSquared < SQR(AI_DISTANCE))
+#ifdef PLATFORM_PORT
+						/* PORT: the N64 froze AI for enemies farther than a fixed 512u AND off-screen (a
+						 * CPU-saving cap). That capped enemy DETECTION well short of many enemies' designed
+						 * sight/hearing range, so distant enemies never notice the player ("enemies at a
+						 * distance don't see me"). We have the CPU headroom, so also run AI whenever the
+						 * player is within the enemy's OWN sight OR loud-hearing radius (both stored SQUARED
+						 * in CEnemyAttributes) — it detects at exactly its intended range, no farther. */
+						|| (distFromPlayerSquared < pThis->ah.ih.m_pEA->m_SightRadius)
+						|| (distFromPlayerSquared < pThis->ah.ih.m_pEA->m_LoudRadius)
+#endif
+						)
 				{
 					sendEvents = TRUE;
 
