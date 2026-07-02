@@ -505,8 +505,8 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
-- **★★ WIDESCREEN DEATH-CINEMATIC SKY = BLACK L/R BARS — FIXED (2026-07-01, branch `widescreen-death-sky`; PC
-  verified headless, 3DS shares the fix, awaiting HW confirm).** User: on PC AND 3DS the death cinematics show
+- **★★ WIDESCREEN DEATH-CINEMATIC SKY = BLACK L/R BARS — FIXED & MERGED (2026-07-01, branch `widescreen-death-sky`
+  → master; USER-CONFIRMED on 3DS HW + PC verified headless).** User: on PC AND 3DS the death cinematics show
   vertical BLACK-BAR voids on the LEFT/RIGHT (not a stereo-shear artifact — happens with the 3D slider at 0);
   "the sky is still 4:3 during death animations." **ROOT CAUSE (render seam, shared PC+3DS — the whole widescreen
   system is `#ifdef PLATFORM_PORT`, and `gfx_pc.cpp` is NEVER compiled for N64, so the native N64 build stays
