@@ -4109,7 +4109,24 @@ void CScene__DrawSky(CScene *pThis, Gfx **ppDLP)
 		// copy corners to vC
 		for (v=0; v<5; v++)
 			vC[v] = GetApp()->m_vTCorners[v];
-		
+
+#ifdef PLATFORM_PORT
+		/* DRAW-DISTANCE SLIDER must NOT distort the sky. The sky fan is built from the frustum far-corners
+		 * (m_vTCorners), then each corner is clipped to the view-volume FAR plane below. The slider multiplies
+		 * the region far clip (m_FarClip) by g_cfg_drawdist (tengine.c), which pushes that far plane out — so
+		 * at 3x the sky corners are clipped 3x farther, and the flat sky plane's texcoords (fixed farClip
+		 * below) no longer match the 3x-larger span, shearing the sky into a warped "ceiling". Clamp each sky
+		 * corner to the STOCK far distance from the eye (m_FarClip / drawdist) so the sky is built as if the
+		 * slider were at 1x; the WORLD geometry still extends to the full far clip. vC[0] is the eye/center. */
+		{ extern float g_cfg_drawdist;
+		  if (g_cfg_drawdist > 1.0f) { float maxd = GetApp()->m_FarClip / g_cfg_drawdist; int q;
+		    for (q = 1; q < 5; q++) {
+		      float dx = vC[q].x - vC[0].x, dy = vC[q].y - vC[0].y, dz = vC[q].z - vC[0].z;
+		      float d = (float)sqrt(dx*dx + dy*dy + dz*dz);
+		      if (d > maxd) { float s = maxd / d;
+		        vC[q].x = vC[0].x + dx*s; vC[q].y = vC[0].y + dy*s; vC[q].z = vC[0].z + dz*s; } } } }
+#endif
+
 		height = pThis->m_SkyHeight - (l*SKY_DROP*SCALING_FACTOR);
 
 		// don't let sides go thorough far clip
