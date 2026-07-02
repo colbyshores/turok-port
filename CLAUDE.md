@@ -505,6 +505,37 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
+- **★★ PC INTERMITTENT CRASH = TEXTURE-CACHE USE-AFTER-FREE regression from commit `8c2e099` — FIXED
+  (2026-07-02, commit `c554a58`, branch `pc-port-fixes`). Caught by VALGRIND (first use here).** User: "turok
+  fucking crashed on the PC" (segfault right after the Path B ROM-load line, intermittent, ~1/20) — a NEW bug
+  ("this was working before… sonnet made a change and fucked it up"). **ROOT CAUSE:** `8c2e099` ("wrong textures
+  at extended draw distance") added a content-signature re-validation to
+  [gfx_texture_cache_lookup](port/fast3d/gfx_pc.cpp#L698): on a cache HIT whose source bytes changed (the cart
+  cache reused a freed address for a DIFFERENT texture) it EVICTS the stale entry via
+  `gfx_texture_cache.map.erase(it)` and re-uploads. But the erase **FREES the map node while
+  `rendering_state.textures[]` may STILL point at it** — the OTHER texture unit, or this unit from a prior frame
+  whose `rdp.textures_changed` went false so it was never re-imported. `gfx_sp_tri1` then READS and WRITES that
+  freed node every draw ([gfx_pc.cpp:1841-1847](port/fast3d/gfx_pc.cpp#L1841): `node->second.linear_filter/cms/
+  cmt`) = a use-after-free + **write-after-free that corrupts the heap continuously** → intermittent crashes
+  anywhere (incl. the SDL init NULL-deref the user's log showed — a heap-corruption casualty). The stock
+  `gfx_texture_cache_delete` already NULLs those slots when deleting by address; the NEW eviction path forgot to.
+  **★ HOW IT WAS FOUND (the method — VALGRIND, not tried before per §11):** the crash never reproduced in an
+  isolated SDL window-create loop (100+ clean) but did in the full game → memory corruption. `valgrind --tool=
+  memcheck` on the `-O0` SDL build (software GL via `LIBGL_ALWAYS_SOFTWARE=1`, `TUROK_NOAUDIO=1`, bounded frames)
+  pinned it deterministically: **9 "Invalid read/write into a freed 36-byte texture-cache node" per frame**, freed
+  at the stale-evict `map.erase` (gfx_pc.cpp:699), still referenced by `rendering_state.textures[]`. **FIX:**
+  `gfx_texture_cache_forget_node()` — before freeing a node at EITHER eviction site (the new stale-evict AND the
+  pre-existing latent LRU-evict at gfx_pc.cpp:727), NULL any `rendering_state` slot pointing at it + mark it
+  `textures_changed` so it's re-imported before the next draw (mirrors `gfx_texture_cache_delete`). Keeps the
+  `8c2e099` stale-texture fix; only closes the dangling-pointer hole. **VERIFIED:** valgrind 9 UAF/frame → **0**
+  (reaches frame 8+, past the trigger); fixed release build **0 crashes / 50 runs** (was intermittent); PC + 3DS
+  compile clean (gfx_pc is port-only; 3DS takes only the LRU-evict site). **LESSON: an intermittent crash that
+  reproduces ONLY in the full process, never in isolation, is heap corruption — reach for VALGRIND (it flags the
+  UAF/overflow every frame, deterministically, even when the corruption doesn't happen to land on a fatal
+  pointer that run). And any cache-EVICTION path that frees a node must clear every out-of-band pointer that may
+  still reference it (here `rendering_state.textures[]`), exactly like the by-address delete already does — a new
+  evict site that copies the free but not the pointer-clearing is a classic UAF.**
+
 - **★★ AUDIO DEADLOCK (`__CSPVoiceHandler` spin = CSP event queue overflow) — FIXED (2026-07-02).**
   Watchdog: main thread blocked on `audioSynthLock()` inside `CEngineApp__UpdateGAME`; audio thread held
   `s_synthLock` forever inside `alAudioFrame` → `__CSPVoiceHandler`. **ROOT CAUSE:** the CSP's `do-while` in
