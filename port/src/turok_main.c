@@ -156,7 +156,15 @@ int main(int argc, char **argv)
         return 1;
     }
     BL("main: romdataInit ok -> turokGfxInit");
-    turokGfxInit(320, 240);      /* Fast3D + Citro3D (3DS) */
+    { int _gw = 320, _gh = 240;
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+      /* Headless (EGL/OSMesa) render resolution — honor TUROK_WIN_W/H so a widescreen capture is possible
+       * (the SDL2 window already uses g_cfg_win_w/h). Default stays 320x240. */
+      { const char *ew = getenv("TUROK_WIN_W"), *eh = getenv("TUROK_WIN_H");
+        if (ew && *ew) _gw = atoi(ew); if (eh && *eh) _gh = atoi(eh);
+        if (_gw < 64) _gw = 320; if (_gh < 64) _gh = 240; }
+#endif
+      turokGfxInit(_gw, _gh); }   /* Fast3D + Citro3D (3DS) */
     BL("main: turokGfxInit done");
 
     if (setjmp(g_escape) == 0) {

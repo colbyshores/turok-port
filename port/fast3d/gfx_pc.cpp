@@ -2649,14 +2649,23 @@ static void gfx_dp_fill_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t
     }
     uint32_t mode = (rdp.other_mode_h & (3U << G_MDSFT_CYCLETYPE));
 
-    // Widescreen screen fades/clears: any fill covering the full 4:3 area (Turok's RenderTint uses 0,0,320,240
-    // via gDPScisFillRectangle, the older path uses 0,0,319,239) must cover the WHOLE widescreen, not just the
-    // central 4:3 — else the fade leaves the side bands unfaded. Expand any fill that spans the full screen.
-    if (ulx <= 0 && uly <= 0 && lrx >= 319 * 4 && lry >= 239 * 4) {
+    // Widescreen screen fades / clears / backdrops (PC + 3DS; gfx_pc is port-only, never built for N64, so the
+    // native N64 target stays 4:3): a fill that spans the full 4:3 WIDTH must cover the whole widescreen width,
+    // not just the central 4:3 — otherwise gfx_draw_rectangle's 2D pillarbox shrinks it and leaves black side
+    // bands. Turok's RenderTint fade uses 0,0,320,240 and the frame clear uses 0,0,319,239 (both full width AND
+    // height). The case that caused the DEATH-CINEMATIC side voids: the level's full-width backdrop/fog fill is
+    // issued via gDPScisFillRectangle, so in cinema mode the letterbox SCISSOR clips it to the band (uly≈48,
+    // lry≈190) — full width but NOT full height — which the old "full 4:3 screen" test (uly<=0 && lry>=240)
+    // missed, so it got pillarboxed to 4:3 and the sky/backdrop showed black L/R bars. Broaden any full-WIDTH
+    // fill's X to the whole screen; broaden Y as well only when it also spans full height (a true fullscreen
+    // fade/clear). The scissor still confines the letterbox band, so this only widens, never overdraws the bars.
+    if (ulx <= 0 && lrx >= 319 * 4) {
         ulx = -1024;
-        uly = -1024;
         lrx = 2048;
-        lry = 2048;
+        if (uly <= 0 && lry >= 239 * 4) {
+            uly = -1024;
+            lry = 2048;
+        }
     }
 
     if (mode == G_CYC_COPY || mode == G_CYC_FILL) {
