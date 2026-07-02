@@ -43,6 +43,10 @@ struct TextureCacheValue {
     uint32_t texture_id;
     uint8_t cms, cmt;
     bool linear_filter;
+    uint32_t content_sig;   /* PC: cheap signature of the source texel bytes at upload; a cache HIT whose
+                             * source data no longer matches (the cart cache reused this address for a
+                             * DIFFERENT texture) is treated as stale and re-uploaded. Fixes wrong textures
+                             * at extended draw distance. 0/unused on 3DS (gfx_citro3d validates separately). */
 
     std::list<struct TextureCacheMapIter>::iterator lru_location;
 };

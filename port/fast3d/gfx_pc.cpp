@@ -664,16 +664,48 @@ void gfx_texture_cache_clear() {
     if (gfx_rapi && gfx_rapi->invalidate_texture_cache) gfx_rapi->invalidate_texture_cache();
 }
 
-static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+/* Cheap O(1) content signature of a texture's source bytes: FNV over the size + four sampled words
+ * (start, 1/3, 2/3, end). Two different textures at the same reused address almost always differ here. */
+static inline uint32_t tex_content_sig(const uint8_t* a, size_t n) {
+    if (!a) return 0;
+    uint32_t h = 2166136261u ^ (uint32_t)n;
+    size_t o[4] = { 0, n / 3, (2 * n) / 3, n >= 4 ? n - 4 : 0 };
+    for (int k = 0; k < 4; k++) {
+        size_t off = o[k] & ~(size_t)3;
+        if (off + 4 <= n) { uint32_t w; memcpy(&w, a + off, 4); h = (h ^ w) * 16777619u; }
+    }
+    return h ? h : 1u; /* reserve 0 as "unset" */
+}
+int g_turok_tex_stale = 0;   /* diagnostic: count of stale-hit re-uploads (TUROK_TEXLOG) */
+#endif
+
+static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key, uint32_t content_sig) {
     TextureCacheMap::iterator it = gfx_texture_cache.map.find(key);
     TextureCacheNode** n = &rendering_state.textures[i];
 
     if (it != gfx_texture_cache.map.end()) {
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+        /* WRONG TEXTURES AT EXTENDED DRAW DISTANCE — the cache is keyed on the source ADDRESS, but the cart
+         * cache streams+relocates blocks, so a freed address can be reused for a DIFFERENT texture. When it
+         * is, this cached entry's stored content no longer matches the data now at that address, so binding
+         * it would draw the wrong texture. Re-validate the content signature: on a mismatch, evict this stale
+         * entry and fall through to re-upload from the current data. (Same class the 3DS handles in
+         * gfx_citro3d; the PC backend has no such layer, so we validate here.) */
+        if (content_sig && it->second.content_sig && it->second.content_sig != content_sig) {
+            g_turok_tex_stale++;
+            gfx_texture_cache.free_texture_ids.push_back(it->second.texture_id);
+            gfx_texture_cache.lru.erase(it->second.lru_location);
+            gfx_texture_cache.map.erase(it);
+        } else
+#endif
+        {
         gfx_rapi->select_texture(i, it->second.texture_id, it->second.linear_filter);
         *n = &*it;
         gfx_texture_cache.lru.splice(gfx_texture_cache.lru.end(), gfx_texture_cache.lru,
                                      it->second.lru_location); // move to back
         return true;
+        }
     }
 
     if (gfx_texture_cache.map.size() >= TEXTURE_CACHE_MAX_SIZE) {
@@ -695,6 +727,9 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
     it = gfx_texture_cache.map.insert(std::make_pair(key, TextureCacheValue())).first;
     TextureCacheNode* node = &*it;
     node->second.texture_id = texture_id;
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+    node->second.content_sig = content_sig;   /* remember the source content so a later reuse of this address is caught */
+#endif
     node->second.lru_location = gfx_texture_cache.lru.insert(gfx_texture_cache.lru.end(), { it });
 
     gfx_rapi->select_texture(i, texture_id, false);
@@ -1102,7 +1137,12 @@ static void import_texture(int i, int tile, bool importReplacement) {
         key = { orig_addr, {}, fmt, siz, palette_index };
     }
 
-    if (gfx_texture_cache_lookup(i, key)) {
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+    const uint32_t content_sig = tex_content_sig(orig_addr, loaded_texture.size_bytes);
+#else
+    const uint32_t content_sig = 0;
+#endif
+    if (gfx_texture_cache_lookup(i, key, content_sig)) {
         return;
     }
 
@@ -2627,19 +2667,20 @@ static void gfx_dp_image_rectangle(int32_t tile, int32_t w, int32_t h,
 
 static void gfx_dp_fill_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lry) {
     if (rdp.color_image_address == rdp.z_buf_address) {
-#ifdef PLATFORM_3DS
-        // ★ WEAPON / HAND CLIPS THROUGH WALLS (3DS only) — route Turok's mid-frame z-buffer clear into
-        // the backend's depth reset. Turok draws the first-person weapon on top of the world by CLEARING
-        // THE Z-BUFFER right before it (CEngineApp__ClearZBuffer / tengine.c: redirect the color image to
-        // the z-buffer and fill-rect it with max-z — that's this very fill). The host normally DROPS this
-        // (the early return below) because the frame-start clear already reset depth — fine on desktop GL,
-        // which has GL_DEPTH_CLAMP and keeps the weapon clean. But the PICA has NO depth-clamp and HARD-clips,
-        // so without the mid-frame reset the weapon/hand z-fights and clips INTO walls it hugs. Re-issue it
-        // as the backend's depth-only clear: clear_framebuffer(false,true) records a full-screen depth-far
-        // quad that replays AFTER the world and BEFORE the gun (the exact mechanism G_CLEAR_DEPTH_EXT uses
-        // for Perfect Dark's viewmodel). The frame-start full clear also lands here — harmless (a redundant
-        // depth-far quad before any geometry; the RT is already depth-cleared). Desktop keeps the plain
-        // early return (it never had the bug). 3DS-only per the user report.
+#ifdef PLATFORM_PORT
+        // ★ WEAPON / HAND CLIPS THROUGH WALLS (PC + 3DS) — route Turok's mid-frame z-buffer clear into the
+        // backend's depth reset. Turok draws the first-person weapon on top of the world by CLEARING THE
+        // Z-BUFFER right before it (CEngineApp__ClearZBuffer / tengine.c: redirect the color image to the
+        // z-buffer and fill-rect it with max-z — that's this very fill). The host used to DROP this (the
+        // early return below), assuming the frame-start clear + desktop GL's GL_DEPTH_CLAMP keep the weapon
+        // clean. It does NOT: GL_DEPTH_CLAMP only stops near/far-plane clipping, it does not make the weapon
+        // draw ON TOP of the world, so on PC the viewmodel z-fights / clips INTO walls it hugs (user-reported)
+        // exactly like the PICA (which has no depth-clamp at all). Re-issue it as the backend's depth-only
+        // clear: clear_framebuffer(false,true) = glClear(GL_DEPTH_BUFFER_BIT) on GL / a full-screen depth-far
+        // quad on citro3d, replaying AFTER the world and BEFORE the gun (the mechanism G_CLEAR_DEPTH_EXT uses
+        // for Perfect Dark's viewmodel). The frame-start full clear also lands here — harmless (depth is
+        // already cleared). gfx_pc.cpp is port-only, so the native N64 (which honors the fill in hardware) is
+        // unaffected.
         gfx_flush();
         gfx_rapi->clear_framebuffer(false, true);
         return;
