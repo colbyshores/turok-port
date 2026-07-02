@@ -1258,7 +1258,12 @@ void  UpdateWorldSound(void)
 
 	DoAmbientSounds();
 	//ProcessSFXQue();
+#ifndef PLATFORM_PORT
+	/* On N64 the audio manager thread serialises via osSetThreadPri(PRIORITY_AUDIOLOCK), so
+	 * DoSeqFades() is safe here. On the port it's called from tengine.c UpdateGAME under
+	 * audioSynthLock (game thread, 30Hz tick) to avoid flooding the CSP evtq with VOL_EVTs. */
 	DoSeqFades();
+#endif
 	AW.sfx_timer++;
 
 }

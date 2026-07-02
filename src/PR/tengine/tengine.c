@@ -5081,7 +5081,7 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 
 	// Update Region Music
 #ifdef PLATFORM_PORT   /* hold the audio-thread synthLock across the per-frame music update (alCSP*/event queue) */
-	{ extern void audioSynthLock(void); extern void audioSynthUnlock(void); audioSynthLock(); UpdateSeq(); audioSynthUnlock(); }
+	{ extern void audioSynthLock(void); extern void audioSynthUnlock(void); extern void DoSeqFades(void); audioSynthLock(); UpdateSeq(); DoSeqFades(); audioSynthUnlock(); }
 #else
 	UpdateSeq();
 #endif

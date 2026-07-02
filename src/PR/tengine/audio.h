@@ -48,7 +48,8 @@
 //#define MAX_UPDATES             64
 #define MAX_UPDATES           128
 //#define MAX_EVENTS            64
-#define MAX_EVENTS            128
+//#define MAX_EVENTS            128
+#define MAX_EVENTS            512  /* port: large margin so CSP evtq never overflows → no spin */
 //#define AUDIO_HEAP_SIZE       233472
 #define AUDIO_HEAP_SIZE       299008
 #define EXTRA_SAMPLES         80

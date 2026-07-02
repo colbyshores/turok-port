@@ -505,6 +505,32 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
+- **★★ AUDIO DEADLOCK (`__CSPVoiceHandler` spin = CSP event queue overflow) — FIXED (2026-07-02).**
+  Watchdog: main thread blocked on `audioSynthLock()` inside `CEngineApp__UpdateGAME`; audio thread held
+  `s_synthLock` forever inside `alAudioFrame` → `__CSPVoiceHandler`. **ROOT CAUSE:** the CSP's `do-while` in
+  `__CSPVoiceHandler` has **no `default:` case** — when `alEvtqNextEvent` returns `type=-1, delta=0` (queue
+  empty), the switch falls through silently and the loop spins indefinitely. The queue drains to empty when
+  the event free-list is exhausted (all 128 slots occupied by live allocList + orphaned voice events) and
+  `alEvtqPostEvent` silently DROPS the next `SEQ_REF_EVT` — breaking the sequence chain → remaining voice
+  events drain → empty queue → spin. **SGI's own comment (event.c:60-64): "most likely we overflowed the event
+  queue... the evtq should be increased."** TWO contributing factors: (1) `MAX_EVENTS=128` too small — each
+  NoteOn-triggered `SEQ_REF_EVT` posts 3 events (ENV + NOTEOFF + next_SEQ_REF) while only 1 is freed, netting
+  -2 free slots per NoteOn, plus the 20-event SetupSeq burst fills slots fast. (2) `DoSeqFades()` was called
+  from the **audio thread** inside `UpdateWorldSound()` (up to 64× per 2ms wake-cycle under
+  `AUDIO_REFILL_GUARD=64`), each call posting a `VOL_EVT` — flooding the queue further. **FIX (3 tracked
+  files):** (1) `audio.h MAX_EVENTS 128→512` — large enough that even a full NoteOn burst + simultaneous fades
+  + voice events can't overflow; (2) remove `DoSeqFades()` from `UpdateWorldSound()` (audio thread) — it now
+  has a comment explaining why; (3) call `DoSeqFades()` inside the synthLock block in `tengine.c UpdateGAME`
+  alongside `UpdateSeq()` (game thread, 30Hz tick) so it runs exactly once per logic tick with proper mutual
+  exclusion. **VERIFIED:** warp 3000 + 6000 + 8000 with `TUROK_MUSIC=1 TUROK_WATCHDOG=1`, 300-600 frames each,
+  retail ROM and dev banks, PC+3DS build clean — zero watchdog fires, zero deadlocks. **LESSON: an N64 CSP
+  event queue that is sized for the N64's cooperative threading (where the game thread can't post while the
+  audio synth runs) needs a MUCH larger free-list on the host where both threads run concurrently. And
+  `DoSeqFades()` belongs on the game thread (one post per 30Hz tick) not the audio thread (one post per synth
+  frame = up to 64×/2ms); running it on the audio thread multiplies its VOL_EVT rate 64×, eating free slots
+  that the NoteOn chain needs. The root of the spin (no `default:` case in the do-while) is in untracked code;
+  the fix is to keep the queue large enough that it never hits empty.**
+
 - **★★ ENEMIES INVISIBLE BUT FIRING (esp. LEVEL 2) = CART-CACHE POOL TOO SMALL — FIXED (2026-07-01, branch
   `pc-port-fixes`, commit `d71e1d1`).** User: "enemies sometimes don't appear on the PC version; especially level
   2 — the soldiers were invisible but firing at me invisibly." **ROOT CAUSE:** the cart-cache STREAMING pool
