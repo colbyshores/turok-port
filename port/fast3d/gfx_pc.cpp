@@ -680,6 +680,21 @@ static inline uint32_t tex_content_sig(const uint8_t* a, size_t n) {
 int g_turok_tex_stale = 0;   /* diagnostic: count of stale-hit re-uploads (TUROK_TEXLOG) */
 #endif
 
+/* A cache node about to be erased may STILL be referenced by a rendering_state texture slot — the
+ * OTHER texture unit, or this unit from a prior frame whose rdp.textures_changed went false and so
+ * was never re-imported. Freeing it without clearing those slots leaves gfx_sp_tri1 reading AND
+ * writing a freed node (use-after-free / write-after-free → heap corruption every frame). Clear the
+ * slot and mark it changed so the texture is re-imported before the next draw. Mirrors the
+ * slot-clearing gfx_texture_cache_delete already does when deleting by address. */
+static inline void gfx_texture_cache_forget_node(const TextureCacheNode* node) {
+    for (int s = 0; s < 2; ++s) {
+        if (rendering_state.textures[s] == node) {
+            rendering_state.textures[s] = nullptr;
+            rdp.textures_changed[s] = true;
+        }
+    }
+}
+
 static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key, uint32_t content_sig) {
     TextureCacheMap::iterator it = gfx_texture_cache.map.find(key);
     TextureCacheNode** n = &rendering_state.textures[i];
@@ -694,6 +709,7 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key, uint32_t
          * gfx_citro3d; the PC backend has no such layer, so we validate here.) */
         if (content_sig && it->second.content_sig && it->second.content_sig != content_sig) {
             g_turok_tex_stale++;
+            gfx_texture_cache_forget_node(&*it);   /* clear any slot pointing at this node before freeing it (UAF/WAF) */
             gfx_texture_cache.free_texture_ids.push_back(it->second.texture_id);
             gfx_texture_cache.lru.erase(it->second.lru_location);
             gfx_texture_cache.map.erase(it);
@@ -711,6 +727,7 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key, uint32_t
     if (gfx_texture_cache.map.size() >= TEXTURE_CACHE_MAX_SIZE) {
         // Remove the texture that was least recently used
         it = gfx_texture_cache.lru.front().it;
+        gfx_texture_cache_forget_node(&*it);   /* same UAF/WAF guard: LRU-evicted node may still be a live slot */
         gfx_texture_cache.free_texture_ids.push_back(it->second.texture_id);
         gfx_texture_cache.map.erase(it);
         gfx_texture_cache.lru.pop_front();
