@@ -2902,7 +2902,16 @@ void COnScreen__DrawText(Gfx **ppDLP,
 	if (centre)
 	{
 		if (FontType == LARGE_FONT)
+#ifdef PLATFORM_PORT
+			/* Center the RENDERED text, not the advance width. LARGE_FONT glyphs draw 16px wide but advance
+			 * only 12px (COnScreen__DrawFontTexture vs COnScreen__WriteText), so the drawn string extends one
+			 * glyph's 4px overhang past strlen*12 — centering on strlen*12 leaves it ~2px right of centre. On
+			 * the N64's 320px screen that's invisible, but the widescreen PC scales it up (and the options box
+			 * is a fixed anchor), so the menu text (e.g. EXIT) reads visibly off-centre. Add the overhang. */
+			len = strlen(String) *(12*pThis->m_FontXScale) + (4*pThis->m_FontXScale) ;
+#else
 			len = strlen(String) *(12*pThis->m_FontXScale) ;
+#endif
 		else if (FontType == KANJI_FONT)
 		{
 			string = String ;
