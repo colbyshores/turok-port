@@ -7,6 +7,18 @@
 > can answer (a real product decision), or the milestone is actually done. Bank progress in this file + memory
 > as you go (so context compaction loses nothing), but banking is not a reason to stop. Default = continue.
 
+> ## ⚠️ MODEL ORCHESTRATION DIRECTIVE (from the user, standing, 2026-07-05):
+> **"Use Fable to plan and orchestrate, do not use Fable to execute. Execution should be done with Opus
+> subagents; upon completion Fable should do an adversary review and then either return to user or instruct
+> subagents further."**
+> Operationally: when the session model is Fable, Fable's own tool use is limited to planning, reading what's
+> needed to orchestrate, launching Agent/Workflow subagents with `model: "opus"` for ALL execution (code edits,
+> builds, test loops, long investigations), adversarially reviewing the subagents' diffs/results, and
+> committing/reporting. Rationale: don't burn Fable-tier tokens on execution loops. Give each concurrent
+> subagent its OWN build dir (`TUROK_OUT=/tmp/<unique>`), never let two agents edit the same file in parallel,
+> and pass them the documented harness gotchas (§11: `pkill -x turok` never `-f`, `|| true` under `set -e`,
+> software-GL for headless when the desktop GPU is wedged, build via `tools/build_port.sh`).
+
 > Engineering rosetta stone for porting *Turok: Dinosaur Hunter* to PC (ground-truth)
 > and the Nintendo 3DS, following the proven pattern established by the sibling
 > **Banjo-Kazooie**, **Perfect Dark**, and **Forsaken** ports in `/mnt/nas/Development/`.
@@ -501,6 +513,51 @@ with `|| true`, but the harness may block/auto-background a bare long `sleep`.**
 or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is live.
 
 ## 10. Port edits to game source (keep this log honest)
+
+- **★ PC UX BATCH (2026-07-05, branch `pc-port-fixes`; first session run under the orchestration directive —
+  Fable planned/reviewed, 4 Opus subagents executed; all adversarially reviewed):**
+  1. **G_LINE3D (0xb5) IMPLEMENTED — the in-game MAP (Tab) renders.** Turok draws the map with the gspL3DEX
+     line microcode (map.c gSPLine3D: region outlines + player arrow); the Banjo-derived gfx_pc never modeled
+     it → "unhandled GBI opcode 0xb5" + an empty map. [gfx_pc.cpp](port/fast3d/gfx_pc.cpp) `gfx_sp_line3d`:
+     expand each projected segment into a screen-space quad (2 tris) perpendicular to the line, width
+     (1.5+wd/2) N64 px scaled by window height, through the NORMAL tri pipeline (combiner/fog/blend), corners
+     in 4 NEW dedicated scratch slots `loaded_vertices[MAX_VERTICES+4..7]` (array +4→+8; +0..+3 stay for
+     texrect/3DS-near-clip), per-endpoint w multiply (★ map vtxs have w=32, NOT 1 — ortho≠w1 here), cull bits
+     cleared around the 2 tris (lines have no facing). F3DEX-1.x decode w1=(v0*2):8|(v1*2):8|wd:8 (gbi.h:1961).
+     Verified: 0xb5 gone, ~2800 line draws/capture render connected region polylines, patrol clean, 3DS links.
+     NB the map is authentically a TRANSLUCENT overlay (the map.c:307 full-screen dim is commented out in the
+     leak). `TUROK_FAKEINPUT=8` = walk 180 frames then hold L (map render test).
+  2. **OPTIONS-MENU CENTERING — 5a8d602 REVERTED; its premise was FALSE (measured).** Decoding the LARGE_FONT
+     I4 atlas (overlay/font/*.h, 16x16 4bpp/glyph) shows every glyph's ink lives in cell columns 0..12 — the
+     16px-cell-vs-12px-advance "4px ink overhang" 5a8d602 assumed does NOT exist, so its +4*scale addend was
+     itself the ~2px-LEFT shift the user kept seeing. Stock `strlen*12` centring restored ([onscrn.c](src/PR/tengine/onscrn.c)
+     ~2904, now identical to N64 original); pixel-verified −1.5px → ≤0.67px off box centre. **LESSON: measure
+     the actual glyph INK before "fixing" font centring — and when a fix's premise is a guess, a still-broken
+     report means re-derive the premise, not stack another correction.** New env-gated QA hook
+     `TUROK_FORCEOPTIONS=<frame>` ([tengine.c](src/PR/tengine/tengine.c) UpdateGAME) force-opens the pause→
+     options overlay for headless menu captures.
+  3. **RESOLUTION + FULLSCREEN options rows (PC-only).** [options.c/h](src/PR/tengine/options.c): rows after
+     DRAWDIST — preset cycler (960x720..2560x1440 + DESKTOP; LARGE_FONT has digits+x, NEVER ':' or '-' — they
+     alias Z/M glyphs) + fullscreen/windowed toggle; file-scope statics only (the struct-growth gotcha); box
+     236 tall on PC (fits all rows; 3DS/N64 untouched at 210). Seam: `g_turok_req_win_w/h/fullscreen/dirty`
+     defined in [config.c](port/src/config.c) (always-linked → EGL/OSMesa builds link, only SDL2 consumes),
+     applied at the top of `gfx_sdl_handle_events` (the Alt-Enter-safe frame boundary); DESKTOP resolves the
+     native mode + writes it back to g_cfg. cfg `fullscreen` added; **turokConfigSave now emits EVERY key**
+     (the old 5-key save would have DELETED hand-edited lines — fopen("w") truncates; loader↔saver parity
+     verified). Boot honours `fullscreen 1`. Known nit: changing resolution WHILE fullscreen applies on the
+     next windowed toggle/boot (SDL restores its remembered size), acceptable.
+  4. **REMAPPABLE KEY/MOUSE BINDINGS + CONTROLS submenu (PC-only).** Table-driven input in
+     [gfx_sdl2.cpp](port/fast3d/gfx_sdl2.cpp): 13 actions × 2 slots (8 HELD → N64 bits, 5 EDGE → seams;
+     key-repeat filtered), defaults byte-identical to the old hardcoded scheme. Tokens (`key:<sdl_name>`,
+     `mouse1..5`, `wheelup/down`, `none`) live SDL-free in config.c as `bind_<action>[2]` cfg keys
+     (human-editable); new [port/include/turok_binds.h](port/include/turok_binds.h) is the shared enum/extern
+     header. CONTROLS submenu in options.c (FOGoptions-style sub-mode, file-scope statics): per-action rows
+     showing the bound name, activate → "press a key" capture (gfx_sdl2 swallows the press + suppresses the
+     pad while armed; ESC cancels), defaults row, back saves. ESC = pause is HARDWIRED (pause can never be
+     locked out); Alt+Enter fixed. ★ The left/right-HANDED row is HIDDEN on PC (Spacing=0 — left-handed remaps
+     movement onto the D-pad run/walk toggle and scrambles the WASD scheme); the hidden-row nav skip is now
+     generic for ANY Spacing==0 row (guarded loop, both directions). 3DS/N64: zero new symbols (verified by
+     preprocess + nm). **NEEDS INTERACTIVE CONFIRM: the capture flow + rebound keys driving actions in-game.**
 
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
