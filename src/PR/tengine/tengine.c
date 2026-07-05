@@ -4795,6 +4795,33 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	    if (game_frame_number == 0 || ex*ex+ey*ey+ez*ez > 100.0f*100.0f) _ipHave = 0; } }
 #endif
 
+#ifdef PLATFORM_PORT
+	/* PORT (headless menu QA hook — env-gated, zero effect unless TUROK_FORCEOPTIONS is set): force the
+	 * pause->Options overlay open once the level has run TUROK_FORCEOPTIONS logic frames, then hold it fully
+	 * faded-in, so the options-menu layout/text-centring can be captured + pixel-measured headlessly (there
+	 * is no other way to reach a menu without interactive input). Mirrors the real pause->PAUSE_OPTIONS
+	 * transition (pause.c:1528). Re-asserted each frame so nothing drifts it closed. Kept for the in-game
+	 * options-menu work on the roadmap. */
+	{
+		extern char *getenv(const char*); extern int atoi(const char*);
+		static int fo = -2; static int fo_done = 0;
+		if (fo == -2) { const char *e = getenv("TUROK_FORCEOPTIONS"); fo = e ? atoi(e) : -1; }
+		if (fo >= 0 && (int)game_frame_number >= fo) {
+			if (!fo_done) {
+				fo_done = 1;
+				CPause__Construct(&pThis->m_Pause);   /* clears the other m_bXxx sub-screen flags */
+				COptions__Construct(&pThis->m_Options);
+			}
+			pThis->m_Pause.m_Mode   = PAUSE_NORMAL;   /* != PAUSE_NULL so CPause__Draw runs (DrawGAME:1737) */
+			pThis->m_Pause.m_Alpha  = 1.0 ;
+			pThis->m_bOptions       = TRUE ;
+			pThis->m_Options.b_Active = TRUE ;
+			pThis->m_Options.m_Mode = OPTIONS_NORMAL; /* skip fade -> box+text drawn at full alpha */
+			pThis->m_Options.m_Alpha = 1.0 ;
+		}
+	}
+#endif
+
 	// Request latest controller information
 	if (validcontrollers && !cntrlReadInProg)
 	{

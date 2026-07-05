@@ -2902,16 +2902,16 @@ void COnScreen__DrawText(Gfx **ppDLP,
 	if (centre)
 	{
 		if (FontType == LARGE_FONT)
-#ifdef PLATFORM_PORT
-			/* Center the RENDERED text, not the advance width. LARGE_FONT glyphs draw 16px wide but advance
-			 * only 12px (COnScreen__DrawFontTexture vs COnScreen__WriteText), so the drawn string extends one
-			 * glyph's 4px overhang past strlen*12 — centering on strlen*12 leaves it ~2px right of centre. On
-			 * the N64's 320px screen that's invisible, but the widescreen PC scales it up (and the options box
-			 * is a fixed anchor), so the menu text (e.g. EXIT) reads visibly off-centre. Add the overhang. */
-			len = strlen(String) *(12*pThis->m_FontXScale) + (4*pThis->m_FontXScale) ;
-#else
+			/* Centre on the 12px advance width — this is CORRECT (measured), and identical on N64 and PC.
+			 * NOTE: a prior PC-only "fix" (5a8d602) added a 4*scale overhang here on the theory that LARGE_FONT
+			 * glyphs draw into a 16px cell but advance 12px, so the ink overhangs the advance by 4px. That is
+			 * FALSE: decoding the I4 glyph atlas (overlay/font/*.h, 16x16 4bpp) shows the ink of every glyph
+			 * lives in cell columns 0..12 — the rightmost ~4 columns (12..15) are always blank padding, so the
+			 * ink never spills past the 12px advance. The correct centring addend beyond strlen*12 is the first
+			 * glyph's left-ink column + the last glyph's right-ink edge - 12, which across the option strings is
+			 * 0 +/- 1 px (mean +0.2). So strlen*12 already centres to sub-pixel accuracy; the +4 overcorrected,
+			 * shifting every centred string 2*scale (~2 N64px, ~10 screen px at 1600w) LEFT of the box centre. */
 			len = strlen(String) *(12*pThis->m_FontXScale) ;
-#endif
 		else if (FontType == KANJI_FONT)
 		{
 			string = String ;
