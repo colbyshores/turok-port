@@ -78,7 +78,13 @@ s32 inputReadController(s32 idx, void *npad)
         if (fake == 3) { pad->button = 0x0008; return 0; }            /* forward (C-up) */
         if (fake == 5) { pad->button = 0x0008 | 0x2000; return 0; }   /* forward + fire (Z trigger) */
         if (fake == 6) { pad->button = 0x2000; return 0; }            /* fire only */
-        if (fake == 8) { pad->button = 0x0020; return 0; }            /* hold MAP (L trigger) — map-screen render test */
+        if (fake == 8) {                                              /* MAP render test: walk (reveal regions), then hold L + turn */
+            static unsigned t8 = 0; t8++;
+            if (t8 < 180) { pad->button = 0x0008; }                   /* phase 1: forward — reveal a few regions */
+            else { pad->button = 0x0020;                              /* phase 2: hold MAP (L) */
+                   pad->stick_x = (signed char)(((t8 / 60) & 1) ? 40 : -40); }  /* + sweep so the map ROTATES (smear test) */
+            return 0;
+        }
         if (fake == 7) {                                              /* PATROL: forward + sweep turn */
             static unsigned t = 0; t++;
             pad->button  = 0x0008;

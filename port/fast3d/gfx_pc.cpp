@@ -3405,22 +3405,40 @@ extern "C" void gfx_run(Gfx* commands) {
     }
     dropped_frame = false;
 
+#ifdef PLATFORM_PORT
+    /* ★ A presented frame = gfx_start_frame() … N× gfx_run() … gfx_end_frame() (the turok_gfx.c
+     * seam; Turok's map screen is TWO gfx tasks — the world DL + the gspL3DEX line DL — into ONE
+     * presented frame). So do the FRAME OPEN work (framebuffer params, rapi start_frame, the
+     * color+depth clear) only on the FIRST gfx_run after gfx_start_frame; later DLs in the same
+     * frame just rebind the render target + clear depth, and COMPOSITE onto the same image.
+     * The backend's rapi->start_frame must NOT run per-DL: on 3DS it flushes facade-cache
+     * invalidations and frees baked textures, which is only safe at a real frame boundary (no
+     * recorded draws in flight — a mid-frame call could free a texture the world DL's recorded
+     * draws still reference). And the PRESENT lives in gfx_end_frame (see there), NOT here —
+     * presenting per gfx_run made the map's line DL land on a STALE swapped-in back buffer
+     * (never color-cleared) and present alone: line trails accumulated over a stale world =
+     * the flickering "hall of mirrors" with the map open on flip-swap GL drivers. */
+    if (s_bk_frame_clear_pending) {
+        gfx_rapi->update_framebuffer_parameters(0, gfx_current_window_dimensions.width,
+                                                gfx_current_window_dimensions.height, 1, false, true, true,
+                                                !game_renders_to_framebuffer);
+        gfx_rapi->start_frame();
+        gfx_rapi->start_draw_to_framebuffer(game_renders_to_framebuffer ? game_framebuffer : 0,
+                                            (float)gfx_current_dimensions.height / SCREEN_HEIGHT);
+        gfx_rapi->clear_framebuffer(true, true);
+        s_bk_frame_clear_pending = false;
+    } else {
+        gfx_rapi->start_draw_to_framebuffer(game_renders_to_framebuffer ? game_framebuffer : 0,
+                                            (float)gfx_current_dimensions.height / SCREEN_HEIGHT);
+        gfx_rapi->clear_framebuffer(false, true);   /* depth only — keep the earlier DLs' color */
+    }
+#else
     gfx_rapi->update_framebuffer_parameters(0, gfx_current_window_dimensions.width,
                                             gfx_current_window_dimensions.height, 1, false, true, true,
                                             !game_renders_to_framebuffer);
     gfx_rapi->start_frame();
     gfx_rapi->start_draw_to_framebuffer(game_renders_to_framebuffer ? game_framebuffer : 0,
                                         (float)gfx_current_dimensions.height / SCREEN_HEIGHT);
-#ifdef PLATFORM_PORT
-    /* Clear once per presented frame (first DL), not per gfx_run — see note at
-     * s_bk_frame_clear_pending. Always clear depth so later DLs depth-test sanely. */
-    if (s_bk_frame_clear_pending) {
-        gfx_rapi->clear_framebuffer(true, true);
-        s_bk_frame_clear_pending = false;
-    } else {
-        gfx_rapi->clear_framebuffer(false, true);
-    }
-#else
     gfx_rapi->clear_framebuffer(true, false);
 #endif
     rdp.viewport_or_scissor_changed = true;
@@ -3442,6 +3460,10 @@ extern "C" void gfx_run(Gfx* commands) {
     }
 #endif
     gfx_flush();
+#ifdef PLATFORM_PORT
+    /* ★ NO present here — more gfx_runs may follow in this presented frame (the map's line DL).
+     * The MSAA resolve + rapi end_frame + the swap moved to gfx_end_frame (once per frame). */
+#else
     gfxFramebuffer = 0;
 
     if (game_renders_to_framebuffer) {
@@ -3465,6 +3487,7 @@ extern "C" void gfx_run(Gfx* commands) {
 
     gfx_rapi->end_frame();
     gfx_wapi->swap_buffers_begin();
+#endif
 }
 
 #ifdef PLATFORM_3DS
@@ -3500,7 +3523,40 @@ extern "C" void gfx_run_dl_facade_register(Gfx* commands) {
 
 extern "C" void gfx_end_frame(void) {
     BK_TR(BK_TR_PRESENT, "gfx_end_frame dropped=%d dls_this_frame=%u", (int)dropped_frame, num_dls);
-    if (!dropped_frame) {
+    if (!dropped_frame && num_dls > 0) {   /* num_dls: don't present a frame no gfx_run rendered (boot-path direct osViSwapBuffer) */
+#ifdef PLATFORM_PORT
+        /* ★ THE PRESENT — once per presented frame, after ALL of the frame's gfx_runs (world DL,
+         * then the map's gspL3DEX line DL when the map is open) have composited into the same
+         * render target. This block lived at the tail of gfx_run, which presented after EVERY
+         * DL: on flip-swap GL drivers the map's line DL then rendered onto the swapped-in STALE
+         * back buffer (its color is only depth-cleared for a non-first DL) and was presented
+         * alone — old line sets accumulated over a stale world image and the screen alternated
+         * clean-world / stale-world+line-pileup = the flickering "hall of mirrors" when the map
+         * was open. (The EGL FBO and copy-swap software GL masked it, which is why it was
+         * desktop-only.) On 3DS this is also where the record-replay backend replays + presents
+         * (rapi end_frame = C3D frame), now correctly once per frame with both DLs recorded. */
+        gfxFramebuffer = 0;
+        if (game_renders_to_framebuffer) {
+            gfx_rapi->start_draw_to_framebuffer(0, 1);
+            gfx_rapi->clear_framebuffer(true, true);
+
+            if (gfx_msaa_level > 1) {
+                bool different_size = gfx_current_dimensions.width != gfx_current_game_window_viewport.width ||
+                                      gfx_current_dimensions.height != gfx_current_game_window_viewport.height;
+
+                if (different_size) {
+                    gfx_rapi->resolve_msaa_color_buffer(game_framebuffer_msaa_resolved, game_framebuffer);
+                    gfxFramebuffer = (uintptr_t)gfx_rapi->get_framebuffer_texture_id(game_framebuffer_msaa_resolved);
+                } else {
+                    gfx_rapi->resolve_msaa_color_buffer(0, game_framebuffer);
+                }
+            } else {
+                gfxFramebuffer = (uintptr_t)gfx_rapi->get_framebuffer_texture_id(game_framebuffer);
+            }
+        }
+        gfx_rapi->end_frame();
+        gfx_wapi->swap_buffers_begin();
+#endif
         gfx_rapi->finish_render();
         gfx_wapi->swap_buffers_end();
     }
