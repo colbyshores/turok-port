@@ -147,7 +147,10 @@ static struct RSP {
         uint16_t s, t;
     } texture_scaling_factor;
 
-    struct LoadedVertex loaded_vertices[MAX_VERTICES + 4];
+    /* +4 = shared scratch (texrect corners / 3DS near-clip inserts); +4 more = dedicated
+     * G_LINE3D quad corners (slots MAX_VERTICES+4..7) so a line expansion can't collide
+     * with either scratch user. */
+    struct LoadedVertex loaded_vertices[MAX_VERTICES + 8];
 
     const struct NormalColor *vertex_colors; //[MAX_VERTEX_COLORS];
 } rsp;
@@ -2097,6 +2100,50 @@ static inline void gfx_sp_tri4(Gfx *cmd) {
     }
 }
 
+/* F3DEX G_LINE3D (0xb5) — Turok draws the in-game MAP with the gspL3DEX line microcode
+ * (map.c: region edges + the player arrow, all gSPLine3D i.e. wd=0). The RDP renders a
+ * screen-space segment of width (1.5 + wd/2) N64 pixels; emulate it as a quad (two tris)
+ * expanded perpendicular to the projected segment, reusing the whole existing tri pipeline
+ * (combiner/blend/fog/scissor). The endpoints were already transformed (and widescreen
+ * aspect-adjusted) at G_VTX, so the expansion happens in final NDC. Width scales with the
+ * window height so the line keeps its N64 proportion at any resolution. */
+static void gfx_sp_line3d(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t wd) {
+    const struct LoadedVertex* e0 = &rsp.loaded_vertices[vtx1_idx];
+    const struct LoadedVertex* e1 = &rsp.loaded_vertices[vtx2_idx];
+    if (e0->w <= 0.0f || e1->w <= 0.0f) return;   /* behind the eye */
+    if (e0->clip_rej & e1->clip_rej) return;      /* both endpoints off the same screen edge */
+
+    const float x0 = e0->x / e0->w, y0 = e0->y / e0->w;   /* NDC endpoints */
+    const float x1 = e1->x / e1->w, y1 = e1->y / e1->w;
+
+    /* Perpendicular in screen-pixel space so the width is uniform in any direction. */
+    const float hw = gfx_current_dimensions.width * 0.5f;
+    const float hh = gfx_current_dimensions.height * 0.5f;
+    const float dx = (x1 - x0) * hw, dy = (y1 - y0) * hh;
+    const float len = sqrtf(dx * dx + dy * dy);
+    if (len < 1e-6f) return;                      /* degenerate segment */
+    const float half_px = (1.5f + 0.5f * (float)wd) * 0.5f * (gfx_current_dimensions.height / 240.0f);
+    const float nx = (-dy / len) * half_px / hw;  /* back to NDC units */
+    const float ny = ( dx / len) * half_px / hh;
+
+    struct LoadedVertex* c = &rsp.loaded_vertices[MAX_VERTICES + 4];
+    const struct LoadedVertex* src[4] = { e0, e0, e1, e1 };
+    static const float sgn[4] = { 1.0f, -1.0f, 1.0f, -1.0f };
+    const float px[2] = { x0, x1 }, py[2] = { y0, y1 };
+    for (int i = 0; i < 4; i++) {
+        c[i] = *src[i];                            /* carries z, w, u/v, color, fog, clip_rej */
+        c[i].x = (px[i >> 1] + sgn[i] * nx) * src[i]->w;
+        c[i].y = (py[i >> 1] + sgn[i] * ny) * src[i]->w;
+    }
+
+    /* A line has no facing — don't let backface culling drop the quad. */
+    const uint32_t saved_gm = rsp.geometry_mode;
+    rsp.geometry_mode &= ~(uint32_t)G_CULL_BOTH;
+    gfx_sp_tri1(MAX_VERTICES + 4, MAX_VERTICES + 5, MAX_VERTICES + 6, false);
+    gfx_sp_tri1(MAX_VERTICES + 5, MAX_VERTICES + 7, MAX_VERTICES + 6, false);
+    rsp.geometry_mode = saved_gm;
+}
+
 static void gfx_sp_geometry_mode(uint32_t clear, uint32_t set) {
     rsp.geometry_mode &= ~clear;
     rsp.geometry_mode |= set;
@@ -2950,6 +2997,11 @@ static void gfx_run_dl(Gfx* cmd) {
                  * each v*2. (F3DEX-1.x has no G_QUAD.) */
                 gfx_sp_tri1(C0(16, 8) >> 1, C0(8, 8) >> 1, C0(0, 8) >> 1, false);
                 gfx_sp_tri1(C1(16, 8) >> 1, C1(8, 8) >> 1, C1(0, 8) >> 1, false);
+                break;
+            case (uint8_t)G_LINE3D:
+                /* F3DEX-1.x line (gspL3DEX): w1 = (v0*2):8 | (v1*2):8 | wd:8.
+                 * Turok's in-game MAP is drawn entirely with these (map.c). */
+                gfx_sp_line3d(C1(16, 8) >> 1, C1(8, 8) >> 1, (uint8_t)C1(0, 8));
                 break;
 #endif
             case (uint8_t)G_TRI4:
