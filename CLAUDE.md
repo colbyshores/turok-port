@@ -544,6 +544,29 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
      that draws an overlay (map/HUD-line/second-pass) as a SEPARATE gfx task into the same framebuffer relies on
      "present only after OS_SC_LAST_TASK" — a port seam that presents per-task swaps a black frame in between =
      flicker. Gate the present on LAST_TASK, matching the scheduler.**
+  1c. **★★ THEN: "FLICKERING HALL OF MIRRORS" with the map open (desktop-only) — gfx_run's TAIL was ALSO a
+     present — FIXED ([gfx_pc.cpp](port/fast3d/gfx_pc.cpp), commit `09f6bda`).** The 1b sched gate wasn't
+     enough: the Banjo-derived `gfx_run` ITSELF ended with the whole present (MSAA resolve →
+     `rapi->end_frame()` → `wapi->swap_buffers_begin()` = `SDL_GL_SwapWindow`!) — `gfx_end_frame`'s
+     `finish_render`+`swap_buffers_end` is a NO-OP on GL. So every gfx TASK still presented: the map's line
+     DL rendered onto the swapped-in STALE back buffer (a non-first DL only depth-clears) and presented
+     alone → on a FLIP-swap driver (desktop radeonsi) one GL buffer only ever received
+     lines-over-never-cleared-stale-content, accumulating every frame's line set forever, alternating with
+     clean world buffers = flicker + rotating line trails. ★ WHY IT EVADED HEADLESS REPRO: the EGL FBO
+     (single buffer) and Xvfb/llvmpipe (COPY-swap preserves the back buffer) both composite correctly by
+     accident — only real flip-swap GL shows it; the Xvfb tell was ALTERNATING per-shot line-pixel counts
+     (presents with vs without lines). FIX (the seam's real contract: `gfx_start_frame` … N×`gfx_run` …
+     `gfx_end_frame` = ONE present): frame OPEN (fb params + `rapi->start_frame` + color+depth clear) only on
+     the FIRST gfx_run of a presented frame (`s_bk_frame_clear_pending`); later DLs rebind + depth-clear +
+     composite; the PRESENT block moved into `gfx_end_frame`, `num_dls>0`-guarded (boot-path direct
+     `osViSwapBuffer(cfb_16_a)` calls must not present unrendered frames). Also a 3DS correctness fix:
+     `rapi->start_frame` per-DL ran the citro3d facade-cache invalidation MID-RECORD (unsafe); now the
+     record-replay backend records BOTH DLs and replays+presents once. **LESSON: grep where
+     `swap_buffers_begin` is actually CALLED before assuming `gfx_end_frame` presents — Banjo's gfx_run is
+     self-presenting, so any multi-DL-per-frame game (Turok's map) needs the present moved to the
+     end-of-frame seam. And "works headless, broken on desktop" can be GL SWAP SEMANTICS (flip vs copy vs
+     FBO): an EGL-FBO/llvmpipe pass does NOT prove flip-swap correctness — every presented frame must fully
+     repaint or clear the buffer it lands in.**
   2. **OPTIONS-MENU CENTERING — 5a8d602 REVERTED; its premise was FALSE (measured).** Decoding the LARGE_FONT
      I4 atlas (overlay/font/*.h, 16x16 4bpp/glyph) shows every glyph's ink lives in cell columns 0..12 — the
      16px-cell-vs-12px-advance "4px ink overhang" 5a8d602 assumed does NOT exist, so its +4*scale addend was
