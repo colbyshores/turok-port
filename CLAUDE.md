@@ -527,6 +527,23 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
      Verified: 0xb5 gone, ~2800 line draws/capture render connected region polylines, patrol clean, 3DS links.
      NB the map is authentically a TRANSLUCENT overlay (the map.c:307 full-screen dim is commented out in the
      leak). `TUROK_FAKEINPUT=8` = walk 180 frames then hold L (map render test).
+  1b. **★ MAP FLICKERS GAME↔BLACK — the port presented after EVERY gfx task, not just the LAST — FIXED
+     ([sched.c](src/PR/tengine/sched.c) `scSendCommand`, PLATFORM_PORT so PC+3DS).** Predates the line work
+     (a two-task-present bug the empty-map masked). A map frame is TWO gfx tasks into the SAME framebuffer:
+     the world task (NOT `OS_SC_LAST_TASK`) then the gspL3DEX map-line task (`OS_SC_LAST_TASK`); the N64
+     presents once, after the last (native gate sched.c:626 `OS_SC_SWAPBUFFER && OS_SC_LAST_TASK`). The port's
+     `scSendCommand` called `osViSwapBuffer` after EVERY task — and `osViSwapBuffer`→`turokGfxEndFrame`+
+     `StartFrame` presents AND opens a fresh (cleared/black) frame — so the world presented alone, then the map
+     lines presented alone on black = rapid game/black flicker while the map is up (and, since osViSwapBuffer
+     also evaluates the logic-tick clock, ~2× logic ticks/frame with the map open). Fix: gate the port present
+     on `pTask->flags & OS_SC_LAST_TASK` (the native semantic). Every frame has exactly one LAST_TASK (world
+     when no map, line task when map up), so it's still one present + one tick/frame; the non-last world task's
+     `gfx_run` now appends to the still-open frame, so world+lines composite and present once. Proven by A/B
+     (EGL capture, `FAKEINPUT=8`): baseline = fully-black frames appear while the map is open; fixed = 0 black
+     frames, world visible every frame. Patrol regression rc=0/0 anomalies; 3DS links. **LESSON: an N64 game
+     that draws an overlay (map/HUD-line/second-pass) as a SEPARATE gfx task into the same framebuffer relies on
+     "present only after OS_SC_LAST_TASK" — a port seam that presents per-task swaps a black frame in between =
+     flicker. Gate the present on LAST_TASK, matching the scheduler.**
   2. **OPTIONS-MENU CENTERING — 5a8d602 REVERTED; its premise was FALSE (measured).** Decoding the LARGE_FONT
      I4 atlas (overlay/font/*.h, 16x16 4bpp/glyph) shows every glyph's ink lives in cell columns 0..12 — the
      16px-cell-vs-12px-advance "4px ink overhang" 5a8d602 assumed does NOT exist, so its +4*scale addend was

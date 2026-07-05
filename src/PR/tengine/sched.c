@@ -218,8 +218,20 @@ void scSendCommand(OSSched *sc, OSScTask *pTask)
 		 * finished gfx task via osViSwapBuffer. That scheduler thread never runs here, so
 		 * without this the frame renders (gfx_run) but is NEVER presented — the main loop
 		 * spins re-rendering, the render-frame counter/capture/frame-limit never advance.
-		 * Present it now, just as the scheduler would. */
-		osViSwapBuffer(pTask->framebuffer);
+		 * Present it now, just as the scheduler would.
+		 *
+		 * ★ Present ONLY on OS_SC_LAST_TASK (the native gate, sched.c:626). A frame can be
+		 * MULTIPLE gfx tasks drawing into the SAME framebuffer before one present: when the
+		 * in-game MAP is up, tengine.c sends the world task (NOT last) then the gspL3DEX
+		 * map-line task (last). Presenting after EVERY task swaps + opens a fresh (black)
+		 * frame between them, so the world presents alone, then the map lines present alone
+		 * on black = a rapid game/black FLICKER whenever the map is open. Gating on LAST_TASK
+		 * lets both tasks composite into the one still-open frame (gfx_run appends), presented
+		 * once — the N64 sequence. Every frame has exactly one LAST_TASK (the world task when
+		 * no map, the line task when the map is up), so it's still one present — and one
+		 * logic-tick evaluation — per frame. */
+		if (pTask->flags & OS_SC_LAST_TASK)
+			osViSwapBuffer(pTask->framebuffer);
 	}
 	if (pTask->msgQ)
 		osSendMesg(pTask->msgQ, pTask->msg, OS_MESG_NOBLOCK);
