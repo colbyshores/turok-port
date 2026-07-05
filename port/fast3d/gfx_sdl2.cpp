@@ -10,6 +10,7 @@
 
 #include "gfx_window_manager_api.h"
 #include "gfx_screen_config.h"
+#include "turok_binds.h"   /* PC-only rebindable input tokens + capture seam (defined in config.c) */
 
 static SDL_Window* wnd;
 static SDL_GLContext ctx;
@@ -20,7 +21,10 @@ static bool vsync_enabled = true;
 static int window_width = DESIRED_SCREEN_WIDTH;
 static int window_height = DESIRED_SCREEN_HEIGHT;
 /* saved PC settings (config.c) — used by gfx_sdl_init below + the mouse helpers further down. */
-extern "C" { extern float g_cfg_mouse_sens; extern int g_cfg_mouse_invert, g_cfg_win_w, g_cfg_win_h; }
+extern "C" { extern float g_cfg_mouse_sens; extern int g_cfg_mouse_invert, g_cfg_win_w, g_cfg_win_h, g_cfg_fullscreen; }
+/* PORT: live-window request seam — the options menu (options.c) sets these, we apply them once per frame at the
+ * top of gfx_sdl_handle_events. Defined in config.c so every backend links. */
+extern "C" { extern int g_turok_req_win_w, g_turok_req_win_h, g_turok_req_fullscreen, g_turok_req_dirty; }
 static uint32_t fullscreen_flag = SDL_WINDOW_FULLSCREEN_DESKTOP;
 static bool fullscreen_state;
 static bool maximized_state;
@@ -155,7 +159,9 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
     Uint32 flags = SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL;
 
     // if fullscreen was requested, start the window in fullscreen right away
-    if (set->fullscreen) {
+    // (PORT: settings->fullscreen is always false here — turok_gfx.c zeroes the settings — so honour the saved
+    //  turok.cfg `fullscreen` directly, mirroring how the window size comes from g_cfg_win_w/h above.)
+    if (set->fullscreen || g_cfg_fullscreen) {
         flags |= fullscreen_flag;
         fullscreen_state = true;
     }
@@ -240,6 +246,10 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
     { const char *fe = getenv("TUROK_FPS"); if (fe && *fe) target_fps = atoi(fe); }
 
     SDL_ShowWindow(wnd);
+
+    { int aw = 0, ah = 0; SDL_GL_GetDrawableSize(wnd, &aw, &ah);
+      fprintf(stderr, "[gfx] SDL window %dx%d requested, drawable %dx%d, %s\n",
+              window_width, window_height, aw, ah, fullscreen_state ? "fullscreen-desktop" : "windowed"); }
 
     qpc_freq = SDL_GetPerformanceFrequency();
 }
@@ -379,20 +389,96 @@ static int gamepad_on(void) {                            /* TUROK_GAMEPAD=0 or t
     return v;
 }
 
+/* ---- PORT: user-remappable bindings ---------------------------------------
+ * The tokens (source of truth) live in config.c (g_cfg_bind); here we RESOLVE each into an SDL scancode /
+ * mouse button / wheel notch, re-resolving whenever config.c flags g_cfg_bind_dirty (a rebind or a reset).
+ * The first 8 actions assert a HELD N64 bit each frame; the last 5 fire ONCE on the key/button/wheel DOWN. */
+enum { RB_NONE = 0, RB_KEY, RB_MBUTTON, RB_WHEELUP, RB_WHEELDOWN };
+struct ResolvedBind { int kind; int code; };            /* code = SDL_Scancode (KEY) or mouse button 1..5 */
+static ResolvedBind s_bind[BIND_MAX][TUROK_BIND_SLOTS];
+static bool s_bind_resolved = false;
+/* HELD-bit actions (BIND_FORWARD..BIND_PAUSE) -> the N64 pad bit each asserts while its input is held. */
+static const unsigned s_held_bit[8] = { N64_CU, N64_CD, N64_CL, N64_CR, N64_Z, N64_R, N64_L, N64_START };
+
+static void resolve_one_bind(const char *tok, ResolvedBind *rb) {
+    rb->kind = RB_NONE; rb->code = 0;
+    if (!tok || !tok[0] || !strcmp(tok, "none")) return;
+    if (!strcmp(tok, "wheelup"))   { rb->kind = RB_WHEELUP;   return; }
+    if (!strcmp(tok, "wheeldown")) { rb->kind = RB_WHEELDOWN; return; }
+    if (!strncmp(tok, "mouse", 5) && tok[5] >= '1' && tok[5] <= '9') { rb->kind = RB_MBUTTON; rb->code = tok[5] - '0'; return; }
+    if (!strncmp(tok, "key:", 4)) {
+        const char *name = tok + 4;
+        if (name[0] == '#') { rb->kind = RB_KEY; rb->code = atoi(name + 1); return; }   /* raw scancode escape hatch */
+        char buf[TUROK_BIND_TOKLEN]; int i = 0;
+        for (; name[i] && i < TUROK_BIND_TOKLEN - 1; i++) buf[i] = (name[i] == '_') ? ' ' : name[i];
+        buf[i] = 0;
+        SDL_Scancode sc = SDL_GetScancodeFromName(buf);     /* case-insensitive; UNKNOWN on failure */
+        if (sc != SDL_SCANCODE_UNKNOWN) { rb->kind = RB_KEY; rb->code = (int)sc; }
+        return;
+    }
+}
+static void resolve_all_binds(void) {
+    for (int a = 0; a < BIND_MAX; a++)
+        for (int s = 0; s < TUROK_BIND_SLOTS; s++)
+            resolve_one_bind(g_cfg_bind[a][s], &s_bind[a][s]);
+    s_bind_resolved = true;
+}
+/* Fire an EDGE action (weapon cycle / walk toggle / quicksave / quickload). `amount` = wheel notches (1 for
+ * a key/button). Weapon cycle goes through g_weapon_cycle (one notch per logic tick) — NOT a held pad bit —
+ * to avoid the FPS>TICK over-cycle bug; walk/save/load are the existing one-shot seams. */
+static void fire_edge_bind(int action, int amount) {
+    switch (action) {
+        case BIND_WEAP_NEXT: g_weapon_cycle += amount; if (g_weapon_cycle >  12) g_weapon_cycle =  12; break;
+        case BIND_WEAP_PREV: g_weapon_cycle -= amount; if (g_weapon_cycle < -12) g_weapon_cycle = -12; break;
+        case BIND_WALK:      g_turok_walk_mode = !g_turok_walk_mode; break;
+        case BIND_QUICKSAVE: g_quicksave_req = 1; break;
+        case BIND_QUICKLOAD: g_quickload_req = 1; break;
+    }
+}
+static void edge_from_key(SDL_Scancode sc) {
+    for (int a = BIND_WEAP_NEXT; a < BIND_MAX; a++)
+        for (int s = 0; s < TUROK_BIND_SLOTS; s++)
+            if (s_bind[a][s].kind == RB_KEY && s_bind[a][s].code == (int)sc) fire_edge_bind(a, 1);
+}
+static void edge_from_mbutton(int btn) {
+    for (int a = BIND_WEAP_NEXT; a < BIND_MAX; a++)
+        for (int s = 0; s < TUROK_BIND_SLOTS; s++)
+            if (s_bind[a][s].kind == RB_MBUTTON && s_bind[a][s].code == btn) fire_edge_bind(a, 1);
+}
+static void edge_from_wheel(int y) {
+    int want = (y > 0) ? RB_WHEELUP : RB_WHEELDOWN, amount = (y > 0) ? y : -y;
+    for (int a = BIND_WEAP_NEXT; a < BIND_MAX; a++)
+        for (int s = 0; s < TUROK_BIND_SLOTS; s++)
+            if (s_bind[a][s].kind == want) fire_edge_bind(a, amount);
+}
+
 static void turok_sdl_update_input(void) {
     unsigned short btn = 0;
     int sx = 0, sy = 0;
     const Uint8 *k = SDL_GetKeyboardState(NULL);
 
-    /* PC FPS scheme (right-handed config): WASD = MOVE on the C-BUTTONS ONLY (W/S forward/back, A/D strafe);
-     * the D-pad is the native run/walk toggle so it must stay clear. MOUSE-LOOK drives a HELD turn+pitch via
-     * the g_look_* seam; LMB=fire, RMB=jump, wheel=cycle weapons, E toggles run/walk (event loop). */
-    { static bool inited = false; if (!inited) { SDL_SetRelativeMouseMode(SDL_TRUE); g_relmouse_on = true; inited = true; } }
+    { static bool once = false; if (!once) { SDL_SetRelativeMouseMode(SDL_TRUE); g_relmouse_on = true; once = true; } }
 
-    if (k[SDL_SCANCODE_W]) btn |= N64_CU;   /* forward (C-up)        */
-    if (k[SDL_SCANCODE_S]) btn |= N64_CD;   /* backward (C-down)     */
-    if (k[SDL_SCANCODE_A]) btn |= N64_CL;   /* strafe left (C-left)  */
-    if (k[SDL_SCANCODE_D]) btn |= N64_CR;   /* strafe right (C-right)*/
+    /* While a rebind capture is armed, push a NEUTRAL pad and skip all mapping — otherwise the pressed key
+     * simultaneously asserts its OLD binding (e.g. Enter=START would 'click' the menu row being rebound). */
+    if (g_bind_capture_action >= 0) { inputSetState(0, 0, 0); return; }
+
+    if (!s_bind_resolved) resolve_all_binds();
+
+    /* PC FPS scheme (right-handed config): the 8 HELD-bit actions assert their N64 bit while any bound key or
+     * mouse button is down. DEFAULTS: WASD = MOVE on the C-BUTTONS ONLY (the D-pad stays clear — it is the
+     * native run/walk toggle), LMB/Ctrl = fire (Z), RMB/Space = jump (R), Tab/M = map (L), Enter = pause. All
+     * remappable via the options CONTROLS submenu; the resolver can never produce a D-pad bit. */
+    for (int a = 0; a < 8; a++) {
+        for (int s = 0; s < TUROK_BIND_SLOTS; s++) {
+            const ResolvedBind &b = s_bind[a][s];
+            if (b.kind == RB_KEY)          { if (k[b.code])                            btn |= s_held_bit[a]; }
+            else if (b.kind == RB_MBUTTON) { if (g_mouse_buttons & SDL_BUTTON(b.code)) btn |= s_held_bit[a]; }
+        }
+    }
+    /* FIXED (never rebindable): ESC always = pause/START, so the player can't lock themselves out of the
+     * options menu even after rebinding pause (ESC also cancels a rebind capture). */
+    if (k[SDL_SCANCODE_ESCAPE]) btn |= N64_START;
 
     /* mouse-look -> HELD body-turn (yaw) + held pitch via the port seam (g_look_*), NOT the spring stick
      * (which recenters on rest). Scaled to radians; TUROK_MOUSE_SENS tunes it. Pitch: forward(up)=look up
@@ -403,20 +489,11 @@ static void turok_sdl_update_input(void) {
       g_look_pitch += g_mouse_dy * s * pitch_sign;
       g_mouse_dx = g_mouse_dy = 0.0f; }
 
-    /* arrow keys: turn/look fallback for no-mouse play (analog stick: x=turn, y=move). */
+    /* FIXED: arrow keys = a no-mouse turn/look fallback (analog stick: x=turn, y=move) — also drives menu nav. */
     if (k[SDL_SCANCODE_LEFT])  sx -= 80;
     if (k[SDL_SCANCODE_RIGHT]) sx += 80;
     if (k[SDL_SCANCODE_UP])    sy += 80;
     if (k[SDL_SCANCODE_DOWN])  sy -= 80;
-
-    /* actions (right-handed map): LMB/Ctrl = fire (Z), RMB/Space = jump (R_TRIG), wheel = cycle weapons
-     * (discrete g_weapon_cycle seam, NOT a held button), Tab/M = map (L_TRIG), Enter/Esc = pause (Start). */
-    if (g_mouse_buttons & SDL_BUTTON(SDL_BUTTON_LEFT))  btn |= N64_Z;   /* fire */
-    if (g_mouse_buttons & SDL_BUTTON(SDL_BUTTON_RIGHT)) btn |= N64_R;   /* jump (R_TRIG) */
-    if (k[SDL_SCANCODE_SPACE])  btn |= N64_R;                           /* jump (kbd)  */
-    if (k[SDL_SCANCODE_LCTRL] || k[SDL_SCANCODE_RCTRL]) btn |= N64_Z;   /* fire (kbd)  */
-    if (k[SDL_SCANCODE_TAB] || k[SDL_SCANCODE_M]) btn |= N64_L;         /* map toggle (L_TRIG) */
-    if (k[SDL_SCANCODE_RETURN] || k[SDL_SCANCODE_ESCAPE]) btn |= N64_START; /* pause */
 
     /* gamepad: left stick = move (Y fwd/back, X strafe via C-buttons); right stick = HELD look (g_look_*);
      * RT fire, A jump, shoulders cycle weapons (A/B button path, tick-gated), Start pause. D-pad -> C-buttons
@@ -467,18 +544,84 @@ static void turok_sdl_update_input(void) {
 
 static void gfx_sdl_handle_events(void) {
     SDL_Event event;
+
+    /* PORT: re-resolve the bind table on first run or after a rebind/reset (options.c sets g_cfg_bind_dirty). */
+    if (!s_bind_resolved || g_cfg_bind_dirty) { g_cfg_bind_dirty = 0; resolve_all_binds(); }
+
+    /* PORT: apply a pending resolution/fullscreen change from the options menu (options.c). Runs on the game
+     * thread, one frame after the menu set it — the same safe boundary Alt-Enter's set_fullscreen uses. The
+     * next gfx_start_frame re-queries the window size and republishes the aspect, so no other bookkeeping. */
+    if (g_turok_req_dirty) {
+        g_turok_req_dirty = 0;
+        if (g_turok_req_fullscreen >= 0) {
+            set_fullscreen(g_turok_req_fullscreen != 0, true);
+            g_turok_req_fullscreen = -1;
+        }
+        if (g_turok_req_win_w != 0 && !fullscreen_state) {
+            int rw = g_turok_req_win_w, rh = g_turok_req_win_h;
+            if (rw < 0) {   /* DESKTOP: resolve the native desktop mode + persist the resolved dims */
+                SDL_DisplayMode dm = {};
+                if (SDL_GetDesktopDisplayMode(SDL_GetWindowDisplayIndex(wnd), &dm) == 0) { rw = dm.w; rh = dm.h; }
+                else { rw = 0; }
+            }
+            if (rw > 0 && rh > 0) {
+                int px = 0, py = 0;
+                SDL_SetWindowSize(wnd, rw, rh);
+                get_centered_positions_native(rw, rh, &px, &py);
+                SDL_SetWindowPosition(wnd, px, py);
+                g_cfg_win_w = rw;   /* keep cfg authoritative (esp. DESKTOP) so turokConfigSave persists the truth */
+                g_cfg_win_h = rh;
+            }
+        }
+        g_turok_req_win_w = g_turok_req_win_h = 0;
+    }
+
     while (SDL_PollEvent(&event)) {
+        /* PORT: rebind CAPTURE. While the options menu has armed g_bind_capture_action, the NEXT raw press
+         * becomes the new binding (ESC cancels). We SWALLOW that event (continue) so it isn't processed
+         * normally; the pad is already held neutral by turok_sdl_update_input while armed. */
+        if (g_bind_capture_action >= 0) {
+            if (event.type == SDL_KEYDOWN && !event.key.repeat) {
+                if (event.key.keysym.sym == SDLK_ESCAPE) {
+                    g_bind_capture_cancel = 1; g_bind_capture_done = 1; g_bind_capture_action = -1;
+                } else {
+                    SDL_Scancode sc = event.key.keysym.scancode;
+                    const char *nm = SDL_GetScancodeName(sc);
+                    char tok[TUROK_BIND_TOKLEN]; int o = 0;
+                    if (nm && nm[0]) {
+                        tok[o++]='k'; tok[o++]='e'; tok[o++]='y'; tok[o++]=':';
+                        for (int i = 0; nm[i] && o < TUROK_BIND_TOKLEN - 1; i++) {
+                            char c = nm[i]; if (c == ' ') c = '_'; else if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+                            tok[o++] = c;
+                        }
+                        tok[o] = 0;
+                    } else {
+                        snprintf(tok, sizeof tok, "key:#%d", (int)sc);
+                    }
+                    strncpy(g_bind_capture_result, tok, TUROK_BIND_TOKLEN - 1);
+                    g_bind_capture_result[TUROK_BIND_TOKLEN - 1] = 0;
+                    g_bind_capture_done = 1; g_bind_capture_action = -1;
+                }
+                continue;
+            } else if (event.type == SDL_MOUSEBUTTONDOWN) {
+                snprintf(g_bind_capture_result, TUROK_BIND_TOKLEN, "mouse%d", event.button.button);
+                g_bind_capture_done = 1; g_bind_capture_action = -1;
+                continue;
+            } else if (event.type == SDL_MOUSEWHEEL) {
+                strncpy(g_bind_capture_result, event.wheel.y >= 0 ? "wheelup" : "wheeldown", TUROK_BIND_TOKLEN - 1);
+                g_bind_capture_result[TUROK_BIND_TOKLEN - 1] = 0;
+                g_bind_capture_done = 1; g_bind_capture_action = -1;
+                continue;
+            }
+            /* other events (motion/window/quit) fall through so grab-release + window close still work. */
+        }
         switch (event.type) {
             case SDL_KEYDOWN:
                 if (event.key.keysym.sym == SDLK_RETURN && (event.key.keysym.mod & KMOD_ALT)) {
                     // alt-enter received, switch fullscreen state
                     set_fullscreen(!fullscreen_state, true);
-                } else if (event.key.keysym.sym == SDLK_e && !event.key.repeat) {
-                    g_turok_walk_mode = !g_turok_walk_mode;                       /* run/walk toggle */
-                } else if (event.key.keysym.sym == SDLK_F5 && !event.key.repeat) {
-                    g_quicksave_req = 1;                                          /* quick-save (game thread) */
-                } else if (event.key.keysym.sym == SDLK_F9 && !event.key.repeat) {
-                    g_quickload_req = 1;                                          /* quick-load (game thread) */
+                } else if (!event.key.repeat) {
+                    edge_from_key(event.key.keysym.scancode);   /* walk toggle / quicksave / quickload / weapon cycle */
                 }
                 break;
             case SDL_MOUSEMOTION:
@@ -486,14 +629,13 @@ static void gfx_sdl_handle_events(void) {
                 break;
             case SDL_MOUSEBUTTONDOWN:
                 g_mouse_buttons |= SDL_BUTTON(event.button.button);
+                edge_from_mbutton(event.button.button);         /* an EDGE action bound to a mouse button */
                 break;
             case SDL_MOUSEBUTTONUP:
                 g_mouse_buttons &= ~SDL_BUTTON(event.button.button);
                 break;
             case SDL_MOUSEWHEEL:
-                g_weapon_cycle += event.wheel.y;                                 /* +up = next weapon, -down = prev (one per tick) */
-                if (g_weapon_cycle >  12) g_weapon_cycle =  12;                  /* cap the backlog (< #weapons) so scrolling */
-                if (g_weapon_cycle < -12) g_weapon_cycle = -12;                  /* while ducking/paused can't dump a huge run  */
+                edge_from_wheel(event.wheel.y);                 /* default: up=next weapon, down=prev (via g_weapon_cycle) */
                 break;
             case SDL_WINDOWEVENT:
                 if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {

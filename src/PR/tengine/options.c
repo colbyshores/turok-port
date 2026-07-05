@@ -17,6 +17,13 @@
 #define OPTIONS_WIDTH	(266)
 #define OPTIONS_HEIGHT	(200)
 #define OPTIONSMENU_Y 			(OPTIONS_Y + 48)
+#elif defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+/* PC: the draw-distance row (24px) plus the two new PC rows (resolution + fullscreen, 12px each) overflow the
+ * stock 210-tall box beyond the bottom of the 240px screen — grow the box and tighten the header gap so every
+ * row stays on-screen. PC-only, so 3DS/N64 layout is byte-identical (the #else below). */
+#define OPTIONS_WIDTH	(208)
+#define OPTIONS_HEIGHT	(236)
+#define OPTIONSMENU_Y 			(OPTIONS_Y + 30)
 #else
 #define OPTIONS_WIDTH	(208)
 #define OPTIONS_HEIGHT	(210)
@@ -112,6 +119,76 @@ static INT32 s_DrawDistSlider = 128;	// draw-distance bar position (0..255). FIL
 										// NOT a COptions field (growing CEngineApp = stale-build layout corruption).
 #endif
 
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+#include "turok_binds.h"
+/* ── PC CONTROLS (key/mouse rebind) submenu ─────────────────────────────────────────────────────────────────
+ * A sub-mode of the options screen (like EDIT_FOG), branched at the top of COptions__Update/Draw. State =
+ * FILE-SCOPE STATICS ONLY (never COptions/CEngineApp fields — the struct-growth layout-corruption gotcha,
+ * options.h:114-118). The rows list each rebindable action + its current PRIMARY binding; UP/DOWN select,
+ * activate (Enter) arms capture (the NEXT key/mouse press becomes the binding; ESC in gfx_sdl2 cancels).
+ * The binding tokens + capture seam live in config.c (turok_binds.h); this menu never touches SDL. */
+static char	text_controls[] = {"controls"};
+static int	s_ControlsActive = 0;	/* 1 = the CONTROLS submenu is showing. */
+static int	s_ControlsSel    = 0;	/* selected row 0..CONTROLS_ROWS-1. */
+#define CONTROLS_ROWS			(BIND_MAX + 2)	/* 13 actions + "defaults" + "back" */
+#define CONTROLS_ROW_DEFAULTS	(BIND_MAX)
+#define CONTROLS_ROW_BACK		(BIND_MAX + 1)
+#define CONTROLS_WIDTH			(252)
+#define CONTROLS_HEIGHT			(232)
+#define CONTROLS_X				((320/2) - (CONTROLS_WIDTH/2))
+#define CONTROLS_Y				((240/2) - (CONTROLS_HEIGHT/2))
+#define CONTROLS_ROW_SP			(14)
+#define CONTROLS_MENU_Y			(CONTROLS_Y + 12)
+extern void turokConfigSave(void);
+static INT32 options_controls_update(COptions *pThis) ;
+static void  options_controls_draw(COptions *pThis, Gfx **ppDLP) ;
+
+/* ── PC screen-resolution + fullscreen rows ─────────────────────────────────────────────────────────────────
+ * State = FILE-SCOPE STATICS ONLY (never COptions/CEngineApp fields — struct growth shifts every member after
+ * m_Options and a stale build links mismatched layouts → corrupted cache/texture pointers, the documented
+ * options.h:114-118 gotcha). The SOURCE OF TRUTH is g_cfg_win_w/h + g_cfg_fullscreen (persisted in turok.cfg);
+ * these statics only hold the selector position + the display label. LARGE_FONT has digits + 'x' + space, so
+ * "1920 x 1080" renders — but NEVER ':' or '-' (they alias to the Z/M glyphs). */
+static char	s_res_label[24]        = {"resolution"};	// rewritten each Draw: "1920 x 1080" preset, or "desktop"
+static char	text_fullscreen_on[]   = {"fullscreen"};
+static char	text_fullscreen_off[]  = {"windowed"};
+/* Curated windowed presets (4:3 + 16:9 + 4:3-hi). DESKTOP (native) is the extra slot at index == COUNT. */
+static const int s_res_presets[][2] =
+{
+	{960,720}, {1280,720}, {1280,960}, {1600,900}, {1600,1200}, {1920,1080}, {2560,1440}
+};
+#define OPTIONS_RES_COUNT	((int)(sizeof(s_res_presets)/sizeof(s_res_presets[0])))
+static int	s_ResIndex = -1;	// 0..COUNT-1 = a preset; COUNT = DESKTOP (native). -1 = unseeded (seeded in SetDefaults).
+static int	s_ResLatch = 0;		// LEFT/RIGHT step latch — one step per press (delta must re-center before it steps again).
+
+/* Live-apply seam: options sets the cfg + hands the request to gfx_sdl2, which applies it next frame at the
+ * top of gfx_sdl_handle_events (the same game-thread/frame boundary Alt-Enter already uses — strictly safe). */
+extern int g_cfg_win_w, g_cfg_win_h, g_cfg_fullscreen;
+extern int g_turok_req_win_w, g_turok_req_win_h, g_turok_req_fullscreen, g_turok_req_dirty;
+
+static void options_apply_resolution(void)
+{
+	if (s_ResIndex >= OPTIONS_RES_COUNT) {
+		/* DESKTOP: gfx_sdl2 resolves the native desktop mode and writes g_cfg_win_w/h back for persistence. */
+		g_turok_req_win_w = -1 ;
+		g_turok_req_win_h = -1 ;
+	} else {
+		g_cfg_win_w = s_res_presets[s_ResIndex][0] ;
+		g_cfg_win_h = s_res_presets[s_ResIndex][1] ;
+		g_turok_req_win_w = g_cfg_win_w ;
+		g_turok_req_win_h = g_cfg_win_h ;
+	}
+	g_turok_req_dirty = 1 ;
+}
+
+static void options_toggle_fullscreen(void)
+{
+	g_cfg_fullscreen = g_cfg_fullscreen ? 0 : 1 ;
+	g_turok_req_fullscreen = g_cfg_fullscreen ;
+	g_turok_req_dirty = 1 ;
+}
+#endif
+
 t_Option options[]=
 {
 	OPTIONSBIG_SPACING, text_musicvolume,
@@ -121,6 +198,11 @@ t_Option options[]=
 	OPTIONSBIG_SPACING, text_vanalog,
 #ifdef PLATFORM_PORT
 	OPTIONSBIG_SPACING, text_drawdist,
+#endif
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+	OPTIONSMENU_SPACING, s_res_label,			// String reassigned each Draw (multi-state text row)
+	OPTIONSMENU_SPACING, text_fullscreen_off,	// String reassigned each Draw
+	OPTIONSMENU_SPACING, text_controls,			// key/mouse rebind submenu
 #endif
 	OPTIONSMENU_SPACING, text_control_left,
 #ifndef GERMAN
@@ -244,6 +326,25 @@ void COptions__SetDefaults(COptions *pThis)
 		options[OPTIONS_DRAWDIST].Spacing = (mxr <= 0.01f) ? 0 : OPTIONSBIG_SPACING;
 	}
 #endif
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+	/* Seed the resolution selector from the saved window size: exact preset match, else the nearest preset by
+	 * width (a hand-edited custom size shows the nearest preset label until the user cycles). */
+	{	int i, best = 0, bestd = 0x7fffffff;
+		s_ResIndex = -1;
+		for (i = 0; i < OPTIONS_RES_COUNT; i++) {
+			if (s_res_presets[i][0] == g_cfg_win_w && s_res_presets[i][1] == g_cfg_win_h) { s_ResIndex = i; break; }
+			{ int d = g_cfg_win_w - s_res_presets[i][0]; if (d < 0) d = -d;
+			  if (d < bestd) { bestd = d; best = i; } }
+		}
+		if (s_ResIndex < 0) s_ResIndex = best;
+		s_ResLatch = 0;
+	}
+	/* HIDE the right/left-handed toggle on PC (Spacing=0 collapses it out of the bar/text/nav — same mechanism
+	 * as the hidden OG-3DS draw-dist row). The whole PC scheme (WASD on the C-buttons) is only correct with
+	 * m_RHControl=TRUE; left-handed moves movement to the D-pad and makes the C-buttons fire the run/walk toggle,
+	 * so every WASD press would toggle run/walk. With SDL-side remapping hand-ness is meaningless, so lock it. */
+	options[OPTIONS_CONTROL].Spacing = 0;
+#endif
 	pThis->m_RHControl = TRUE;
 #ifdef KANJI
 	pThis->m_Blood = BLOOD_GREEN ;
@@ -307,6 +408,11 @@ INT32 COptions__Update(COptions *pThis)
 //	float				VolChange;
 	INT32				ReturnValue = -1 ;
 
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+	if (s_ControlsActive)
+		return options_controls_update(pThis) ;
+#endif
+
 #ifdef EDIT_FOG_AND_LIGHTS
 	// do FOG options
 	if (pThis->m_EditFog)
@@ -332,9 +438,12 @@ INT32 COptions__Update(COptions *pThis)
 			if (pThis->m_Selection >= OPTIONS_END_SELECTION)
 				pThis->m_Selection = 0 ;
 #ifdef PLATFORM_PORT
-			if (pThis->m_Selection == OPTIONS_DRAWDIST && options[OPTIONS_DRAWDIST].Spacing == 0) {  /* OG: skip hidden row */
-				pThis->m_Selection++ ;
-				if (pThis->m_Selection >= OPTIONS_END_SELECTION) pThis->m_Selection = 0 ;
+			/* skip any HIDDEN row (Spacing==0): the OG-3DS draw-dist row and the PC-hidden control row. */
+			{	int guard = 0 ;
+				while (options[pThis->m_Selection].Spacing == 0 && guard++ < OPTIONS_END_SELECTION) {
+					pThis->m_Selection++ ;
+					if (pThis->m_Selection >= OPTIONS_END_SELECTION) pThis->m_Selection = 0 ;
+				}
 			}
 #endif
 		}
@@ -347,9 +456,11 @@ INT32 COptions__Update(COptions *pThis)
 			if (pThis->m_Selection < 0)
 				pThis->m_Selection = OPTIONS_END_SELECTION-1 ;
 #ifdef PLATFORM_PORT
-			if (pThis->m_Selection == OPTIONS_DRAWDIST && options[OPTIONS_DRAWDIST].Spacing == 0) {  /* OG: skip hidden row */
-				pThis->m_Selection-- ;
-				if (pThis->m_Selection < 0) pThis->m_Selection = OPTIONS_END_SELECTION-1 ;
+			{	int guard = 0 ;
+				while (options[pThis->m_Selection].Spacing == 0 && guard++ < OPTIONS_END_SELECTION) {
+					pThis->m_Selection-- ;
+					if (pThis->m_Selection < 0) pThis->m_Selection = OPTIONS_END_SELECTION-1 ;
+				}
 			}
 #endif
 		}
@@ -434,12 +545,58 @@ INT32 COptions__Update(COptions *pThis)
 				break ;
 			}
 #endif
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+			case OPTIONS_RESOLUTION:
+			{	int step = (delta > 0.5f) ? 1 : (delta < -0.5f) ? -1 : 0;	/* prev/next preset, one per press */
+				if (step && !s_ResLatch) {
+					s_ResLatch = 1;
+					s_ResIndex += step;
+					if (s_ResIndex < 0)                 s_ResIndex = OPTIONS_RES_COUNT;	/* wrap to DESKTOP */
+					if (s_ResIndex > OPTIONS_RES_COUNT) s_ResIndex = 0;
+					options_apply_resolution();
+				} else if (!step) {
+					s_ResLatch = 0;
+				}
+				break ;
+			}
+			case OPTIONS_FULLSCREEN:
+			{	int step = (delta > 0.5f) ? 1 : (delta < -0.5f) ? -1 : 0;
+				if (step && !s_ResLatch) {
+					s_ResLatch = 1;
+					options_toggle_fullscreen();
+				} else if (!step) {
+					s_ResLatch = 0;
+				}
+				break ;
+			}
+#endif
 		}
 
 		// check for start button on current item
 		if (CTControl__IsUseMenu(pCTControl))
 			ReturnValue = pThis->m_Selection ;
 
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+		if (ReturnValue == OPTIONS_RESOLUTION)		/* activate cycles forward through the presets + DESKTOP */
+		{
+			s_ResIndex++ ;
+			if (s_ResIndex > OPTIONS_RES_COUNT) s_ResIndex = 0 ;
+			options_apply_resolution() ;
+			ReturnValue = -1 ;
+		}
+		else if (ReturnValue == OPTIONS_FULLSCREEN)	/* activate toggles fullscreen */
+		{
+			options_toggle_fullscreen() ;
+			ReturnValue = -1 ;
+		}
+		else if (ReturnValue == OPTIONS_CONTROLS)	/* activate enters the key/mouse rebind submenu */
+		{
+			s_ControlsActive = 1 ;
+			s_ControlsSel = 0 ;
+			ReturnValue = -1 ;
+		}
+		else
+#endif
 		if (ReturnValue == OPTIONS_CONTROL)
 		{
 			pThis->m_RHControl ^= TRUE ;
@@ -464,6 +621,11 @@ INT32 COptions__Update(COptions *pThis)
 		{
 //			GetApp()->m_Pause.m_MusicVolume = GetApp()->m_ActualMusicVolume;
 //			GetApp()->m_Pause.m_SFXVolume = GetApp()->m_ActualSFXVolume;
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+			/* persist the g_cfg-backed settings (resolution, fullscreen, draw distance, …) once on menu close.
+			 * A pending DESKTOP request has been applied by now, so g_cfg_win_w/h holds the resolved dims. */
+			{ extern void turokConfigSave(void); turokConfigSave(); }
+#endif
 			pThis->m_Mode = OPTIONS_FADEDOWN ;
 		}
 		else
@@ -492,6 +654,119 @@ INT32 COptions__Update(COptions *pThis)
 
 	return ReturnValue ;
 }
+
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+//------------------------------------------------------------------------
+// CONTROLS submenu (key/mouse rebinding) — a sub-mode of the options screen.
+//------------------------------------------------------------------------
+static INT32 options_controls_update(COptions *pThis)
+{
+	// A capture just finished (gfx_sdl2 set done, action back to -1): store the token into the selected
+	// action's PRIMARY slot (the alt slot is preserved), flag gfx_sdl2 to re-resolve, and persist.
+	if (g_bind_capture_done)
+	{
+		if (!g_bind_capture_cancel && s_ControlsSel >= 0 && s_ControlsSel < BIND_MAX)
+		{
+			strncpy(g_cfg_bind[s_ControlsSel][0], g_bind_capture_result, TUROK_BIND_TOKLEN-1) ;
+			g_cfg_bind[s_ControlsSel][0][TUROK_BIND_TOKLEN-1] = 0 ;
+			g_cfg_bind_dirty = 1 ;
+			turokConfigSave() ;
+		}
+		g_bind_capture_done = 0 ;
+		g_bind_capture_cancel = 0 ;
+		return -1 ;
+	}
+	// Capture still armed: waiting for a raw press; suppress navigation (the pad is held neutral meanwhile).
+	if (g_bind_capture_action >= 0)
+		return -1 ;
+
+	if (CEngineApp__MenuDown(GetApp()))
+	{
+		BarTimer = 0 ;
+		s_ControlsSel++ ;
+		if (s_ControlsSel >= CONTROLS_ROWS) s_ControlsSel = 0 ;
+	}
+	if (CEngineApp__MenuUp(GetApp()))
+	{
+		BarTimer = 0 ;
+		s_ControlsSel-- ;
+		if (s_ControlsSel < 0) s_ControlsSel = CONTROLS_ROWS-1 ;
+	}
+
+	if (CTControl__IsUseMenu(pCTControl))
+	{
+		if (s_ControlsSel < BIND_MAX)
+		{
+			// arm capture for this action's PRIMARY slot; gfx_sdl2 fills it on the next raw press.
+			g_bind_capture_done = 0 ;
+			g_bind_capture_cancel = 0 ;
+			g_bind_capture_action = s_ControlsSel ;
+		}
+		else if (s_ControlsSel == CONTROLS_ROW_DEFAULTS)
+		{
+			turokBindsSetDefaults() ;
+			g_cfg_bind_dirty = 1 ;
+			turokConfigSave() ;
+		}
+		else	// CONTROLS_ROW_BACK
+		{
+			turokConfigSave() ;
+			s_ControlsActive = 0 ;
+			s_ControlsSel = 0 ;
+		}
+	}
+
+	return -1 ;
+}
+
+static void options_controls_draw(COptions *pThis, Gfx **ppDLP)
+{
+	int		i, y ;
+	char	line[48], bindname[24] ;
+
+	if (pThis->m_Alpha == 0)
+		return ;
+
+	COnScreen__InitBoxDraw(ppDLP) ;
+	COnScreen__DrawHilightBox(ppDLP,
+							  CONTROLS_X, CONTROLS_Y,
+							  CONTROLS_X+CONTROLS_WIDTH, CONTROLS_Y+CONTROLS_HEIGHT,
+							  1, FALSE, 0,0,0, 180 * pThis->m_Alpha) ;
+
+	// selection bar
+	y = CONTROLS_MENU_Y + s_ControlsSel * CONTROLS_ROW_SP ;
+	CPause__InitPolygon(ppDLP) ;
+	CPause__DrawBar(ppDLP, CONTROLS_X+8, y-1, CONTROLS_WIDTH-16, CONTROLS_ROW_SP, pThis->m_Alpha) ;
+
+	// rows (LARGE_FONT is lowercase letters + digits + space; no ':' / '-')
+	COnScreen__InitFontDraw(ppDLP) ;
+	COnScreen__SetFontScale(0.8, 0.6) ;
+	y = CONTROLS_MENU_Y ;
+	for (i = 0; i < CONTROLS_ROWS; i++)
+	{
+		if (i < BIND_MAX)
+		{
+			if (g_bind_capture_action == i)
+				strcpy(bindname, "press a key") ;
+			else
+				turokBindDisplayName(g_cfg_bind[i][0], bindname, sizeof bindname) ;
+			sprintf(line, "%-11s%s", turokBindActionLabel(i), bindname) ;
+		}
+		else if (i == CONTROLS_ROW_DEFAULTS)
+			strcpy(line, "defaults") ;
+		else
+			strcpy(line, "back") ;
+
+		if (i == s_ControlsSel)
+			COnScreen__SetFontColor(ppDLP, 200*1.25, 200*1.25, 138*1.25, 86*1.25, 71*1.25, 47*1.25) ;
+		else
+			COnScreen__SetFontColor(ppDLP, 200*.9, 200*.9, 138*.9, 86*.9, 71*.9, 47*.9) ;
+
+		COnScreen__DrawText(ppDLP, line, CONTROLS_X+12, y, (int)(255 * pThis->m_Alpha), FALSE, TRUE) ;
+		y += CONTROLS_ROW_SP ;
+	}
+}
+#endif	/* PLATFORM_PORT && !PLATFORM_3DS */
 
 #ifdef EDIT_FOG_AND_LIGHTS
 //------------------------------------------------------------------------
@@ -726,6 +1001,10 @@ void COptions__Draw(COptions *pThis, Gfx **ppDLP)
 			break ;
 	}
 
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+	if (s_ControlsActive) { options_controls_draw(pThis, ppDLP) ; return ; }
+#endif
+
 #ifdef EDIT_FOG_AND_LIGHTS
 	if (pThis->m_EditFog)
 		COptions__DrawFOG(pThis, ppDLP) ;
@@ -767,6 +1046,16 @@ void COptions__Draw(COptions *pThis, Gfx **ppDLP)
 			else
 				options[OPTIONS_CONTROL].String = text_control_left ;
 
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+			/* resolution: "1920 x 1080" (preset) or "desktop" (native). fullscreen: "fullscreen"/"windowed". */
+			if (s_ResIndex >= 0 && s_ResIndex < OPTIONS_RES_COUNT)
+				sprintf(s_res_label, "%d x %d", s_res_presets[s_ResIndex][0], s_res_presets[s_ResIndex][1]) ;
+			else
+				strcpy(s_res_label, "desktop") ;
+			options[OPTIONS_RESOLUTION].String = s_res_label ;
+			options[OPTIONS_FULLSCREEN].String = g_cfg_fullscreen ? text_fullscreen_on : text_fullscreen_off ;
+#endif
+
 #ifndef GERMAN
 			if (pThis->m_Blood == BLOOD_OFF)
 				options[OPTIONS_BLOOD].String = text_blood_off ;
@@ -784,7 +1073,7 @@ void COptions__Draw(COptions *pThis, Gfx **ppDLP)
 			for (i=0; i<OPTIONS_END_SELECTION; i++)
 			{
 #ifdef PLATFORM_PORT
-				if (i == OPTIONS_DRAWDIST && options[OPTIONS_DRAWDIST].Spacing == 0) continue;  /* OG: hidden draw-dist */
+				if (options[i].Spacing == 0) continue;  /* hidden row: OG draw-dist, PC control toggle */
 #endif
 				if (options[i].Spacing == OPTIONSBIG_SPACING)
 				{

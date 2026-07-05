@@ -21,6 +21,11 @@ enum OptionSelections
 #ifdef PLATFORM_PORT
 	OPTIONS_DRAWDIST,			// PC+3DS port: draw-distance slider
 #endif
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+	OPTIONS_RESOLUTION,			// PC only: screen-resolution selector row
+	OPTIONS_FULLSCREEN,			// PC only: fullscreen toggle row
+	OPTIONS_CONTROLS,			// PC only: key/mouse rebinding submenu row
+#endif
 	OPTIONS_CONTROL,
 #ifndef GERMAN
 	OPTIONS_BLOOD,
