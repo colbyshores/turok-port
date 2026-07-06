@@ -26,10 +26,32 @@
 extern u8 _staticSegmentRomStart[];
 
 static const char *DEFAULT_CARTDATA[] = {
-    "src/PR/cartdata.dat",            /* full blob: 11 root items, 50 levels, 1035 texsets */
+    "cartdata.dat",                   /* next to the binary / in the CWD (a normal install) */
+    "src/PR/cartdata.dat",            /* running from the repo root: full blob (11 root items, 50 levels) */
     "src/PR/tengine/oldcartdata.dat", /* fallback */
     NULL,
 };
+
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+#include <unistd.h>                   /* readlink */
+/* NB: no <string.h> — its <strings.h> pulls bcopy/bzero/bcmp which clash with os_libc.h (see line 22).
+ * Use the compiler builtins for the string ops; snprintf comes from <stdio.h> (already included). */
+static int rom_file_exists(const char *p) { FILE *f = fopen(p, "rb"); if (f) { fclose(f); return 1; } return 0; }
+/* Build "<dir-of-this-executable>/<name>" into buf. Returns buf, or NULL if the exe dir can't be found. */
+static const char *rom_exe_relative(const char *name, char *buf, size_t bufsz)
+{
+    char exe[4096];
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    char *slash;
+    if (n <= 0) return NULL;
+    exe[n] = 0;
+    slash = __builtin_strrchr(exe, '/');
+    if (!slash) return NULL;
+    *slash = 0;
+    if ((size_t)snprintf(buf, bufsz, "%s/%s", exe, name) >= bufsz) return NULL;
+    return buf;
+}
+#endif
 
 /* The retail ROM path (Path B). PC: $TUROK_ROM (NULL if unset -> caller uses the dev fallback). 3DS: the
  * SD-card ROM, since there are no env vars. Shared by romdataInit AND the audio bank loads (audio.c) — the
@@ -57,7 +79,28 @@ const char *turokRomPath(void)
     }
     return "sdmc:/3ds/turok/baserom.us.v12.z64";
 #else
-    return rom;                             /* NULL -> caller uses the dev cartdata.dat fallback */
+    /* PC: with no explicit $TUROK_ROM, AUTO-DISCOVER the retail ROM so the game runs as a plain
+     * `./turok` (or an installed `turok`) with the ROM sitting alongside it — no env var / launcher
+     * script needed. Search the executable's own directory first (a normal install: turok + the ROM
+     * in one folder), then the current directory (running from the repo root). Cached after the first
+     * lookup. Not found -> return NULL and the caller falls back to the dev cartdata.dat (v49 assets). */
+    {
+        static char found[4096];
+        static int  state = 0;              /* 0 untried, 1 found (in found[]), 2 not found */
+        if (state == 0) {
+            state = 2;
+            if (rom_exe_relative("baserom.us.v12.z64", found, sizeof found) && rom_file_exists(found)) {
+                state = 1;
+            } else if (rom_file_exists("baserom.us.v12.z64")) {
+                snprintf(found, sizeof found, "baserom.us.v12.z64");
+                state = 1;
+            }
+            if (state == 1)
+                fprintf(stderr, "[romdata] auto-found retail ROM: %s\n", found);
+        }
+        if (state == 1) return found;
+    }
+    return NULL;                            /* NULL -> caller uses the dev cartdata.dat fallback */
 #endif
 }
 
@@ -93,13 +136,19 @@ int romdataInit(void)
     }
 
     if (path) f = fopen(path, "rb");
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+    /* dev-asset fallback: cartdata.dat next to the executable (a normal install with no ROM). */
+    if (!f) { char rel[4096];
+        if (rom_exe_relative("cartdata.dat", rel, sizeof rel) && (f = fopen(rel, "rb"))) path = rel; }
+#endif
     for (i = 0; !f && DEFAULT_CARTDATA[i]; i++) {
         path = DEFAULT_CARTDATA[i];
         f = fopen(path, "rb");
     }
     if (!f) {
-        fprintf(stderr, "[romdata] FATAL: no cartdata.dat found "
-                        "(set TUROK_CARTDATA=<path>)\n");
+        fprintf(stderr, "[romdata] FATAL: no retail ROM (baserom.us.v12.z64) or cartdata.dat found "
+                        "next to the executable or in the current directory "
+                        "(or set TUROK_ROM=<path> / TUROK_CARTDATA=<path>)\n");
         return -1;
     }
 

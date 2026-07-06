@@ -73,6 +73,8 @@
 *.lnk
 build_port/
 build_3ds/
+/turok
+/turok_crash.log
 
 # --- 3DS CIA packaging: user-supplied art/audio (like the ROM) + 3rd-party tool binaries ---
 # (gitignore has no inline comments — keep patterns bare)
