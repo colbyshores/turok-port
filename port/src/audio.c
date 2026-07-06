@@ -40,20 +40,23 @@
                                                 * 44100 is the recording rate); the synth plays ratio=1.0
                                                 * native, so device+synth rate must = the stored rate. */
 #define AUDIO_FRAME_SAMPLES 512                /* stereo frames produced per synth pump */
-#define AUDIO_QUEUE_LIMIT_DEFAULT 4096         /* PC samples buffered ahead = the SFX trigger latency AND the
-                                                * underrun headroom. HISTORY: 8192 (PD's value) = ~371ms @22050
-                                                * (audible ~1/4s SFX delay); 2048 = ~93ms was chosen for SFX
-                                                * latency, but ~93ms is too little headroom: on a heavy level-3
-                                                * frame the game/render threads starve the audio thread (or hold
-                                                * the synthLock) for >93ms → the SDL push queue DRAINS → the
-                                                * device plays silence → sustained MUSIC notes are chopped
-                                                * ("jaguar roar cut off mid-roar"). The 3DS never showed it: its
-                                                * ndsp ring (audio_3ds.c, 8 buffers, ringHasFree back-pressure)
-                                                * rides out the same stall. 4096 = ~186ms doubles the headroom
-                                                * while keeping SFX latency acceptable. Tune at runtime with
-                                                * TUROK_AUDIO_QUEUE (in samples; e.g. 6144=~279ms for more
-                                                * headroom, 2048=~93ms for tighter SFX latency). PC-only — the
-                                                * 3DS has its own AUDIO_QUEUE_LIMIT in audio_3ds.c. */
+#define AUDIO_QUEUE_LIMIT_DEFAULT 2048         /* PC samples buffered ahead (~93ms @22050) = the SFX trigger
+                                                * latency. ★ HISTORY: this was briefly raised to 4096 (~186ms) to
+                                                * chase a "music truncated / jaguar roar cut off mid-roar" report
+                                                * on the theory of an output-queue UNDERRUN — but that theory was
+                                                * DISPROVEN by measurement: the SDL push sink NEVER underran (queue
+                                                * low-water held at 4096-512, 0 underruns) even under stress on the
+                                                * user's own machine, the producer never stalled >12ms (<<186ms to
+                                                * drain), and the PC already buffered MORE than the clean 3DS ring
+                                                * (~134ms) — so depth was never the cause. The real cause was
+                                                * FPS-coupled music-management (DoSeqFades running the fade per
+                                                * RENDER frame = 2-5x too fast at high FPS, cutting music during
+                                                * transitions), fixed by tick-gating it to 30Hz in tengine.c. So
+                                                * this default is back to the SFX-latency-tuned 2048. Tune at
+                                                * runtime with TUROK_AUDIO_QUEUE (samples; e.g. 4096/6144 for more
+                                                * output headroom on a weak host). TUROK_AUDIOLOG=1 reports the SDL
+                                                * queue low-water + underrun count. PC-only — the 3DS has its own
+                                                * AUDIO_QUEUE_LIMIT in audio_3ds.c. */
 #define AUDIO_REFILL_GUARD  64                 /* cap frames/iter so a non-backing sink (WAV) can't spin */
 
 static int s_queue_limit = AUDIO_QUEUE_LIMIT_DEFAULT;

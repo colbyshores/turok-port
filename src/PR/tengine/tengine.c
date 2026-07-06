@@ -4395,7 +4395,16 @@ void CEngineApp__Main(CEngineApp *pThis)
 					default:;
 				}
 
+#ifdef PLATFORM_PORT
+				/* Post the music/SFX volume at the 30Hz logic tick, not per render frame: SetAudioVolume ->
+				 * alCSPSetVol posts a CSP VOL_EVT every call, so at uncapped FPS this ran 2-5x more often than
+				 * the N64/3DS 30Hz. The per-frame volume LERP above (m_MusicVolume/m_SFXVolume) still settles;
+				 * only the event-posting call is gated so the audio-management cadence matches the 3DS/N64. */
+				{ extern int g_turok_logic_tick;
+				  if (g_turok_logic_tick) SetAudioVolume(musicvolume, pThis->m_SFXVolume); }
+#else
 				SetAudioVolume(musicvolume, pThis->m_SFXVolume);
+#endif
 
 				switch (pThis->m_Mode)
 				{
@@ -5107,8 +5116,17 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 #endif
 
 	// Update Region Music
-#ifdef PLATFORM_PORT   /* hold the audio-thread synthLock across the per-frame music update (alCSP*/event queue) */
-	{ extern void audioSynthLock(void); extern void audioSynthUnlock(void); extern void DoSeqFades(void); audioSynthLock(); UpdateSeq(); DoSeqFades(); audioSynthUnlock(); }
+#ifdef PLATFORM_PORT
+	/* ★ Run the music-management update at the 30Hz LOGIC TICK, not per render frame. DoSeqFades decrements
+	 * the fade by a FIXED SEQ_FADE_SPEED (500) per CALL and then alCSPStop()s the sequence — so running it
+	 * per render frame made music fade-outs (and the resulting stop) 2-5x too FAST at high FPS (a ~2.2s N64
+	 * fade collapses to ~0.5s at 120fps), cutting music short during transitions ("beats truncated / roar cut
+	 * off mid-roar", PC-only). UpdateSeq's load/play state machine + the alCSPSetVol VOL_EVT post are likewise
+	 * FPS-coupled. Gating on g_turok_logic_tick makes the whole cadence FPS-INDEPENDENT = identical to the
+	 * N64/3DS 30Hz (the 3DS locks fps=tick=30, which is exactly why it's clean). Hold the synthLock across the
+	 * alCSP* / event-queue mutations vs the audio thread. On render-only frames (FPS>TICK) skip entirely. */
+	{ extern void audioSynthLock(void); extern void audioSynthUnlock(void); extern void DoSeqFades(void); extern int g_turok_logic_tick;
+	  if (g_turok_logic_tick) { audioSynthLock(); UpdateSeq(); DoSeqFades(); audioSynthUnlock(); } }
 #else
 	UpdateSeq();
 #endif
