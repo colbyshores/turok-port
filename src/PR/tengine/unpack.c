@@ -129,6 +129,21 @@ WORD UnpackRNC(RNC_fileptr FilePtr, BYTE *OutputBuffer)
     return result;
 }
 
+/* PORT: the RNC decoders below fill OutputBuffer with the *inner* copy loops, which never re-check
+ * OutputEnd — a well-formed stream terminates exactly at OutputEnd, but a corrupt / truncated / edge-case
+ * compressed block (e.g. the attract demo loading a wrong level from an un-decoded header, or any streamed
+ * asset whose bytes are slightly off) makes those loops run away and write past the end of the allocated
+ * output buffer. On the N64 (no MMU) that overrun landed in adjacent RDRAM and was silently tolerated; on a
+ * protected host it faults (SIGSEGV at a page boundary). RNC_OUT_GUARD returns cleanly the instant the output
+ * buffer is full, turning a hard host crash into (at worst) a truncated asset. It is BEHAVIOR-NEUTRAL for a
+ * well-formed block (which reaches OutputEnd only at a real terminator, never mid-copy), so it can't regress
+ * correct data; gated PLATFORM_PORT so the N64 build stays byte-identical. */
+#ifdef PLATFORM_PORT
+#define RNC_OUT_GUARD()  do { if (OutputPtr >= OutputEnd) return RNCERROR_OK; } while (0)
+#else
+#define RNC_OUT_GUARD()  ((void)0)
+#endif
+
 WORD UnpackMethod1(RNC_fileptr FilePtr, BYTE *OutputBuffer)
 {
     BYTE *Ptr;
@@ -150,12 +165,16 @@ WORD UnpackMethod1(RNC_fileptr FilePtr, BYTE *OutputBuffer)
         Again:
             Ptr = OutputPtr - (InputValue(PosHuffmanTable) + 1);
             Len = InputValue(LenHuffmanTable) + 2;
-            while (Len--)
+            while (Len--) {
+                RNC_OUT_GUARD();
                 *OutputPtr++ = *Ptr++;
+            }
         Start:
             Len = InputValue(RawHuffmanTable);
-            while (Len--)
+            while (Len--) {
+                RNC_OUT_GUARD();
                 *OutputPtr++ = *InputPtr++;
+            }
             BitBuffM1 = ((((ULONG)*(InputPtr+2) << 16) + ((WORD)*(InputPtr+1) << 8) + *InputPtr) << BitBuffBits)
                          + (BitBuffM1 & (1 << BitBuffBits) - 1);
             if (--LoopCount) goto Again;
@@ -177,8 +196,10 @@ WORD UnpackMethod2(RNC_fileptr FilePtr, BYTE *OutputBuffer)
 
     while (OutputPtr < OutputEnd) {
         for (;;) {
-            while (InputBitsM2(1) == 0)
+            while (InputBitsM2(1) == 0) {
+                RNC_OUT_GUARD();
                 *OutputPtr++ = *InputPtr++;
+            }
             if (InputBitsM2(1)) {
                 if (InputBitsM2(1) == 0) {
                     Len = 2;
@@ -193,18 +214,24 @@ WORD UnpackMethod2(RNC_fileptr FilePtr, BYTE *OutputBuffer)
                     Pos = InputPosM2();
                 }
                 Ptr = OutputPtr - Pos;
-                while (Len--)
+                while (Len--) {
+                    RNC_OUT_GUARD();
                     *OutputPtr++ = *Ptr++;
+                }
             }
             else {
                 if ((Len = InputLenM2()) == 9) {
                     Len = (InputBitsM2(4) << 2) + 12;
-                    while (Len--)
+                    while (Len--) {
+                        RNC_OUT_GUARD();
                         *OutputPtr++ = *InputPtr++;
+                    }
                 } else {
                     Ptr = OutputPtr - InputPosM2();
-                    while (Len--)
+                    while (Len--) {
+                        RNC_OUT_GUARD();
                         *OutputPtr++ = *Ptr++;
+                    }
                 }
             }
         }

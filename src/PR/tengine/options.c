@@ -152,10 +152,14 @@ static void  options_controls_draw(COptions *pThis, Gfx **ppDLP) ;
 static char	s_res_label[24]        = {"resolution"};	// rewritten each Draw: "1920 x 1080" preset, or "desktop"
 static char	text_fullscreen_on[]   = {"fullscreen"};
 static char	text_fullscreen_off[]  = {"windowed"};
-/* Curated windowed presets (4:3 + 16:9 + 4:3-hi). DESKTOP (native) is the extra slot at index == COUNT. */
+/* Curated windowed presets (4:3 + 16:9 + 4:3-hi + 4K). DESKTOP (native) is the extra slot at index == COUNT.
+ * 3840x2160 (4K) is included explicitly so a 4K-desktop user sees a "3840 x 2160" number in the list rather
+ * than only the DESKTOP entry — while fullscreen it renders at that internal resolution (matches native on a
+ * 4K panel = pixel-perfect; supersamples down on a smaller panel). LARGE_FONT has digits + 'x' + space, so
+ * "3840 x 2160" renders; NEVER add ':' or '-' (they alias to the Z/M glyphs). */
 static const int s_res_presets[][2] =
 {
-	{960,720}, {1280,720}, {1280,960}, {1600,900}, {1600,1200}, {1920,1080}, {2560,1440}
+	{960,720}, {1280,720}, {1280,960}, {1600,900}, {1600,1200}, {1920,1080}, {2560,1440}, {3840,2160}
 };
 #define OPTIONS_RES_COUNT	((int)(sizeof(s_res_presets)/sizeof(s_res_presets[0])))
 static int	s_ResIndex = -1;	// 0..COUNT-1 = a preset; COUNT = DESKTOP (native). -1 = unseeded (seeded in SetDefaults).

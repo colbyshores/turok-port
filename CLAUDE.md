@@ -514,6 +514,150 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 
 ## 10. Port edits to game source (keep this log honest)
 
+- **★★ ATTRACT-DEMO CRASH = RNC-decoder OUTPUT-BUFFER OVERRUN + attract-header endianness; + a 4K
+  resolution preset (2026-07-06, branch `pc-port-fixes`).** User booted `WARP=menu` (the new
+  title/attract front-end), idled, and got a SIGSEGV. Crash log: `fault_addr 0x0adb7000` (page-aligned
+  = a buffer overrun off the end of an allocation), MAIN thread, in
+  `UnpackMethod2 → UnpackRNC → Propack_UnpackM2 → CMP_DecompressData → CCacheEntry__DoDecompress →
+  CGameObjectInstance__DecompressAnim → … → CScene__DrawInstances` — i.e. decompressing an object's
+  animation block during the attract demo. **ROOT CAUSE (two layers):**
+  1. **The RNC ProPack decoders ([unpack.c](src/PR/tengine/unpack.c)) never bounds-check the output.**
+     `UnpackMethod1`/`UnpackMethod2` fill `OutputBuffer` with inner `while(Len--) *OutputPtr++ = …` copy
+     loops that only rely on a well-formed stream terminating exactly at `OutputEnd`; a corrupt /
+     truncated / edge-case compressed block makes them run away past the allocated buffer. On the N64
+     (no MMU) that overran into adjacent RDRAM harmlessly; on a protected host it's a SIGSEGV at a page
+     boundary. **FIX:** `RNC_OUT_GUARD()` (`if (OutputPtr >= OutputEnd) return RNCERROR_OK;`) before
+     every output write — turns a hard host crash into (at worst) a truncated asset. **BEHAVIOR-NEUTRAL
+     for a well-formed block** (which reaches `OutputEnd` only at a real terminator, never mid-copy), so
+     it can't regress correct data; gated `PLATFORM_PORT` (N64 byte-identical). This is the DEFINITIVE
+     crash fix — an asset decompressor must never crash the host on a bad block, same class as the
+     port's pervasive N64-no-MMU-tolerance guards. Verified inert on all normal warps (0/2000/3000/6000
+     render identically, no truncation).
+  2. **The attract demo fed a garbage level/state ([attract.c](src/PR/tengine/attract.c)
+     `CAttractDemo__ConstructPlay`).** The `CAttractHeader` is 6 BIG-ENDIAN 16-bit fields (`m_WarpID`,
+     `m_TotalFrames`, 4 recorded-input bit-offsets) read RAW → on LE they byte-swap to garbage:
+     `m_WarpID` loads a wrong/unusual level (via `nLevel %= GetBlockCount`) and the bit-offsets aim the
+     button/stick playback at the wrong bits = random camera/player motion wandering into objects whose
+     anim blocks then drive the decode → the overrun above. **This was the DEFERRED item in the
+     2026-06-16 endianness audit** ("CAttractHeader 16-bit fields, attract-only"). **FIX:** swap the 6
+     fields into host order (read into locals, no in-place mutation → a re-load can't double-swap;
+     gated PLATFORM_PORT). The recorded-input BITSTREAM itself is byte-based/MSB-first (`ReadBit`),
+     endian-neutral, so the header is the whole fix. **NOTE:** couldn't fully reproduce the attract
+     demo engaging headless (EGL) — it needs a 20-30s title window + a demo binary block (1001-1016)
+     received from ROM, which didn't fire without a real window/input — so this layer is verified by
+     construction + code audit, not an end-to-end headless run; the RNC bounds-check (layer 1) is the
+     provable crash fix regardless of whether attract, the game-intro, or a level loaded the bad block.
+  3. **4K RESOLUTION PRESET ([options.c](src/PR/tengine/options.c)).** User: "I don't see a 4K option
+     even though that is what my desktop uses." The resolution presets stopped at 2560x1440 (then the
+     DESKTOP/native entry). Added **3840x2160** to `s_res_presets[]` so a 4K-desktop user sees an
+     explicit "3840 x 2160" number (verified it renders in the LARGE_FONT via a forced-options capture;
+     digits+x only, no ':'/'-'). While fullscreen it renders at that internal resolution (= native on a
+     4K panel via the internal-res path below; supersamples down on a smaller panel). The DESKTOP entry
+     already gave native 4K — this just surfaces it as a pickable number.
+  All three targets (PC sdl2, PC egl, 3DS) compile clean; the changed TUs are all `tengine` (compiled
+  for every target) with the port-specific behavior `#ifdef PLATFORM_PORT`-gated. **LESSONS:** (1) any
+  in-tree decompressor (RNC/ProPack here) that trusts the input stream to terminate exactly at the
+  output-buffer end WILL crash a protected host on a malformed/edge-case block where the N64's MMU-less
+  RDRAM silently absorbed the overrun — bounds-check every output write; it's free for well-formed data.
+  (2) a DEFERRED endianness item (here the attract header) stays latent until its subsystem is first
+  reached — `WARP=menu` newly exposing the attract flow is exactly the kind of "new entry point lights
+  up an old un-fixed path" that the endianness-audit deferrals warned about; fix them when the path goes
+  live. (3) "no 4K option" on a native-4K desktop = the preset list topped out below native + the DESKTOP
+  entry wasn't obviously "4K" — add the explicit number.
+
+- **★★ PC FULLSCREEN RESOLUTION FIX — INTERNAL RENDER-SCALE, NOT exclusive mode-switch (2026-07-06,
+  branch `pc-port-fixes`).** User: "the resolution doesn't change when I am full screen." **ROOT
+  CAUSE:** the options menu's resolution picker only ever used **`SDL_WINDOW_FULLSCREEN_DESKTOP`**
+  (borderless — always tracks the DESKTOP's current mode) for fullscreen; that flag ignores
+  `SDL_SetWindowSize`/`SDL_SetWindowDisplayMode` outright, so picking a preset while fullscreen was
+  a silent no-op (the live-apply code in [gfx_sdl2.cpp](port/fast3d/gfx_sdl2.cpp) even explicitly
+  skipped the resize branch via `&& !fullscreen_state` — a "known nit" in the original PC UX batch).
+  **FIRST ATTEMPT (REJECTED by the user — "let's not make fullscreen mode exclusive"):** switching
+  to real **exclusive** `SDL_WINDOW_FULLSCREEN` (an actual monitor mode-switch via
+  `SDL_GetClosestDisplayMode`+`SDL_SetWindowDisplayMode`) DID work mechanically (proven via an
+  isolated SDL2 test, 3/3 clean) but a live test killed mid-switch **stranded the dev sandbox's X11
+  output at 1280x720** until manually `xrandr`-restored — a real, demonstrated crash-safety hazard
+  (a hard kill/OOM-kill can't be caught, so no safety-net handler saves it) on top of observed
+  driver flakiness switching modes rapidly. The user correctly called this the wrong tradeoff and
+  asked for it reverted. **FINAL FIX (what shipped): fullscreen ALWAYS stays borderless
+  `SDL_WINDOW_FULLSCREEN_DESKTOP`** (matches the desktop's native mode — zero mode-switch risk, zero
+  XRandR/Wayland dependency, immune to the crash-strand hazard entirely) — a non-native resolution
+  picked while fullscreen is instead realized as an **internal render-resolution scale**: the whole
+  frame (3D + HUD, same display list) renders into a dedicated offscreen framebuffer sized to the
+  picked resolution, then gets scaled+**letterboxed** (aspect preserved — a 4:3 pick on a 16:9 panel
+  pillarboxes instead of stretching/distorting) onto the real native-resolution screen at present
+  time. Native/DESKTOP picked while fullscreen disables the scale (1:1 direct render, no overhead).
+  **Implementation (all PC-only, `#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)`):**
+  - [config.c](port/src/config.c) `g_turok_internal_w/h` (0 = disabled) — the seam between the
+    resolution picker and the renderer.
+  - [gfx_sdl2.cpp](port/fast3d/gfx_sdl2.cpp) `refresh_internal_resolution()` — derives it from
+    `fullscreen_state` + `g_cfg_win_w/h` vs the real desktop mode; called after every fullscreen
+    toggle, resolution change, and Alt-Enter, plus once at boot (so a saved `fullscreen 1` +
+    non-native `window_width/height` in turok.cfg applies immediately, not just live in-menu).
+  - [gfx_pc.cpp](port/fast3d/gfx_pc.cpp) `gfx_start_frame` overrides `gfx_current_dimensions` (and
+    republishes `g_turok_aspect`) to the internal size when active — every viewport/scissor/aspect
+    calc in the file reads `gfx_current_dimensions` live (via the `RATIO_X`/`RATIO_Y` macros), so
+    this alone makes the whole frame render at the internal size with no other plumbing.
+    `gfx_run`/`gfx_end_frame` route the actual GL bind + present through two new **self-contained**
+    RAPI methods (`internal_res_bind`/`internal_res_present`, [gfx_rendering_api.h](port/fast3d/gfx_rendering_api.h)
+    + implemented in [gfx_opengl.cpp](port/fast3d/gfx_opengl.cpp)).
+  - **★ WHY SELF-CONTAINED, NOT the existing `game_framebuffer`/`gfx_framebuffers_enabled` machinery:**
+    first cut reused `game_framebuffer` (the shared MSAA/upscale-framebuffer path already in
+    gfx_pc.cpp) — it silently rendered ALL-BLACK. Root cause:
+    [turok_gfx.c](port/src/turok_gfx.c) sets **`gfx_framebuffers_enabled = 0` UNCONDITIONALLY on
+    every PC backend** ("render straight to the default framebuffer — the game's framebuffer-effect
+    draws otherwise land in an FBO that isn't blitted to the OSMesa buffer, giving a black
+    capture" — a PRE-EXISTING, load-bearing headless-capture fix), and that flag gates the resize
+    (`update_framebuffer_parameters`), the bind (`start_draw_to_framebuffer`), and every other
+    shared-framebuffer call site — so `game_framebuffer`'s texture never actually got resized past
+    its initial 1×1 allocation, and draws silently went to whatever was previously bound instead.
+    Rather than flip that global flag (real risk of side effects elsewhere — CFB/G_SETCIMAGE
+    framebuffer-effect opcodes the comment refers to), the fix is a fully independent GL
+    texture+FBO+depth-renderbuffer pair, created/resized/bound directly, never touching
+    `gfx_framebuffers_enabled` or the `framebuffers` vector at all.
+  - **★ THE "fb id 0 = the screen" ASSUMPTION IS ALSO WRONG FOR HEADLESS BACKENDS:** the present
+    blit's destination can't just hardcode literal GL id 0 either — a surfaceless EGL context (used
+    for headless capture/testing) **has no default framebuffer 0 at all** and renders into its own
+    dedicated FBO (`gfx_egl.cpp`'s `s_fbo`) instead; blitting into literal 0 there is a silent no-op
+    (confirmed: content correctly rendered into the internal target, but the present blit landed
+    nowhere the capture path ever read from → still all-black). Added
+    `GfxWindowManagerAPI::get_screen_framebuffer` (NULL-default = 0, correct for SDL2/OSMesa; EGL
+    overrides it to return `s_fbo`) so the present call targets the RIGHT backend-specific screen
+    object.
+  - **VERIFIED headless via EGL** (a temporary `TUROK_TEST_INTERNAL_RES=WxH` hook, added and removed
+    after use, since EGL has no fullscreen/options-menu UI to drive the real seam): center-pixel
+    diff vs the un-scaled baseline ≤1 LSB at matched aspect (1280x720 internal → 1920x1080 output,
+    edge-to-edge, correctly upscaled); a 4:3 preset (1280x960) on a 16:9 output (1920x1080)
+    pillarboxes correctly (black bars left/right, content undistorted); the reverse (a 16:9 internal
+    resolution on a narrower 5:4 output) letterboxes top/bottom correctly. All three build targets
+    (PC sdl2, PC egl, 3DS) compile clean; 3DS is unaffected (the whole feature is
+    `!defined(PLATFORM_3DS)`-gated and the new RAPI/WM fields are NULL there by construction). Live
+    SDL2 in-game verification (the actual fullscreen+resolution-picker path) is still pending — the
+    dev sandbox hit a **pre-existing, unrelated SDL2/GLX window-creation flakiness** (confirmed via
+    `git stash` A/B: the identical hang reproduces on stock, unmodified code, even in plain windowed
+    mode) mid-session; the user should confirm interactively when convenient.
+  **LESSONS:** (1) a real exclusive-fullscreen mode-switch is the "obvious" fix for
+  "resolution doesn't change in fullscreen" but carries a genuine crash-safety hazard (a hard
+  kill/OOM-kill can strand the physical display at the switched resolution, unrecoverable by any
+  in-process handler) — when the user's own monitor/session is the test target, that risk is not
+  abstract. An internal render-scale + letterbox is strictly safer (the physical display never
+  changes) and is what shipped. (2) a project-wide "disable this subsystem for backend X" flag
+  (`gfx_framebuffers_enabled = 0` for ALL PC backends here) is exactly the kind of thing a NEW
+  feature can silently collide with — reusing shared-but-disabled machinery fails silently (draws
+  just go to whatever was previously bound, no error), so verify a flag's live value before trusting
+  a "should work" code path, and prefer a self-contained implementation when the shared path's
+  disablement reason doesn't apply to the new feature. (3) "framebuffer id 0" is backend-specific,
+  not a universal "the screen" — a surfaceless/headless GL context has no true default framebuffer,
+  so any code presenting to "fb 0" needs a backend accessor for the real target, not a hardcoded
+  constant.
+  - **Also (same session): `WARP=menu` in [play_level.sh](play_level.sh)** boots the actual
+    legal-screen → Acclaim/Iguana logos → title → attract front-end instead of the dev level-warp
+    (leaves `TUROK_WARP` unset so `tengine.c` takes its normal `MODE_RESETGAME` path). The old
+    port-only legal-screen freeze was already lifted once the 30Hz logic-tick decouple landed
+    (frontend.c `CLegalScreen__Update`) — this just exposes a way to reach it via the script instead
+    of always defaulting to `TUROK_WARP=0`. Verified headless (EGL): legal screen, Acclaim logo, and
+    the title screen (with jungle background) all capture correctly in sequence, rc=0.
+
 - **★ PC UX BATCH 2 (2026-07-05, branch `pc-port-fixes`; orchestration directive — Fable planned/reviewed,
   4 Opus subagents executed in parallel with DISJOINT file ownership, all adversarially reviewed):**
   1. **CRASH CAPTURE — always-on fatal-signal handler in the RELEASE build** ([turok_main.c](port/src/turok_main.c),
@@ -650,8 +794,8 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
      applied at the top of `gfx_sdl_handle_events` (the Alt-Enter-safe frame boundary); DESKTOP resolves the
      native mode + writes it back to g_cfg. cfg `fullscreen` added; **turokConfigSave now emits EVERY key**
      (the old 5-key save would have DELETED hand-edited lines — fopen("w") truncates; loader↔saver parity
-     verified). Boot honours `fullscreen 1`. Known nit: changing resolution WHILE fullscreen applies on the
-     next windowed toggle/boot (SDL restores its remembered size), acceptable.
+     verified). Boot honours `fullscreen 1`. ★ The original "resolution doesn't change while fullscreen" nit
+     is FIXED (2026-07-06, `gfx_sdl2.cpp`) — see the entry in §10.
   4. **REMAPPABLE KEY/MOUSE BINDINGS + CONTROLS submenu (PC-only).** Table-driven input in
      [gfx_sdl2.cpp](port/fast3d/gfx_sdl2.cpp): 13 actions × 2 slots (8 HELD → N64 bits, 5 EDGE → seams;
      key-repeat filtered), defaults byte-identical to the old hardcoded scheme. Tokens (`key:<sdl_name>`,

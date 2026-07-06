@@ -737,6 +737,30 @@ void CAttractDemo__ConstructPlay(UINT8 *pDemo)
 	CAttractHeader *pHeader = (CAttractHeader *)pDemo ;
 	UINT8				*pData = (UINT8 *)pDemo ;
 
+	/* PORT: the CAttractHeader is 6 BIG-ENDIAN 16-bit fields (warp id, total frames, and the four
+	 * bit-offsets into the recorded-input bitstream). Read raw on a little-endian host they byte-swap to
+	 * garbage → m_WarpID loads a wrong/unusual level (via nLevel %= GetBlockCount) and the bit-offsets aim
+	 * the button/stick playback at the wrong bits = random camera/player motion, which wanders into objects
+	 * whose (correctly-located) anim blocks then get requested; before the RNC-decoder bounds guard
+	 * (unpack.c) that random state could drive a decode overrun → SIGSEGV. Swap the header into host order
+	 * so the demo plays its intended recording. Read into locals (no in-place mutation) so a re-load can't
+	 * double-swap. */
+#ifdef PLATFORM_PORT
+	UINT16 hWarpID          = (UINT16)__builtin_bswap16((UINT16)pHeader->m_WarpID) ;
+	INT16  hTotalFrames     = (INT16)__builtin_bswap16((UINT16)pHeader->m_TotalFrames) ;
+	INT16  hButtonStartBit  = (INT16)__builtin_bswap16((UINT16)pHeader->m_ButtonStartBit) ;
+	INT16  hStickXStartBit  = (INT16)__builtin_bswap16((UINT16)pHeader->m_StickXStartBit) ;
+	INT16  hStickYStartBit  = (INT16)__builtin_bswap16((UINT16)pHeader->m_StickYStartBit) ;
+	INT16  hNextFieldsStart = (INT16)__builtin_bswap16((UINT16)pHeader->m_NextFieldsStartBit) ;
+#else
+	UINT16 hWarpID          = pHeader->m_WarpID ;
+	INT16  hTotalFrames     = pHeader->m_TotalFrames ;
+	INT16  hButtonStartBit  = pHeader->m_ButtonStartBit ;
+	INT16  hStickXStartBit  = pHeader->m_StickXStartBit ;
+	INT16  hStickYStartBit  = pHeader->m_StickYStartBit ;
+	INT16  hNextFieldsStart = pHeader->m_NextFieldsStartBit ;
+#endif
+
 	pThis->m_Active = FALSE ;
 	pThis->m_Record = FALSE ;
 	pThis->m_Play = TRUE ;
@@ -744,35 +768,35 @@ void CAttractDemo__ConstructPlay(UINT8 *pDemo)
 	pThis->m_FirstFrame = TRUE ;
 
 	// Set the level
-	GetApp()->m_WarpID = pHeader->m_WarpID ;
+	GetApp()->m_WarpID = hWarpID ;
 
 	// Prepare button playback
-	CAttractBuffer__Construct(&pThis->m_ButtonBuffer, pData, pHeader->m_ButtonStartBit,
+	CAttractBuffer__Construct(&pThis->m_ButtonBuffer, pData, hButtonStartBit,
 									 CAttractBuffer__ReadButton,
 									 NULL,	// CAttractBuffer__WriteButton
 									 NULL) ;	// CAttractBuffer__GetButton
 
 	// Prepare stick x playback
-	CAttractBuffer__Construct(&pThis->m_StickXBuffer, pData, pHeader->m_StickXStartBit,
+	CAttractBuffer__Construct(&pThis->m_StickXBuffer, pData, hStickXStartBit,
 									 CAttractBuffer__ReadStick,
 									 NULL,	// CAttractBuffer__WriteStick
 									 NULL) ; // CAttractBuffer__GetStickX
 
 	// Prepare stick y playback
-	CAttractBuffer__Construct(&pThis->m_StickYBuffer, pData, pHeader->m_StickYStartBit,
+	CAttractBuffer__Construct(&pThis->m_StickYBuffer, pData, hStickYStartBit,
 									 CAttractBuffer__ReadStick,
 									 NULL,	// CAttractBuffer__WriteStick
 									 NULL) ;	// CAttractBuffer__GetStickY
 
 	// Prepare framerate playback
-	CAttractBuffer__Construct(&pThis->m_NextFieldsBuffer, pData, pHeader->m_NextFieldsStartBit,
+	CAttractBuffer__Construct(&pThis->m_NextFieldsBuffer, pData, hNextFieldsStart,
 									 CAttractBuffer__ReadNextFields,
 									 NULL,	// CAttractBuffer__WriteNextFields
 									 NULL) ;	// CAttractBuffer__GetNextFields
 
 	// Reset misc
 	pThis->m_PlayRecordFrame = 0 ;
-	pThis->m_TotalFrames = pHeader->m_TotalFrames ;
+	pThis->m_TotalFrames = hTotalFrames ;
 	pThis->m_TotalTime = 0 ;
 	pThis->m_Checksum = 0 ;
 }
