@@ -63,7 +63,23 @@
 #define	HASH_TABLE_SIZE	473		// should be prime number
 
 #define	COLLISION_MAX_INSTANCES	1024
+/* ★ PORT: the active anim-instance list is the per-frame set of enemies/objects that RUN AI, receive
+ * MULTI events, and get drawn. CScene__AddActiveAnimInstance (scene.c:52) SILENTLY DROPS instances past
+ * this cap. At the N64's 64 a dense area (level 3 / Lost City) has MORE than 64 on-screen instances — made
+ * likelier by the port's enlarged cart pool keeping more enemies resident and the draw-distance slider —
+ * so enemies past the 64th vanish from the list: AI_Event_Dispatcher (which iterates GetAnimInstance) never
+ * dispatches the knife/tomahawk/area DAMAGE event to them, so "my knife doesn't always hit enemies on
+ * level 3" (order-dependent = intermittent; affects all MULTI-event weapons, not just the knife). Raise the
+ * cap on the host (256 PC / 128 3DS) so on-screen enemies aren't dropped. m_pActiveAnimInstances[] (scene.h:73)
+ * sizes off this macro so it scales automatically; the cost is a larger per-frame AI/collision set (fine on
+ * PC; moderate on 3DS — re-check 3DS perf in dense scenes). N64 unchanged at 64 (real-hardware budget). */
+#if defined(PLATFORM_3DS)
+#define	MAX_ACTIVE_ANIM_INSTANCES	128
+#elif defined(PLATFORM_PORT)
+#define	MAX_ACTIVE_ANIM_INSTANCES	256
+#else
 #define	MAX_ACTIVE_ANIM_INSTANCES	64
+#endif
 #define	STATICEVENTS_MAX_INSTANCES 64
 
 /* PORT: the leaked dev source left this at a debug value of 2. With only 2 particle slots, every
