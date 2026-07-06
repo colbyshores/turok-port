@@ -38,6 +38,7 @@ float g_cfg_stereo_z     = -1.0f;    /* 3DS stereo shear depth term (default 0.0
 float g_cfg_stereo_w     = -1.0f;    /* 3DS stereo shear convergence term (default 0.012); -1 = compiled default. Raise = screen plane nearer. */
 int   g_cfg_gamepad      = 1;        /* PC: 1 = use a connected game controller; 0 = ignore it entirely (escape hatch for a drifting pad that auto-strafes/spins). Env TUROK_GAMEPAD overrides. */
 int   g_cfg_fullscreen   = 0;        /* PC: 1 = create/toggle the SDL2 window to borderless desktop fullscreen; 0 = windowed. Set from the options menu; turok.cfg `fullscreen`. */
+int   g_cfg_swap_sticks  = 0;        /* 3DS (New 3DS): 0 (DEFAULT) = Circle Pad moves/turns + C-stick looks/aims (yaw+pitch); 1 = swapped (C-stick moves/turns, Circle Pad looks/aims). Options-menu toggle; turok.cfg `swap_sticks`. OG 3DS w/o a C-stick just gets no nub-look. */
 
 /* PC live-window request seam. The options menu (options.c) sets these when the player changes the resolution
  * or fullscreen row; the SDL2 backend (gfx_sdl2.cpp) consumes them once per frame at the top of its event loop
@@ -253,6 +254,7 @@ void turokConfigLoad(void)
         else if (!strcmp(key, "stereo_w"))          g_cfg_stereo_w     = (float)val;
         else if (!strcmp(key, "gamepad"))           g_cfg_gamepad      = (int)val ? 1 : 0;
         else if (!strcmp(key, "fullscreen"))        g_cfg_fullscreen   = (int)val ? 1 : 0;
+        else if (!strcmp(key, "swap_sticks"))       g_cfg_swap_sticks  = (int)val ? 1 : 0;
         else if (!strcmp(key, "fog"))               g_cfg_fog          = (int)val ? 1 : 0;
         else if (!strcmp(key, "drawdist"))          g_cfg_drawdist     = (float)val;
         else if (!strcmp(key, "widescreen"))        g_cfg_widescreen   = (int)val ? 1 : 0;
@@ -301,6 +303,7 @@ void turokConfigSave(void)
     fprintf(f, "window_width %d\n",        g_cfg_win_w);
     fprintf(f, "window_height %d\n",       g_cfg_win_h);
     fprintf(f, "fullscreen %d\n",          g_cfg_fullscreen);
+    fprintf(f, "swap_sticks %d\n",         g_cfg_swap_sticks);
     fprintf(f, "audio_3ds %d\n",           g_cfg_audio_3ds);
     fprintf(f, "music %d\n",               g_cfg_music);
     fprintf(f, "warp %d\n",                g_cfg_warp);

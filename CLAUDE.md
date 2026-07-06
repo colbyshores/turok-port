@@ -544,6 +544,29 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 
 ## 10. Port edits to game source (keep this log honest)
 
+- **★ 3DS NEW-3DS C-STICK LOOK + "swap sticks" options toggle (2026-07-06, branch `pc-port-fixes`).**
+  Common request across Turok AND Perfect Dark: let the New 3DS C-stick (the nub) aim/look. Wired the
+  nub through the SAME held look seam the PC mouse uses (`g_look_yaw`/`g_look_pitch`, consumed +
+  clamped + zeroed by the `PLATFORM_PORT` hook in [tengine.c](src/PR/tengine/tengine.c) `UpdateGAME` —
+  already active on 3DS, previously fed by nothing there). **Default (`swap_sticks 0`): Circle Pad
+  moves+turns (as before), C-stick looks/aims (yaw+pitch)** — so New 3DS gets nub-look out of the box;
+  a new **options-menu toggle** ([options.c](src/PR/tengine/options.c), 3DS-gated `OPTIONS_SWAPSTICKS`
+  row) + `turok.cfg swap_sticks` **flips which physical stick moves vs looks**. [input_3ds.c](port/src/input_3ds.c):
+  lazy `irrstInit()` (the C-stick is a SEPARATE libctru service from hid — OG 3DS w/o a nub just reads
+  (0,0) → nub-look harmlessly inert, so OG behavior is byte-identical/no regression), `hidCstickRead`,
+  route each stick to MOVE (engine analog: x=turn, y=fwd/back via `inputSetState`) or LOOK (the held
+  seam) per the flag; look sensitivity fixed for the 3DS locked-30 present (`STICK_LOOK_YAW`/`PITCH`,
+  +yaw=right, +pitch=up — same convention as the confirmed-working PC mouse). The options box grew
+  3DS-only (`OPTIONS_HEIGHT` 210→224, header +40→+34) to fit the extra 12px row; **N64 box byte-
+  identical** (the `#else`). Persist on menu-exit via `turokConfigSave()` (added a 3DS branch —
+  previously PC-only). LARGE_FONT has no `':'`/`'-'` glyph (they alias other letters) so the row label
+  is plain words: `look c stick` / `look circle pad`. PC + 3DS build clean; PC unaffected (the whole
+  feature is `PLATFORM_3DS`-gated). **NEEDS INTERACTIVE HW CONFIRM:** nub yaw/pitch sign + sensitivity
+  feel + the toggle swapping correctly (can't headless-test the C-stick). **LESSON: a game with a held
+  mouse-look seam already wired for `PLATFORM_PORT` (yaw/pitch radians consumed in UpdateGAME) makes
+  3DS dual-stick nearly free — feed the New-3DS C-stick into the SAME seam; the only 3DS-specific bit is
+  lazy `irrstInit` + `hidCstickRead` (irrst ≠ hid) and the OG-3DS-reads-zero graceful degrade.**
+
 - **★★ ATTRACT-DEMO CRASH = RNC-decoder OUTPUT-BUFFER OVERRUN + attract-header endianness; + a 4K
   resolution preset (2026-07-06, branch `pc-port-fixes`).** User booted `WARP=menu` (the new
   title/attract front-end), idled, and got a SIGSEGV. Crash log: `fault_addr 0x0adb7000` (page-aligned

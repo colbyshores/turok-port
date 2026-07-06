@@ -26,6 +26,9 @@ enum OptionSelections
 	OPTIONS_FULLSCREEN,			// PC only: fullscreen toggle row
 	OPTIONS_CONTROLS,			// PC only: key/mouse rebinding submenu row
 #endif
+#ifdef PLATFORM_3DS
+	OPTIONS_SWAPSTICKS,			// 3DS only: swap Circle Pad <-> C-stick (which stick moves vs looks)
+#endif
 	OPTIONS_CONTROL,
 #ifndef GERMAN
 	OPTIONS_BLOOD,

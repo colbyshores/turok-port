@@ -24,6 +24,12 @@
 #define OPTIONS_WIDTH	(208)
 #define OPTIONS_HEIGHT	(236)
 #define OPTIONSMENU_Y 			(OPTIONS_Y + 30)
+#elif defined(PLATFORM_3DS)
+/* 3DS: one extra row (the swap-sticks toggle, 12px) vs stock — grow the box + tighten the header gap so
+ * every row stays on-screen. 3DS-only; the N64 build keeps the stock 210 box (the #else). */
+#define OPTIONS_WIDTH	(208)
+#define OPTIONS_HEIGHT	(224)
+#define OPTIONSMENU_Y 			(OPTIONS_Y + 34)
 #else
 #define OPTIONS_WIDTH	(208)
 #define OPTIONS_HEIGHT	(210)
@@ -119,6 +125,13 @@ static INT32 s_DrawDistSlider = 128;	// draw-distance bar position (0..255). FIL
 										// NOT a COptions field (growing CEngineApp = stale-build layout corruption).
 #endif
 
+#ifdef PLATFORM_3DS
+/* 3DS swap-sticks row: the String is reassigned each Draw to show which stick LOOKS. NB the LARGE_FONT the
+ * options menu draws with has NO ':' or '-' glyph (they alias other letters), so the labels use plain words. */
+static char	text_look_cstick[] = {"look c stick"};		// swap_sticks 0 (default): C-stick aims, Circle Pad moves
+static char	text_look_cpad[]   = {"look circle pad"};	// swap_sticks 1: Circle Pad aims, C-stick moves
+#endif
+
 #if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
 #include "turok_binds.h"
 /* ── PC CONTROLS (key/mouse rebind) submenu ─────────────────────────────────────────────────────────────────
@@ -207,6 +220,9 @@ t_Option options[]=
 	OPTIONSMENU_SPACING, s_res_label,			// String reassigned each Draw (multi-state text row)
 	OPTIONSMENU_SPACING, text_fullscreen_off,	// String reassigned each Draw
 	OPTIONSMENU_SPACING, text_controls,			// key/mouse rebind submenu
+#endif
+#ifdef PLATFORM_3DS
+	OPTIONSMENU_SPACING, text_look_cstick,		// swap-sticks toggle; String reassigned each Draw
 #endif
 	OPTIONSMENU_SPACING, text_control_left,
 #ifndef GERMAN
@@ -607,6 +623,14 @@ INT32 COptions__Update(COptions *pThis)
 			CTControl__CTControl(pThis->m_RHControl) ;
 			ReturnValue = -1 ;
 		}
+#ifdef PLATFORM_3DS
+		else if (ReturnValue == OPTIONS_SWAPSTICKS)	/* activate toggles which stick moves vs looks */
+		{
+			extern int g_cfg_swap_sticks;
+			g_cfg_swap_sticks ^= 1 ;
+			ReturnValue = -1 ;
+		}
+#endif
 #ifndef GERMAN
 		else if (ReturnValue == OPTIONS_BLOOD)
 		{
@@ -628,6 +652,9 @@ INT32 COptions__Update(COptions *pThis)
 #if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
 			/* persist the g_cfg-backed settings (resolution, fullscreen, draw distance, …) once on menu close.
 			 * A pending DESKTOP request has been applied by now, so g_cfg_win_w/h holds the resolved dims. */
+			{ extern void turokConfigSave(void); turokConfigSave(); }
+#elif defined(PLATFORM_3DS)
+			/* 3DS: persist the swap-sticks toggle (and the rest of turok.cfg) to sdmc so it survives a reboot. */
 			{ extern void turokConfigSave(void); turokConfigSave(); }
 #endif
 			pThis->m_Mode = OPTIONS_FADEDOWN ;
@@ -1058,6 +1085,11 @@ void COptions__Draw(COptions *pThis, Gfx **ppDLP)
 				strcpy(s_res_label, "desktop") ;
 			options[OPTIONS_RESOLUTION].String = s_res_label ;
 			options[OPTIONS_FULLSCREEN].String = g_cfg_fullscreen ? text_fullscreen_on : text_fullscreen_off ;
+#endif
+
+#ifdef PLATFORM_3DS
+			{	extern int g_cfg_swap_sticks;
+				options[OPTIONS_SWAPSTICKS].String = g_cfg_swap_sticks ? text_look_cpad : text_look_cstick ; }
 #endif
 
 #ifndef GERMAN

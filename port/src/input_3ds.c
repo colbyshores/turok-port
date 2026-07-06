@@ -35,7 +35,14 @@
 #define N64_CL    0x0002u
 #define N64_CR    0x0001u
 
-extern int g_turok_walk_mode;          /* input.c — E-equivalent run/walk toggle (SELECT) */
+extern int   g_turok_walk_mode;        /* input.c — E-equivalent run/walk toggle (SELECT) */
+extern int   g_cfg_swap_sticks;        /* config.c — 0: Circle Pad moves + C-stick looks; 1: swapped */
+extern float g_look_yaw, g_look_pitch; /* input.c — per-frame HELD look deltas (rad), consumed by tengine.c */
+
+/* C-stick "look" sensitivity: radians of aim per frame at full deflection. Tuned for the 3DS locked-30
+ * present (fps==tick), the same held look seam the PC mouse feeds (+yaw = turn right, +pitch = look up). */
+#define STICK_LOOK_YAW    0.060f       /* ~103 deg/s yaw at full deflection @30fps */
+#define STICK_LOOK_PITCH  0.045f       /* pitch a touch slower than yaw */
 
 static s8 cpad_axis(int v)             /* circle pad ~±156 -> N64 stick ±80, deadzone */
 {
@@ -49,18 +56,34 @@ static s8 cpad_axis(int v)             /* circle pad ~±156 -> N64 stick ±80, d
 void input3dsScan(void)
 {
     u32 kHeld, kDown;
-    circlePosition cp;
+    circlePosition cp, cs;
     u16 btn = 0;
     s8  sx, sy;
+    s8  cpx, cpy, csx, csy;
 
     hidScanInput();
     kHeld = hidKeysHeld();
     kDown = hidKeysDown();
     hidCircleRead(&cp);
 
-    /* circle pad -> analog stick (Turok: stick_y = fwd/back, stick_x = turn). */
-    sx = cpad_axis(cp.dx);
-    sy = cpad_axis(cp.dy);
+    /* New-3DS C-stick (the nub). irrst is a SEPARATE libctru service from hid — lazy-init it once. On an
+     * OG 3DS with no C-stick this just reads (0,0), so nub-look is harmlessly inert there. */
+    { static int s_irrst = 0; if (!s_irrst) { irrstInit(); s_irrst = 1; } }
+    irrstScanInput();
+    hidCstickRead(&cs);                 /* macro -> irrstCstickRead */
+
+    cpx = cpad_axis(cp.dx);  cpy = cpad_axis(cp.dy);   /* circle pad -80..80 */
+    csx = cpad_axis(cs.dx);  csy = cpad_axis(cs.dy);   /* C-stick    -80..80 */
+
+    /* Assign the two physical sticks to MOVE (engine analog: x=turn, y=fwd/back) vs LOOK (held aim seam
+     * g_look_yaw/pitch). Default (swap_sticks 0): Circle Pad moves+turns, C-stick looks/aims. The toggle
+     * (options menu / turok.cfg `swap_sticks`) flips which stick does which. */
+    {   s8 lkx, lky;
+        if (g_cfg_swap_sticks) { sx = csx; sy = csy; lkx = cpx; lky = cpy; }
+        else                   { sx = cpx; sy = cpy; lkx = csx; lky = csy; }
+        g_look_yaw   += ((float)lkx / 80.0f) * STICK_LOOK_YAW;
+        g_look_pitch += ((float)lky / 80.0f) * STICK_LOOK_PITCH;
+    }
 
     /* ── User control layout (2026-06-21) ─────────────────────────────────────
      * Engine right-handed config: movement = C-buttons, Fire=Z_TRIG, Jump=R_TRIG,
