@@ -40,12 +40,29 @@
                                                 * 44100 is the recording rate); the synth plays ratio=1.0
                                                 * native, so device+synth rate must = the stored rate. */
 #define AUDIO_FRAME_SAMPLES 512                /* stereo frames produced per synth pump */
-#define AUDIO_QUEUE_LIMIT   2048               /* samples buffered ahead = the SFX trigger latency.
-                                                * 8192 (PD's value) = ~371ms @22050 — clearly audible as a
-                                                * ~1/4s delay; 2048 = ~93ms. The audio thread refills every
-                                                * ~2ms so this stays well above underrun. Drop further
-                                                * (1024 = ~46ms) if lower latency is wanted + no crackle. */
+#define AUDIO_QUEUE_LIMIT_DEFAULT 4096         /* PC samples buffered ahead = the SFX trigger latency AND the
+                                                * underrun headroom. HISTORY: 8192 (PD's value) = ~371ms @22050
+                                                * (audible ~1/4s SFX delay); 2048 = ~93ms was chosen for SFX
+                                                * latency, but ~93ms is too little headroom: on a heavy level-3
+                                                * frame the game/render threads starve the audio thread (or hold
+                                                * the synthLock) for >93ms → the SDL push queue DRAINS → the
+                                                * device plays silence → sustained MUSIC notes are chopped
+                                                * ("jaguar roar cut off mid-roar"). The 3DS never showed it: its
+                                                * ndsp ring (audio_3ds.c, 8 buffers, ringHasFree back-pressure)
+                                                * rides out the same stall. 4096 = ~186ms doubles the headroom
+                                                * while keeping SFX latency acceptable. Tune at runtime with
+                                                * TUROK_AUDIO_QUEUE (in samples; e.g. 6144=~279ms for more
+                                                * headroom, 2048=~93ms for tighter SFX latency). PC-only — the
+                                                * 3DS has its own AUDIO_QUEUE_LIMIT in audio_3ds.c. */
 #define AUDIO_REFILL_GUARD  64                 /* cap frames/iter so a non-backing sink (WAV) can't spin */
+
+static int s_queue_limit = AUDIO_QUEUE_LIMIT_DEFAULT;
+
+/* Underrun low-water instrumentation (TUROK_AUDIOLOG=1): tracks the minimum buffered-sample depth the
+ * audio thread ever observes. A low-water at/near 0 = the queue drained = an underrun = truncated audio. */
+static int s_audiolog   = 0;
+static s32 s_lowwater   = 0x7fffffff;
+static long s_underruns = 0;
 
 static int        s_rate    = AUDIO_RATE;
 static int        s_enabled = 1;
@@ -239,10 +256,24 @@ static void *audioThreadMain(void *arg)
     (void)arg;
     while (!s_quit) {
         int n = 0;
+        /* Low-water sample: the depth we see BEFORE refilling this wake. If it hit 0 while the
+         * synth had audio to play, the SDL queue underran (device played silence = truncation).
+         * Only meaningful once the synth is live (turok_audio_ready) — the pre-bank startup phase
+         * legitimately sits at 0 (silence). NOTE: only the real SDL device path (GFX_USE_SDL2)
+         * gives a true depth; the WAV/null sink uses a synthetic pacer, so run this on hardware. */
+        { extern int turok_audio_ready; if (s_audiolog && turok_audio_ready) {
+            s32 buffered = audioGetSamplesBuffered();
+            if (buffered < s_lowwater) s_lowwater = buffered;
+            if (buffered == 0) {
+                s_underruns++;
+                fprintf(stderr, "[audio] UNDERRUN #%ld — buffered=0 samples (queue drained; sound truncated)\n",
+                        s_underruns);
+            }
+        } }
         /* refill until the device backlog is healthy (back-pressure = queue depth), exactly
          * like PD audio_3ds.c's audioThreadMain. Lock PER frame (released between) so a game
          * thread producer isn't blocked for a whole multi-frame batch. */
-        while (audioGetSamplesBuffered() < AUDIO_QUEUE_LIMIT && n++ < AUDIO_REFILL_GUARD) {
+        while (audioGetSamplesBuffered() < s_queue_limit && n++ < AUDIO_REFILL_GUARD) {
             pthread_mutex_lock(&s_synthLock);
             audio_synth_frame();   /* -> audioSetNextBuffer  (S3: amgrFrame) */
             audioEndFrame();       /* -> push to device / WAV */
@@ -261,6 +292,10 @@ void audioThreadStart(void)
     if (s_active) return;
     e = getenv("TUROK_AUDIO_THREAD");   if (e && atoi(e) == 0) { fprintf(stderr, "[audio] thread disabled (TUROK_AUDIO_THREAD=0)\n"); return; }
     e = getenv("TUROK_AUDIO_TESTTONE"); s_testtone = (e && atoi(e)) ? 1 : 0;
+    e = getenv("TUROK_AUDIO_QUEUE");    if (e && atoi(e) > 0) s_queue_limit = atoi(e);
+    e = getenv("TUROK_AUDIOLOG");       s_audiolog = (e && atoi(e)) ? 1 : 0;
+    fprintf(stderr, "[audio] queue limit = %d samples (~%dms @%dHz)\n",
+            s_queue_limit, (s_queue_limit * 1000) / s_rate, s_rate);
 
     pthread_mutexattr_init(&attr);
     pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
@@ -280,6 +315,10 @@ void audioThreadStart(void)
 void audioThreadStop(void)
 {
     if (!s_active) return;
+    if (s_audiolog)
+        fprintf(stderr, "[audio] low-water = %d samples (~%dms), underruns = %ld\n",
+                s_lowwater == 0x7fffffff ? -1 : s_lowwater,
+                s_lowwater == 0x7fffffff ? -1 : (s_lowwater * 1000) / s_rate, s_underruns);
     s_quit = 1;
     pthread_join(s_thr, NULL);
     pthread_mutex_destroy(&s_synthLock);
