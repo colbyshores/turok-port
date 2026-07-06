@@ -14,6 +14,7 @@
 /* A loaded host pointer is in the low (data/heap) range; NULL/small or N64 0x80xxxxxx-range
  * values mean the collision region corners aren't relocated/parsed yet (M5). */
 #define TUROK_BADPTR(p) (((unsigned long)(p)) < 0x10000UL || ((unsigned long)(p)) >= 0x80000000UL)
+extern float g_cfg_drawdist;   /* draw-distance slider (1..~3); defined in port/src/config.c */
 #endif
 
 #ifdef WIN32
@@ -8771,8 +8772,11 @@ void CGameObjectInstance__Draw(CGameObjectInstance *pThis, Gfx **ppDLP,
 						 * distance don't see me"). We have the CPU headroom, so also run AI whenever the
 						 * player is within the enemy's OWN sight OR loud-hearing radius (both stored SQUARED
 						 * in CEnemyAttributes) — it detects at exactly its intended range, no farther. */
-						|| (distFromPlayerSquared < pThis->ah.ih.m_pEA->m_SightRadius)
-						|| (distFromPlayerSquared < pThis->ah.ih.m_pEA->m_LoudRadius)
+						/* scale the AI-run range by the draw-distance slider (drawdist^2, radii are SQUARED) so a
+						 * distant enemy the player can now SEE both RUNS its AI and PASSES the sight test out to
+						 * the extended range. drawdist defaults to 1.0 => no change (N64/stock byte-identical). */
+						|| (distFromPlayerSquared < pThis->ah.ih.m_pEA->m_SightRadius * (g_cfg_drawdist > 1.0f ? g_cfg_drawdist*g_cfg_drawdist : 1.0f))
+						|| (distFromPlayerSquared < pThis->ah.ih.m_pEA->m_LoudRadius  * (g_cfg_drawdist > 1.0f ? g_cfg_drawdist*g_cfg_drawdist : 1.0f))
 #endif
 						)
 				{

@@ -31,6 +31,10 @@
 #include "wallcoll.h"
 #include "cammodes.h"
 
+#ifdef PLATFORM_PORT
+extern float g_cfg_drawdist;
+#endif
+
 #define	DEBUG_AI		0
 
 // if defined uses turn animations in sniping
@@ -9504,6 +9508,9 @@ BOOL AI_Can_See_Target(CGameObjectInstance *pMe, CGameObjectInstance *pTarget)
 {
 	// declare variables
 	float dx, dz, dist, angle;
+#ifdef PLATFORM_PORT
+	float _sr;
+#endif
 
 	// can this ai see target ?
 	if (    (pTarget == NULL)
@@ -9521,7 +9528,18 @@ BOOL AI_Can_See_Target(CGameObjectInstance *pMe, CGameObjectInstance *pTarget)
 	dist = dx * dx + dz * dz;
 
 	// did ai hear a get attention
+#ifdef PLATFORM_PORT
+	/* PORT: the draw-distance slider (g_cfg_drawdist, 1..~3) pushes the far clip out so the player can SEE and
+	 * shoot enemies far past the stock range. But the enemy sight test below still used the stock m_SightRadius,
+	 * so distant-but-visible enemies never reacted (you could snipe enemies that never aggro). m_SightRadius is
+	 * stored SQUARED and `dist` is a squared distance, so scale the comparison by drawdist^2 to detect out to the
+	 * same extended distance the player can see. drawdist defaults to 1.0 => *1.0 => byte-identical to N64/stock. */
+	_sr = AI_GetEA(pMe)->m_SightRadius;
+	if (g_cfg_drawdist > 1.0f) _sr *= g_cfg_drawdist * g_cfg_drawdist;
+	if ( _sr >= dist )
+#else
 	if ( AI_GetEA(pMe)->m_SightRadius >= dist )
+#endif
 	{
 		angle = AI_GetAngle(pMe, AI_GetPos(pTarget)) - AI_GetDyn(pMe)->m_ViewAngleOffset;
 		if (angle > ANGLE_PI)
