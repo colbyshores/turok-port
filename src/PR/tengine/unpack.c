@@ -130,15 +130,16 @@ WORD UnpackRNC(RNC_fileptr FilePtr, BYTE *OutputBuffer)
 }
 
 /* PORT: the RNC decoders below fill OutputBuffer with the *inner* copy loops, which never re-check
- * OutputEnd — a well-formed stream terminates exactly at OutputEnd, but a corrupt / truncated / edge-case
- * compressed block (e.g. the attract demo loading a wrong level from an un-decoded header, or any streamed
- * asset whose bytes are slightly off) makes those loops run away and write past the end of the allocated
- * output buffer. On the N64 (no MMU) that overrun landed in adjacent RDRAM and was silently tolerated; on a
- * protected host it faults (SIGSEGV at a page boundary). RNC_OUT_GUARD returns cleanly the instant the output
- * buffer is full, turning a hard host crash into (at worst) a truncated asset. It is BEHAVIOR-NEUTRAL for a
- * well-formed block (which reaches OutputEnd only at a real terminator, never mid-copy), so it can't regress
- * correct data; gated PLATFORM_PORT so the N64 build stays byte-identical. */
-#ifdef PLATFORM_PORT
+ * OutputEnd — a well-formed stream terminates exactly at OutputEnd, but a corrupt / edge-case compressed
+ * block (the PC attract demo loading a wrong level from an un-decoded header) makes those loops run away and
+ * write past the allocated output buffer → SIGSEGV on the protected PC host. RNC_OUT_GUARD returns cleanly
+ * the instant the buffer is full.
+ * ★ SCOPED TO PC ONLY (`!PLATFORM_3DS`), NOT the 3DS. On the 3DS the guard is a NO-OP so decompression is
+ * byte-identical to the N64/known-good behavior: some legit Turok RNC blocks (music sequences, anims) decode
+ * a hair past their UncompressedSize header and the original decoder over-runs harmlessly into adjacent
+ * RDRAM — truncating them at OutputEnd (what the guard did) corrupted the music sequence = the audio
+ * regression. The PC attract crash it fixes is a PC-only path, so PC keeps the guard. */
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
 #define RNC_OUT_GUARD()  do { if (OutputPtr >= OutputEnd) return RNCERROR_OK; } while (0)
 #else
 #define RNC_OUT_GUARD()  ((void)0)
