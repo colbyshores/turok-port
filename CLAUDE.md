@@ -611,6 +611,28 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
      end-of-frame seam. And "works headless, broken on desktop" can be GL SWAP SEMANTICS (flip vs copy vs
      FBO): an EGL-FBO/llvmpipe pass does NOT prove flip-swap correctness — every presented frame must fully
      repaint or clear the buffer it lands in.**
+  1d. **★★ THEN: map controls "incredibly delayed and sluggish / something breaks the game" = the port sent a
+     gfx DONE for EVERY task, not just LAST_TASK — FIXED ([sched.c](src/PR/tengine/sched.c) `scSendCommand`,
+     commit after `0863344`).** The THIRD layer of the same two-gfx-task map bug (present-gate 1b + gfx_run
+     self-present 1c were about RENDERING; this is about the DONE MESSAGE). The N64 scheduler `__scHandleRSP`
+     ([sched.c:480](src/PR/tengine/sched.c#L480)) sends a gfx task's client notify (`t->msg` = OS_SC_DONE_MSG)
+     ONLY for `OS_SC_LAST_TASK` — the non-last (world) task NEVER notifies. The port's `scSendCommand` sent the
+     DONE for EVERY task → with the map open (world + gspL3DEX line task) the game got **2 DONEs/frame** instead
+     of 1. That extra DONE is NOT benign: the DONE handler ([tengine.c:4362](src/PR/tengine/tengine.c#L4362))
+     calls **`UpdateGAME`** (:4430, corrupting the render-interpolation `_ip*` snapshot/restore + the logic-tick
+     gate an extra time/frame = the sluggish/delayed feel), recycles the frame-data buffer, sets audio volume,
+     and feeds the **`nDisplayLists`** buffer-semaphore — decremented ONCE/frame (one SendGraphicsTask, :4322)
+     but incremented once per DONE (:4439), so the extra DONE grew `nDisplayLists` +1 EVERY frame the map was
+     open → broke its `== MAX_DISPLAY_LISTS` invariant (asserts :3778/:4011; hangs `MODE_WAITFORDISPLAY` level
+     transitions) = "something breaks the game." FIX: gate the gfx DONE on `LAST_TASK` (audio tasks still always
+     notify, matching the N64 else-branch :503) → exactly one gfx DONE/frame, map open or not; map-closed
+     unchanged (its single world task IS last). Verified: 1500-frame map-held-open run rc=0, no desync/anomaly;
+     PC+3DS clean. **LESSON: when a port fakes the N64 scheduler, the DONE/notify semantics matter as much as
+     the present — the N64 notifies the client only on LAST_TASK, and the game piggybacks REAL per-frame work
+     (UpdateGAME, buffer recycle, a display-list semaphore) on that one DONE. A multi-task frame (map/overlay)
+     that notifies per-task runs that work N× → interpolation corruption + a leaking frame-buffer counter. Match
+     `__scHandleRSP`: present AND notify only on OS_SC_LAST_TASK.** (Trilogy: 1b present-gate, 1c gfx_run
+     self-present, 1d DONE-gate — the same two-task map frame broke rendering AND frame-accounting three ways.)
   2. **OPTIONS-MENU CENTERING — 5a8d602 REVERTED; its premise was FALSE (measured).** Decoding the LARGE_FONT
      I4 atlas (overlay/font/*.h, 16x16 4bpp/glyph) shows every glyph's ink lives in cell columns 0..12 — the
      16px-cell-vs-12px-advance "4px ink overhang" 5a8d602 assumed does NOT exist, so its +4*scale addend was
