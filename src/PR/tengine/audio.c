@@ -1889,11 +1889,11 @@ BOOL LoadSeq(int nTune)
 	 * are wild pointers and alCSeqNew SIGSEGVs. Validated rc=0 + continuous music on warps
 	 * 0/3000/6000/8000 (MusicID 0/14/5/8). TUROK_MUSIC=0 disables. */
 #ifdef PLATFORM_3DS
-	/* 3DS: the CSP music player reads a WILD track pointer mid-playback (unmapped Read16 @ ~0xEA000014 in
-	 * __CSPHandleMIDIMsg, csplayer.c — an ARM-codegen/alignment issue in the untracked event parser) and
-	 * crashes the level after a variable number of frames. Audio OUTPUT is off by default anyway (ndsp
-	 * skipped, see audio_3ds.c), so gate music on the SAME audio_3ds flag: default 0 => no music => no CSP
-	 * => the level is stable. Re-enable with turok.cfg `audio_3ds 1` once the csplayer ARM parse is fixed. */
+	/* 3DS: music plays when audio is on (audio_3ds) AND music is enabled (g_cfg_music) — both default ON.
+	 * USER-CONFIRMED working on real 3DS hardware (2026-07-06). An older note here claimed the CSP player
+	 * (__CSPHandleMIDIMsg, csplayer.c) read a wild track pointer that data-aborts on real ARM11 — that was
+	 * stale (fixed by the ARM-alignment sweep / the ALCMidiHdr header swap). Disable with turok.cfg
+	 * `music 0` (or `audio_3ds 0` for all audio) if a specific unit ever regresses. */
 	{ extern int g_cfg_audio_3ds, g_cfg_music; if (!g_cfg_audio_3ds || !g_cfg_music) return FALSE; }
 #else
 	{ static int m=-1; if(m<0){const char*e=getenv("TUROK_MUSIC"); m=(e&&!atoi(e))?0:1;} if(!m) return FALSE; }

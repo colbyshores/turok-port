@@ -25,17 +25,10 @@ int   g_cfg_win_h        = 900;      /* TUROK_WIN_H */
 int   g_cfg_audio_3ds    = 1;        /* 3DS: 1 (DEFAULT) = call ndspInit + play audio; real HW always has dspfirm.cdc.
                                        * Set `audio_3ds 0` in turok.cfg ONLY for a firmware-less emulator where
                                        * ndspInit would hang. PC unaffected (uses the SDL sink, not this flag). */
-#ifdef PLATFORM_3DS
-/* 3DS: music DEFAULTS OFF. The CSP sequence player reads a wild track pointer mid-playback
- * (unmapped Read16 @ ~0xEA000014 in __CSPHandleMIDIMsg, csplayer.c — an ARM-codegen/alignment bug in
- * the untracked event parser). Mandarine's HLE tolerates the bad read (returns 0), but real ARM11
- * HW DATA-ABORTS → the level crashes after a variable number of frames. So SFX is on by default
- * (audio_3ds) but music stays off until the csplayer ARM parse is fixed. Force-enable to test with
- * turok.cfg `music 1` (real HW will crash). */
-int   g_cfg_music        = 0;
-#else
-int   g_cfg_music        = 1;        /* PC: music on (CSP works). 0 = off (turok.cfg `music` / TUROK_MUSIC=0). */
-#endif
+int   g_cfg_music        = 1;        /* music (CSP sequence player) ON by default. USER-CONFIRMED working on
+                                       * real 3DS hardware (2026-07-06) — an older "__CSPHandleMIDIMsg wild
+                                       * pointer crashes real HW" note was stale (fixed by the ARM-alignment
+                                       * sweep / ALCMidiHdr header swap). 0 = off (turok.cfg `music` / PC TUROK_MUSIC=0). */
 int   g_cfg_warp         = -1;       /* 3DS bring-up: warp-to-level id (0,1000..8000); -1 = normal legal-screen boot */
 int   g_cfg_debug        = 0;        /* 1 = enable the 3DS boot.log / svcOutputDebugString trace logging (off = clean play) */
 int   g_cfg_fps          = -1;       /* present-rate cap (3DS); -1 = platform default (30 on 3DS = locked, beat-free), 0 = uncapped/vsync */
