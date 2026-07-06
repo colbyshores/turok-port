@@ -72,4 +72,9 @@ exec env DISPLAY="$DISPLAY" \
     TUROK_VTXBAD=1 \
     TUROK_FXLEAK=1 \
     TUROK_WATCHDOG="${WATCHDOG:-1}" \
+    TUROK_CRASHLOG="${TUROK_CRASHLOG:-$PWD/turok_crash.log}" \
     "$OUT/turok"
+# Crash capture is ALWAYS on in the release build: a fatal fault (SIGSEGV/ABRT/BUS/FPE/ILL) writes a
+# full report (signal, fault addr, faulting thread [main vs audio], g_frame, phase, symbolized
+# backtrace + raw pcs) to $TUROK_CRASHLOG (default ./turok_crash.log). Send that file back after a crash.
+# Symbolize the raw pcs with:  addr2line -f -e "$OUT/turok" 0x<pc> 0x<pc> ...
