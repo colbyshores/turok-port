@@ -514,6 +514,50 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 
 ## 10. Port edits to game source (keep this log honest)
 
+- **★ PC UX BATCH 2 (2026-07-05, branch `pc-port-fixes`; orchestration directive — Fable planned/reviewed,
+  4 Opus subagents executed in parallel with DISJOINT file ownership, all adversarially reviewed):**
+  1. **CRASH CAPTURE — always-on fatal-signal handler in the RELEASE build** ([turok_main.c](port/src/turok_main.c),
+     commit `bb43e5f`). The play build had NO crash handler (a fault just core-dumped). Now SIGSEGV/ABRT/BUS/
+     FPE/ILL → a self-contained `turok_crash.log` (`$TUROK_CRASHLOG`): signal, fault addr, **faulting thread
+     (MAIN vs the audio/music thread)**, `g_frame`, the `g_turok_phase` breadcrumb, symbolized backtrace
+     (`-rdynamic`) + raw PCs; on a main-thread fault it ALSO dumps the AUDIO thread's stack (user's suspect for
+     the intermittent level-3 crash). Async-safe writers + sigaltstack + re-entrancy guard; coexists with the
+     debug memcpy_guard (weak-symbol detect so only one owns SIGSEGV); shares the SIGUSR2 audio-backtrace with
+     the freeze-watchdog. `TUROK_CRASHTEST=N` self-test. **This is the USER's capture tool** — next level-3
+     crash, they send `turok_crash.log` and we get the exact reason (thread + backtrace). PC-only; 3DS keeps Luma.
+  2. **MAP TAB "keys messed up"** ([tmove.c](src/PR/tengine/tmove.c) `CTMove__UsingMap`, commit `5bd1eb0`).
+     Turok's map is the N64 tap-vs-hold idiom: holding L_TRIG >0.3s enters MapScrolling where the
+     movement/C-buttons PAN the map. On a keyboard "press Tab" is trivially held >0.3s → every Tab latched
+     MapScrolling → WASD panned the map instead of moving = "keys messed up." PC fix (PLATFORM_PORT &&
+     !PLATFORM_3DS): L/Tab is a non-modal RISING-EDGE toggle (flip overlay on the press edge, NEVER set
+     MapScrolling), so movement/look/fire stay live under the translucent map; edge detection is level+prev-state
+     (cadence-independent — no FPS>TICK render-only-frame trap). 3DS/N64 keep stock hold-to-scroll (fits a pad).
+  3. **ENEMIES DON'T SEE YOU AT EXTENDED DRAW DISTANCE — tie sight to the drawdist slider** ([ai.c](src/PR/tengine/ai.c)
+     `AI_Can_See_Target`:9524 + [romstruc.c](src/PR/tengine/romstruc.c) AI-run gate, commit `1856565`). The
+     drawdist slider (`g_cfg_drawdist` 1..3) lets the player see/shoot far past stock, but enemies kept stock
+     `m_SightRadius` so you could snipe enemies that never reacted. Scale the sight test + the 996559b AI-run
+     gate by `drawdist²` (radii are stored SQUARED) so enemies detect+aggro out to the same distance the player
+     can see; loud/hearing radius scaled too; capped by the slider (NOT infinite — verified an enemy past the
+     scaled range still fails). drawdist defaults to 1.0 → *1.0 → byte-identical to N64 (ai.c keeps the stock
+     line via `#else`; 3DS clamps drawdist to 1.0 = no-op).
+  4. **KNIFE/MELEE MISSES ENEMIES IN DENSE SCENES (level 3) = the `MAX_ACTIVE_ANIM_INSTANCES=64` cap**
+     ([defs.h](src/PR/tengine/defs.h), commit `0863344`). The active anim-instance list is the per-frame set of
+     enemies that RUN AI + receive MULTI events + draw; `CScene__AddActiveAnimInstance` (scene.c:52) SILENTLY
+     DROPS instances past the N64's 64. `AI_KnifeTomahawkDamage` is dispatched per-AI by `AI_Event_Dispatcher`
+     iterating that 64-capped `GetAnimInstance` list — so an enemy past the 64th never receives the knife/area
+     DAMAGE event = "knife doesn't always hit on level 3" (order-dependent → intermittent; affects ALL
+     MULTI-event weapons, not just the knife). Dense level 3 exceeds 64 (worsened by the enlarged cart pool +
+     drawdist keeping more enemies resident). Raise the cap: **256 PC / 128 3DS**, N64 unchanged at 64;
+     `m_pActiveAnimInstances[]` sizes off the macro (auto-scales). `COLLISION_MAX_INSTANCES` (1024) was already
+     ample. **★ SAME CLASS as PARTICLES_MAX_COUNT (2→128) and MEMORY_POOL_SIZE — an N64-budget constant the
+     port's finished/higher-detail assets exceed; when combat/AI silently drops in dense scenes, suspect a
+     per-frame list cap.** NEEDS interactive level-3 confirm; re-check 3DS perf in dense scenes at 128.
+  ★ All 4 verified: PC sdl2+egl + 3DS build clean; combat patrol warps 0/3000/6000 rc=0/0 anomalies, no
+  crash-log false-fire. LESSON (orchestration): 4 parallel Opus subagents with STRICTLY DISJOINT file ownership
+  (crash=turok_main; map=tmove; sight=ai/romstruc; knife-diagnosis=aiweap/ai — the fix landed in defs.h which
+  the orchestrator applied) ran with zero merge conflicts; a subagent that root-causes into a file outside its
+  boundary REPORTS it and the orchestrator applies + verifies (the knife 64-cap).
+
 - **★ PC UX BATCH (2026-07-05, branch `pc-port-fixes`; first session run under the orchestration directive —
   Fable planned/reviewed, 4 Opus subagents executed; all adversarially reviewed):**
   1. **G_LINE3D (0xb5) IMPLEMENTED — the in-game MAP (Tab) renders.** Turok draws the map with the gspL3DEX
