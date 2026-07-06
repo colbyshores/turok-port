@@ -364,6 +364,36 @@ clean off-IRIX and do its asset offsets line up with the retail ROM" (the M5 dri
 devkitPro is installed at `/opt/devkitpro` (devkitARM + libctru + citro3d + picasso). Toolchain matches
 what the sibling 3DS builds already use.
 
+### ★ "PUSH TO PRODUCTION" = build + upload the 3DS CIA to archive.org (STANDING DIRECTIVE)
+
+When the user says **"push to production"** (or "ship it" / "release" / "push the CIA to archive.org"), that
+means run the archive.org release pipeline — the same flow as the sibling `../forsaken` port. It builds a
+**self-contained CIA with the retail ROM bundled** and uploads it to **`archive.org/details/turok3ds`**:
+
+```bash
+make -f Makefile.3ds release          # force-clean build -> build_3ds/turok.cia (+ ROM-bundled .3dsx),
+                                       #   prints the artifacts + SHA1. Verify these before uploading.
+make -f Makefile.3ds archive-upload    # push turok.cia + turok.3dsx to archive.org/details/turok3ds
+make -f Makefile.3ds archive           # release + archive-upload in one shot
+```
+
+- **Item id** `turok3ds` (`IA_ITEM` var); metadata mirrors the `forsaken3ds` item (mediatype=software,
+  collection=open_source_software, creator "Colby Shores (3DS Port)", subject tags, description). Re-running
+  replaces the files in place at the same URL and keeps prior versions in the item history.
+- Upload uses the **`ia` CLI** (internetarchive module) with the S3 keys in `~/.config/internetarchive/ia.ini`.
+  ★ The working binary is **`~/miniconda3/bin/ia`** (v3.4.0) — the `~/.local/bin/ia` shebang points at a
+  python that lacks the module, and `python3 -m internetarchive` fails (no `__main__`). The Makefile defaults
+  `IA` to the conda one; override `IA=<path>` if it moves.
+- **The retail ROM is DELIBERATELY bundled in the CIA** (user's explicit call — self-contained install, no SD
+  ROM needed). This differs from Forsaken, which excludes the Nintendo firmware blob. Do NOT strip the ROM.
+- **CIA Title ID = `000400000F705300`** (UniqueId `0xf7053`, Makefile `APP_UNIQUE_ID`) — distinct from
+  Forsaken's `0xff4ba/bb/be/bf` and off the `0xff3ff` devkitPro-template default, so no HOME-menu slot
+  collision. Never change it without checking for collisions (see the §10 CIA-packaging note).
+- Prereqs (all gitignored, user-supplied, already in place): `baserom.us.v12.z64`, `turok.jpg`, `turok.ico`,
+  `turok.wav`, and the `makerom`/`bannertool` binaries in `tools/3ds-cia/`.
+- First release live: **2026-07-06** — `turok.cia` + `turok.3dsx` (9.1 MB each) at
+  https://archive.org/details/turok3ds.
+
 ---
 
 ## 9. Conventions
