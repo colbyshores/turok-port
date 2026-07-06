@@ -205,3 +205,64 @@ $(OUTPUT).cia: $(OUTPUT).elf $(CIA_DIR)/icon.smdh $(CIA_DIR)/banner.bnr $(CIA_RO
 
 clean:
 	rm -rf $(OBJDIR) $(OUTPUT).elf $(OUTPUT).3dsx $(OUTPUT).cia $(CIA_DIR) $(OUTPUT).map $(BUILD)/gfx_citro3d.shbin
+
+# ─── archive.org release pipeline (mirrors ../forsaken Makefile.3ds `release`) ───────
+#
+#   make -f Makefile.3ds release          # clean build -> turok.cia (+ self-contained
+#                                          # .3dsx), both with the retail ROM bundled;
+#                                          # prints artifacts + SHA1, ready to upload.
+#   make -f Makefile.3ds archive-upload    # push those artifacts to archive.org/details/turok3ds
+#   make -f Makefile.3ds archive           # release + archive-upload in one shot.
+#
+# The CIA embeds the retail ROM in its RomFS (self-contained install, no SD-card ROM
+# needed) per the project decision; the release .3dsx bundles the same ROM via --romfs
+# so the HBL binary is equally self-contained. Upload uses the `ia` CLI (internetarchive
+# module) with the S3 keys in ~/.config/internetarchive/ia.ini — same as forsaken3ds.
+IA          ?= $(HOME)/miniconda3/bin/ia
+IA_ITEM     ?= turok3ds
+RELEASE_3DSX := $(OUTPUT).3dsx
+
+.PHONY: release release-3dsx archive-upload archive
+
+# Self-contained HBL binary: the ELF + SMDH icon + the ROM bundled as RomFS (so the
+# .3dsx needs no SD-card ROM either), overwriting the plain dev .3dsx from `all`.
+release-3dsx: $(OUTPUT).elf $(CIA_DIR)/icon.smdh $(CIA_ROMFS)/baserom.us.v12.z64
+	@rm -f $(RELEASE_3DSX)
+	$(TDSXTOOL) $(OUTPUT).elf $(RELEASE_3DSX) --smdh=$(CIA_DIR)/icon.smdh --romfs=$(CIA_ROMFS)
+	@echo "[release] self-contained 3dsx (ROM bundled): $(RELEASE_3DSX)"
+
+# Force a clean build so no stale diagnostic .o files (e.g. a TUROK_DIAG_APPINIT build)
+# survive into a shipped artifact — same guard rationale as forsaken's `release`.
+release:
+	@echo "[release] clean build for a fresh, diagnostic-free tree..."
+	@$(MAKE) -f Makefile.3ds clean
+	@echo "[release] building self-contained CIA + 3dsx (retail ROM bundled)..."
+	@$(MAKE) -f Makefile.3ds $(OUTPUT).cia release-3dsx
+	@echo
+	@echo "============================================================"
+	@echo "[release] DONE — artifacts ready for archive.org/details/$(IA_ITEM):"
+	@ls -lh $(OUTPUT).cia $(RELEASE_3DSX) 2>/dev/null
+	@echo "[release] SHA1:"
+	@sha1sum $(OUTPUT).cia $(RELEASE_3DSX) 2>/dev/null
+	@echo "============================================================"
+
+# Push the CIA + 3dsx to archive.org. Metadata mirrors the forsaken3ds item
+# (mediatype/collection/creator/subject/description/language). Re-running replaces the
+# files in place at the same URL and keeps prior versions in the item history.
+archive-upload: $(OUTPUT).cia $(RELEASE_3DSX)
+	@test -x "$(IA)" || { echo "[archive] ERROR: ia CLI not found at $(IA) (override with IA=<path>)"; exit 1; }
+	@echo "[archive] uploading to archive.org/details/$(IA_ITEM) ..."
+	$(IA) upload $(IA_ITEM) $(OUTPUT).cia $(RELEASE_3DSX) \
+		--retries 5 \
+		--metadata="mediatype:software" \
+		--metadata="collection:open_source_software" \
+		--metadata="title:Turok: Dinosaur Hunter (3DS Port)" \
+		--metadata="creator:Colby Shores (3DS Port)" \
+		--metadata="language:eng" \
+		--metadata="subject:3DS" --metadata="subject:Homebrew" --metadata="subject:Turok" \
+		--metadata="subject:Nintendo 64" --metadata="subject:Port" --metadata="subject:Pica200" \
+		--metadata="subject:Citro3D" --metadata="subject:Dinosaur Hunter" \
+		--metadata="description:A homebrew port of <b>Turok: Dinosaur Hunter</b> (N64) to the Nintendo 3DS, built from the original Iguana engine source. Renders through a Fast3D-to-Citro3D (PICA200) pipeline with stereoscopic 3D, the classic-ABI software audio synth (SFX + music), and save support. The .cia is a self-contained HOME-menu install; the .3dsx runs from the Homebrew Launcher. Install the CIA with FBI (open the .cia and choose Install)."
+	@echo "[archive] done -> https://archive.org/details/$(IA_ITEM)"
+
+archive: release archive-upload
