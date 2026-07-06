@@ -232,9 +232,24 @@ void scSendCommand(OSSched *sc, OSScTask *pTask)
 		 * logic-tick evaluation — per frame. */
 		if (pTask->flags & OS_SC_LAST_TASK)
 			osViSwapBuffer(pTask->framebuffer);
+		/* ★ DONE message: send it ONLY for the LAST_TASK — this MATCHES the N64 scheduler, which
+		 * notifies a gfx task's client (t->msg) only when OS_SC_LAST_TASK (__scHandleRSP, sched.c:480).
+		 * The non-last (world) task of a multi-task frame does NOT notify. The game's nDisplayLists
+		 * buffer-semaphore is decremented ONCE per frame (one SendGraphicsTask) and incremented once
+		 * per DONE (tengine.c:4439) — so sending a DONE for BOTH the world AND the line task while the
+		 * MAP is open grew nDisplayLists +1 EVERY frame, breaking its `== MAX_DISPLAY_LISTS` invariant
+		 * (hangs MODE_WAITFORDISPLAY level transitions, asserts at tengine.c:3778/4011) and desyncing
+		 * frame accounting = the "controls incredibly delayed/sluggish, something breaks" with the map
+		 * open. Gate the gfx DONE on LAST_TASK so it's exactly one per frame (map open or not). */
+		if ((pTask->flags & OS_SC_LAST_TASK) && pTask->msgQ)
+			osSendMesg(pTask->msgQ, pTask->msg, OS_MESG_NOBLOCK);
 	}
-	if (pTask->msgQ)
+	else if (pTask->msgQ)
+	{
+		/* non-gfx (audio) task: the N64 always notifies its client (__scHandleRSP else-branch,
+		 * sched.c:503). The port's software mixer handles the audio itself; still send the DONE. */
 		osSendMesg(pTask->msgQ, pTask->msg, OS_MESG_NOBLOCK);
+	}
 	return;
 #else
 	// add message to command queue
