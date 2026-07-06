@@ -7199,6 +7199,41 @@ void CTMove__UsingMap(CTMove *pThis, CTControl *pCTControl)
 
 #define TMOVE_MAPTOGGLEHOLDTIME		0.3
 
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+	// PC/host controls feel fix: the map is a clean, NON-MODAL edge toggle.
+	// The N64 idiom (hold >0.3s to enter a "map scrolling" mode where the
+	// movement/C-buttons pan the map) does not fit KB+M — on a keyboard "press
+	// Tab" is trivially held >0.3s, latching MapScrolling and hijacking WASD =
+	// "the keys are messed up". So on the host: L/Tab flips MapToggle on the
+	// press EDGE only, we never set MapScrolling, and the player keeps
+	// moving/looking/shooting under the translucent overlay.
+	//
+	// Edge detection is done from the held (CTTYPE_DOWN) level plus our own
+	// stored previous-state, which is cadence-independent (this function is
+	// called every render frame, not only on 30Hz logic ticks). We reuse the
+	// now-unused MapButtonTimer field as that prev-state (0.0 = up, 1.0 = down);
+	// it is already reset by the cinema/dead force-off and by init.
+	{
+		BOOL	isDown, wasDown;
+
+		isDown  = ((CTControl__IsMapToggle(pCTControl) != 0.0)
+				&& (pThis->InMenuTimer == 0.0)) ? TRUE : FALSE;
+		wasDown = (pThis->MapButtonTimer != 0.0) ? TRUE : FALSE;
+
+		// rising edge -> flip the map overlay on/off
+		if (isDown && !wasDown)
+			pThis->MapToggle = pThis->MapToggle ? FALSE : TRUE;
+
+		pThis->MapButtonTimer = isDown ? 1.0 : 0.0;
+
+		// never hijack player movement on the host
+		pThis->MapScrolling   = FALSE;
+		pThis->RealMapOffsetX = 0.0;
+		pThis->RealMapOffsetZ = 0.0;
+		return;
+	}
+#endif
+
 	// is map button being pressed ?
 	if ((CTControl__IsMapToggle(pCTControl)) && (pThis->InMenuTimer == 0.0))
 	{
