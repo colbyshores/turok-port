@@ -668,6 +668,45 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 We own this source outright (no IDO byte-matching build to preserve), so light, documented edits to the
 game files are acceptable. Keep them minimal and listed here so they're reviewable:
 
+- **★★ PC MUSIC "TRUNCATED / JAGUAR ROAR CUT OFF MID-ROAR" = FPS-COUPLED MUSIC FADE, *not* an output-buffer
+  underrun — FIXED (2026-07-06, commit `4d58fe5`, branch `pc-port-fixes` → master; supersedes the WRONG buffer
+  guess `6387035`).** User: "music beats sound truncated on PC, jaguar roar cut off mid-roar, level 3; 3DS is
+  clean; maybe see what the 3DS does differently?" — and correctly called my first fix (2x the SDL buffer, `6387035`)
+  a GUESS. **★ THE METHOD (the reusable part): I refused to ship a second guess and REFUTED the whole "delivery
+  underrun" family by MEASUREMENT before touching the real cause** (3 parallel Opus investigators + adversarial
+  verify, then 3 targeted measurement subagents): (1) audio-thread CPU **starvation** — worst wake-gap **12.4ms**
+  even under 1-core+3-hogs, vs the ~186ms needed to drain the queue → refuted; (2) CSP **event-queue overflow** —
+  instrumented `seqp->evtq.freeList` low-water, stayed **~485/512** even at 8× FPS stress → refuted; (3) the
+  **real `SDL_QueueAudio` sink** — never before exercised in-sandbox (all prior runs used the headless WAV pacer /
+  EGL null sink); ran the actual SDL sink headless on the **user's own machine** (Ryzen 9 5900HX / PipeWire,
+  `SDL_AUDIODRIVER=dummy`+`pulse`, `TUROK_AUDIOLOG`), queue low-water held at **4096−512, ZERO underruns** at FPS
+  30/120/0 → delivery **exonerated**. Depth was never it — the PC already buffered MORE (~186ms) than the clean
+  3DS ndsp ring (~134ms). **ROOT CAUSE (upstream of output, the one genuinely PC-vs-3DS-asymmetric thing):** the
+  music-management update runs at **RENDER rate** on the PC but a **locked 30Hz** on the 3DS/N64. `DoSeqFades()`
+  ([audio.c:1848](src/PR/tengine/audio.c#L1848)) does `SeqFadeLevel -= SEQ_FADE_SPEED(500)` **per CALL** and then
+  `alCSPStop()`s the sequence — running it per render frame ([tengine.c:5111](src/PR/tengine/tengine.c#L5111),
+  never tick-gated) made a ~2.2s N64 music fade-out **collapse to ~0.5s at 120fps**, cutting music short during
+  transitions; `SetAudioVolume→alCSPSetVol` (VOL_EVT) + `UpdateSeq`'s state machine are FPS-coupled the same way.
+  **This is the project's recurring "render-only frames (FPS>TICK) break un-tick-gated logic" class** — and the
+  2026-07-02 CSP fix even *intended* these to run "once per logic tick" but the code was never actually gated.
+  **FIX** ([tengine.c](src/PR/tengine/tengine.c), `PLATFORM_PORT`, N64 `#else` byte-unchanged): tick-gate
+  `SetAudioVolume` (~4398) and `{ UpdateSeq(); DoSeqFades(); }` (~5116) on `g_turok_logic_tick` so the cadence is
+  **FPS-INDEPENDENT = identical to the 3DS/N64 30Hz** (the concrete thing the 3DS does differently — it locks
+  fps=tick=30). Also **reverted `6387035`'s `AUDIO_QUEUE_LIMIT_DEFAULT` 4096→2048** (the depth guess; restores the
+  SFX-latency value) while keeping its genuinely-useful `TUROK_AUDIO_QUEUE` override + `TUROK_AUDIOLOG` diagnostic.
+  **VERIFIED:** music-block exec-rate ~**30/sec at BOTH FPS=120 and FPS=30** (was ~120/sec at 120fps = the bug);
+  PC sdl2+egl + 3DS build clean; music loads+plays continuously (warps 0/2000/3000/6000, full-length non-silent
+  WAVs, watchdog silent) tested at **FPS>TICK** (the false-pass trap); 3DS = no-op (already fps=tick=30).
+  **LESSONS: (1)** when a symptom *sounds* like a buffer/delivery problem, MEASURE the delivery path before
+  resizing anything — 3 delivery theories were each refuted by a targeted measurement (wake-cadence, evtq
+  free-list low-water, real-SDL-sink low-water on the user's own hardware), which is what let the search reach the
+  real (upstream) cause instead of stacking guesses. **(2)** a "PC-only, 3DS-clean, level-3" audio symptom whose
+  synth PCM is byte-identical on both platforms is almost always **something FPS-coupled on the game thread** (the
+  only thing that differs is uncapped-render vs locked 30Hz) — audit every per-frame game-thread audio call for a
+  fixed per-CALL step (fades, timers, event posts) and tick-gate it. **(3)** a fixed-step-per-call fade/ramp is the
+  audio sibling of the weapon-cycle / enemy-regen / respawn FPS>TICK bugs — same fix (gate on the logic tick), same
+  false-pass-at-FPS==TICK trap.**
+
 - **★★ PC INTERMITTENT CRASH = TEXTURE-CACHE USE-AFTER-FREE regression from commit `8c2e099` — FIXED
   (2026-07-02, commit `c554a58`, branch `pc-port-fixes`). Caught by VALGRIND (first use here).** User: "turok
   fucking crashed on the PC" (segfault right after the Path B ROM-load line, intermittent, ~1/20) — a NEW bug
