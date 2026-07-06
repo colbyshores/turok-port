@@ -244,6 +244,21 @@ static bool game_renders_to_framebuffer;
 static int game_framebuffer;
 static int game_framebuffer_msaa_resolved;
 
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+/* INTERNAL RESOLUTION (fullscreen-only render scale): turok.cfg's resolution row picked a
+ * non-native size while fullscreen — fullscreen is always borderless SDL_WINDOW_FULLSCREEN_DESKTOP
+ * (gfx_sdl2.cpp), which never changes the real display mode, so this is how that choice takes
+ * visible effect: render the WHOLE frame into a dedicated internal-resolution framebuffer sized to
+ * g_turok_internal_w/h (config.c; 0 = disabled) instead of the real window size, then
+ * letterbox-scale it onto the real screen in gfx_end_frame. Bound/presented via the SELF-CONTAINED
+ * internal_res_bind/internal_res_present RAPI methods (gfx_rendering_api.h) — deliberately NOT
+ * game_framebuffer, because turok_gfx.c disables gfx_framebuffers_enabled UNCONDITIONALLY on every
+ * PC backend (headless-capture reasons), which gates every game_framebuffer call site and would
+ * silently no-op this feature if it reused that path (see the CLAUDE.md write-up for the full
+ * story). */
+static bool s_using_internal_res;
+#endif
+
 uint32_t gfx_msaa_level = 1;
 
 static bool dropped_frame;
@@ -3382,6 +3397,30 @@ extern "C" void gfx_start_frame(void) {
         game_renders_to_framebuffer = false;
     }
 
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+    /* INTERNAL RESOLUTION override (see the s_using_internal_res / internal_res_bind comments):
+     * points every subsequent viewport/scissor/aspect calculation in this file at the requested
+     * internal size instead of the real window size, by overriding gfx_current_dimensions —
+     * RATIO_X/Y and gfx_current_dimensions.aspect_ratio are read live off it everywhere else, so
+     * the whole frame (3D + HUD, same display list) renders at the internal size and gets scaled
+     * up as one image in gfx_end_frame. The actual GL render target (a SELF-CONTAINED FBO, not
+     * game_framebuffer — see internal_res_bind's header comment for why) is bound per-gfx_run,
+     * not here; this just decides the size/aspect for the rest of the frame.
+     * gfx_current_window_dimensions (the REAL window size, untouched here) is what the later
+     * scale-up in gfx_end_frame targets. */
+    { extern int g_turok_internal_w, g_turok_internal_h;
+      s_using_internal_res = (g_turok_internal_w > 0 && g_turok_internal_h > 0 &&
+                               ((uint32_t)g_turok_internal_w  != gfx_current_window_dimensions.width ||
+                                (uint32_t)g_turok_internal_h != gfx_current_window_dimensions.height));
+      if (s_using_internal_res) {
+          gfx_current_dimensions.width  = (uint32_t)g_turok_internal_w;
+          gfx_current_dimensions.height = (uint32_t)g_turok_internal_h;
+          gfx_current_dimensions.aspect_ratio = (float)g_turok_internal_w / (float)g_turok_internal_h;
+          { extern float g_turok_aspect; g_turok_aspect = gfx_current_dimensions.aspect_ratio; }
+      }
+    }
+#endif
+
     fbActive = 0;
 
     // update aspect scale and offset
@@ -3423,11 +3462,21 @@ extern "C" void gfx_run(Gfx* commands) {
                                                 gfx_current_window_dimensions.height, 1, false, true, true,
                                                 !game_renders_to_framebuffer);
         gfx_rapi->start_frame();
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+        if (s_using_internal_res) {
+            gfx_rapi->internal_res_bind(gfx_current_dimensions.width, gfx_current_dimensions.height);
+        } else
+#endif
         gfx_rapi->start_draw_to_framebuffer(game_renders_to_framebuffer ? game_framebuffer : 0,
                                             (float)gfx_current_dimensions.height / SCREEN_HEIGHT);
         gfx_rapi->clear_framebuffer(true, true);
         s_bk_frame_clear_pending = false;
     } else {
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+        if (s_using_internal_res) {
+            gfx_rapi->internal_res_bind(gfx_current_dimensions.width, gfx_current_dimensions.height);
+        } else
+#endif
         gfx_rapi->start_draw_to_framebuffer(game_renders_to_framebuffer ? game_framebuffer : 0,
                                             (float)gfx_current_dimensions.height / SCREEN_HEIGHT);
         gfx_rapi->clear_framebuffer(false, true);   /* depth only — keep the earlier DLs' color */
@@ -3536,6 +3585,31 @@ extern "C" void gfx_end_frame(void) {
          * desktop-only.) On 3DS this is also where the record-replay backend replays + presents
          * (rapi end_frame = C3D frame), now correctly once per frame with both DLs recorded. */
         gfxFramebuffer = 0;
+#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+        if (s_using_internal_res) {
+            /* Scale the dedicated internal-resolution target (see internal_res_bind) up onto the
+             * real, native-resolution screen, preserving aspect ratio — a mismatched-aspect preset
+             * (e.g. a 4:3 pick on a 16:9 panel) letterboxes instead of stretching/distorting the
+             * image. Independent of game_renders_to_framebuffer/gfx_framebuffers_enabled — see
+             * internal_res_bind's header comment (gfx_rendering_api.h) for why. */
+            int win_w = (int)gfx_current_window_dimensions.width;
+            int win_h = (int)gfx_current_window_dimensions.height;
+            float internal_aspect = gfx_current_dimensions.aspect_ratio;   /* == internal_w/internal_h */
+            float window_aspect = win_h > 0 ? (float)win_w / win_h : internal_aspect;
+            int dst_w, dst_h, dst_x, dst_y;
+            if (internal_aspect > window_aspect) {
+                dst_w = win_w; dst_h = (int)(win_w / internal_aspect + 0.5f);
+                dst_x = 0; dst_y = (win_h - dst_h) / 2;
+            } else {
+                dst_h = win_h; dst_w = (int)(win_h * internal_aspect + 0.5f);
+                dst_y = 0; dst_x = (win_w - dst_w) / 2;
+            }
+            if (gfx_rapi->internal_res_present) {
+                uint32_t screen_fb = gfx_wapi->get_screen_framebuffer ? gfx_wapi->get_screen_framebuffer() : 0;
+                gfx_rapi->internal_res_present(screen_fb, dst_x, dst_y, dst_w, dst_h);
+            }
+        } else
+#endif
         if (game_renders_to_framebuffer) {
             gfx_rapi->start_draw_to_framebuffer(0, 1);
             gfx_rapi->clear_framebuffer(true, true);

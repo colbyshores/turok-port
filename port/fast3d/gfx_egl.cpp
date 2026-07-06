@@ -195,6 +195,11 @@ static void *egl_get_window_handle(void) { return nullptr; }
 static void egl_set_title(const char *t) { (void)t; }
 static int  egl_get_swap_interval(void) { return 0; }
 static bool egl_set_swap_interval(int i) { (void)i; return false; }
+/* PORT: there is no default framebuffer 0 in this surfaceless context (see the file header
+ * comment) — s_fbo IS the real screen. gfx_pc.cpp's internal-resolution present needs this to
+ * blit onto the correct target instead of assuming GL id 0 (which is what every OTHER PC backend
+ * treats as the real screen). */
+static uint32_t egl_get_screen_framebuffer(void) { egl_make_fbo(); return (uint32_t)s_fbo; }
 
 extern "C" struct GfxWindowManagerAPI gfx_egl_wm = {
     egl_init,
@@ -228,6 +233,7 @@ extern "C" struct GfxWindowManagerAPI gfx_egl_wm = {
     egl_set_title,
     egl_get_swap_interval,
     egl_set_swap_interval,
+    egl_get_screen_framebuffer,
 };
 
 /* --------------------------------------------------------------- capture */

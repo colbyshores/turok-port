@@ -49,6 +49,13 @@ struct GfxWindowManagerAPI {
     void (*set_window_title)(const char *);
     int (*get_swap_interval)(void);
     bool (*set_swap_interval)(int);
+    // Optional (NULL on backends that don't need it — 3DS never uses internal-resolution
+    // scaling). The GL framebuffer OBJECT id this backend treats as "the real screen" — 0 for a
+    // true default framebuffer (SDL2's real window; OSMesa's native software target), or a
+    // backend-owned FBO for surfaceless EGL (which has no default framebuffer 0 at all — see
+    // gfx_egl.cpp). gfx_pc.cpp's internal-resolution present (gfx_end_frame) needs this to blit
+    // onto the correct target instead of assuming literal GL id 0 always means "the screen".
+    uint32_t (*get_screen_framebuffer)(void);
 };
 
 #endif

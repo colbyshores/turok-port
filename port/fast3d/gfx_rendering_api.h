@@ -67,6 +67,25 @@ struct GfxRenderingAPI {
 	// the per-vertex fog line `clamp(z/w*mul+offset,0,255)` + the fog colour). The backend
 	// builds a depth FogLut from mul/offset and binds C3D_FogColor/C3D_FogGasMode per draw.
 	void (*set_fog)(bool enabled, int16_t mul, int16_t offset, uint8_t r, uint8_t g, uint8_t b);
+	// Optional (NULL on backends that don't need them — 3DS never uses internal-resolution
+	// scaling; gfx_pc NULL-checks). PC-only INTERNAL RESOLUTION pair: turok.cfg's resolution row
+	// picked a non-native size while fullscreen (gfx_sdl2.cpp refresh_internal_resolution()) —
+	// fullscreen never mode-switches the actual display, so the chosen size is realized as a
+	// render-target scale instead. Deliberately a SELF-CONTAINED GL object pair, independent of
+	// the create_framebuffer/update_framebuffer_parameters/gfx_framebuffers_enabled machinery
+	// above: turok_gfx.c disables that flag UNCONDITIONALLY on every PC backend ("render straight
+	// to the default framebuffer" — the old headless-capture path had no FBO-blit step), which
+	// would otherwise silently no-op every one of those calls.
+	//   internal_res_bind: ensure (create/resize as needed) and BIND the dedicated internal
+	//   render target for this frame's draws, at exactly width x height.
+	void (*internal_res_bind)(uint32_t width, uint32_t height);
+	//   internal_res_present: scale+letterbox the internal target onto the real screen at the
+	//   given dest rect (the caller has already computed an aspect-preserving fit) — clears the
+	//   screen to black first, which becomes the letterbox bars. screen_fb is the GL framebuffer
+	//   OBJECT id the CALLER's window-manager backend treats as "the real screen"
+	//   (GfxWindowManagerAPI::get_screen_framebuffer) — NOT always literal GL id 0: a surfaceless
+	//   EGL context has no default framebuffer 0 at all and renders into its own FBO instead.
+	void (*internal_res_present)(uint32_t screen_fb, int dst_x, int dst_y, int dst_width, int dst_height);
 };
 
 #endif

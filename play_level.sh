@@ -6,6 +6,8 @@
 #   ./play_level.sh                 # DISPLAY :1; RETAIL v1.2 assets if baserom.us.v12.z64 is present
 #   DISPLAY=:0 ./play_level.sh       # if your desktop is on another display
 #   WARP=1000 ./play_level.sh        # boot a different level (0,1000,...,8000)
+#   WARP=menu ./play_level.sh        # boot the NORMAL front-end: legal screen -> Acclaim/Iguana logos ->
+#                                     # title menu -> attract demo (skips the dev level-warp entirely)
 #   ROM=/path/to/other.z64 ./play_level.sh   # use a specific ROM
 #   ROM=none ./play_level.sh         # force the v49 dev assets (cartdata.dat) instead of retail
 #   DEBUG=1 ./play_level.sh          # crash-diagnosis build: prints fault addr + backtrace on segfault
@@ -17,7 +19,7 @@
 #  - DEBUG=1 builds the -O0 + SIGSEGV-handler binary: on a crash it prints the fault address,
 #    last memcpy, and a short backtrace — send that output for diagnosis.
 #  - Input is wired (WASD/arrows + gamepad). Levels 2-8 (WARP 2000+) load slowly;
-#    WARP=0 (default) is fast.
+#    WARP=0 (default) is fast. WARP=menu boots the title/attract flow instead of a level.
 set -e
 cd "$(dirname "$0")"
 
@@ -54,18 +56,32 @@ echo "[play_level] building SDL2 windowed $BUILD_MODE -> $OUT ..."
 if ! GFX=sdl2 TUROK_OUT="$OUT" bash tools/build_port.sh "$BUILD_MODE" >/tmp/turok_sdl_build.log 2>&1; then
     echo "[play_level] BUILD FAILED:"; tail -12 /tmp/turok_sdl_build.log; exit 1
 fi
-echo "[play_level] launching first level (WARP=$WARP, DISPLAY=$DISPLAY) — close the window to quit."
+# WARP=menu (or "boot"/"none") skips the dev level-warp entirely: leaving TUROK_WARP UNSET makes
+# tengine.c take its normal MODE_RESETGAME path -> LEGALSCREEN_WARP_ID -> the real legal screen /
+# Acclaim+Iguana intro logos / title menu / attract demo (see frontend.c CLegalScreen__Update — the
+# old port-only freeze on this screen was removed once the 30Hz logic-tick decouple landed).
+# -u (env's "unset" option, must precede any NAME=VALUE pairs) explicitly unsets TUROK_WARP even
+# if it's already exported in the calling shell (e.g. left over from an earlier session) — belt
+# and suspenders, since the game only takes the normal boot path when TUROK_WARP is truly absent.
+ENV_UNSET_ARG=()
+WARP_ARG=()
+case "$WARP" in
+    menu|boot|none)
+        ENV_UNSET_ARG=(-u TUROK_WARP)
+        echo "[play_level] launching to the TITLE/ATTRACT front-end (DISPLAY=$DISPLAY) — close the window to quit." ;;
+    *) WARP_ARG=(TUROK_WARP="$WARP"); echo "[play_level] launching first level (WARP=$WARP, DISPLAY=$DISPLAY) — close the window to quit." ;;
+esac
 
 # Force SDL2's x11 video driver: on a Wayland session SDL2 picks the Wayland driver even with
 # DISPLAY set, and its GL window creation segfaults. We launch against XWayland (DISPLAY), so x11.
 # TUROK_VTXBAD=1: corruption detectors. They print ONLY when a matrix/vertex actually goes
 # NaN/huge (i.e. the camera/HUD-corruption moment) — silent otherwise. If the camera glitches,
 # the [CANARY]/[CAMBAD]/[VTXBAD] lines name exactly what went bad. Set HUD=0 to hide the HUD.
-exec env DISPLAY="$DISPLAY" \
+exec env "${ENV_UNSET_ARG[@]}" DISPLAY="$DISPLAY" \
     SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-x11}" \
     TUROK_CARTDATA="$PWD/src/PR/cartdata.dat" \
     "${ROM_ARG[@]}" \
-    TUROK_WARP="$WARP" \
+    "${WARP_ARG[@]}" \
     TUROK_FPS="$FPS" \
     TUROK_TICK_FPS="$TICK" \
     TUROK_HUD="${HUD:-1}" \

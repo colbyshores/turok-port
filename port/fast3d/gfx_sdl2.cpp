@@ -25,6 +25,9 @@ extern "C" { extern float g_cfg_mouse_sens; extern int g_cfg_mouse_invert, g_cfg
 /* PORT: live-window request seam — the options menu (options.c) sets these, we apply them once per frame at the
  * top of gfx_sdl_handle_events. Defined in config.c so every backend links. */
 extern "C" { extern int g_turok_req_win_w, g_turok_req_win_h, g_turok_req_fullscreen, g_turok_req_dirty; }
+/* PORT: internal-render-resolution seam (config.c) — gfx_pc.cpp renders into an offscreen framebuffer at this
+ * size and scales+letterboxes it onto the real screen when set; see refresh_internal_resolution() below. */
+extern "C" { extern int g_turok_internal_w, g_turok_internal_h; }
 static uint32_t fullscreen_flag = SDL_WINDOW_FULLSCREEN_DESKTOP;
 static bool fullscreen_state;
 static bool maximized_state;
@@ -67,6 +70,29 @@ static void set_fullscreen(bool on, bool call_callback) {
     SDL_SetWindowFullscreen(wnd, on ? fullscreen_flag : 0);
     if (call_callback && on_fullscreen_changed_callback) {
         on_fullscreen_changed_callback(on);
+    }
+}
+
+/* PORT: decide whether the current (fullscreen state, chosen resolution) needs INTERNAL-resolution
+ * rendering (gfx_pc.cpp renders at g_turok_internal_w/h then scales+letterboxes onto the real screen)
+ * instead of a direct 1:1 render. Fullscreen here is ALWAYS borderless SDL_WINDOW_FULLSCREEN_DESKTOP —
+ * it always matches the desktop's native mode and simply ignores SDL_SetWindowSize/SetWindowDisplayMode,
+ * so a non-native preset picked while fullscreen can't resize the real output; this is how it takes
+ * effect instead. Windowed mode (or fullscreen at the native/DESKTOP size) disables it (0) — the real
+ * window IS the requested size already, so a 1:1 direct render is both correct and cheaper. Call after
+ * ANY change to fullscreen_state or g_cfg_win_w/h so the two always stay consistent. */
+static void refresh_internal_resolution(void) {
+    if (!fullscreen_state) { g_turok_internal_w = g_turok_internal_h = 0; return; }
+    SDL_DisplayMode dm = {};
+    if (SDL_GetDesktopDisplayMode(SDL_GetWindowDisplayIndex(wnd), &dm) != 0) {
+        g_turok_internal_w = g_turok_internal_h = 0;   /* can't tell native size — fail safe: no scaling */
+        return;
+    }
+    if (g_cfg_win_w > 0 && g_cfg_win_h > 0 && (g_cfg_win_w != dm.w || g_cfg_win_h != dm.h)) {
+        g_turok_internal_w = g_cfg_win_w;
+        g_turok_internal_h = g_cfg_win_h;
+    } else {
+        g_turok_internal_w = g_turok_internal_h = 0;
     }
 }
 
@@ -247,9 +273,15 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
 
     SDL_ShowWindow(wnd);
 
+    /* If we booted straight into fullscreen at a saved non-native resolution, that resolution can only be
+     * realized as an INTERNAL render scale (fullscreen is always borderless/native — see
+     * refresh_internal_resolution() above the g_turok_req_dirty handler below). */
+    refresh_internal_resolution();
+
     { int aw = 0, ah = 0; SDL_GL_GetDrawableSize(wnd, &aw, &ah);
-      fprintf(stderr, "[gfx] SDL window %dx%d requested, drawable %dx%d, %s\n",
-              window_width, window_height, aw, ah, fullscreen_state ? "fullscreen-desktop" : "windowed"); }
+      fprintf(stderr, "[gfx] SDL window %dx%d requested, drawable %dx%d, %s%s\n",
+              window_width, window_height, aw, ah, fullscreen_state ? "fullscreen-desktop" : "windowed",
+              g_turok_internal_w > 0 ? " (internal-res scaled)" : ""); }
 
     qpc_freq = SDL_GetPerformanceFrequency();
 }
@@ -557,7 +589,7 @@ static void gfx_sdl_handle_events(void) {
             set_fullscreen(g_turok_req_fullscreen != 0, true);
             g_turok_req_fullscreen = -1;
         }
-        if (g_turok_req_win_w != 0 && !fullscreen_state) {
+        if (g_turok_req_win_w != 0) {
             int rw = g_turok_req_win_w, rh = g_turok_req_win_h;
             if (rw < 0) {   /* DESKTOP: resolve the native desktop mode + persist the resolved dims */
                 SDL_DisplayMode dm = {};
@@ -565,15 +597,27 @@ static void gfx_sdl_handle_events(void) {
                 else { rw = 0; }
             }
             if (rw > 0 && rh > 0) {
-                int px = 0, py = 0;
-                SDL_SetWindowSize(wnd, rw, rh);
-                get_centered_positions_native(rw, rh, &px, &py);
-                SDL_SetWindowPosition(wnd, px, py);
+                /* ★ THE FIX: while fullscreen (always borderless SDL_WINDOW_FULLSCREEN_DESKTOP — see
+                 * refresh_internal_resolution()'s comment for why we deliberately never do a real
+                 * exclusive-fullscreen mode-switch here), resizing the actual SDL window is a no-op:
+                 * FULLSCREEN_DESKTOP always tracks the desktop's CURRENT mode and ignores
+                 * SDL_SetWindowSize outright. That silent no-op was the whole bug — picking a
+                 * resolution while fullscreen visibly did nothing. Only touch the real window when
+                 * windowed; refresh_internal_resolution() (called below, after g_cfg_win_w/h is
+                 * updated either way) is what makes a fullscreen resolution pick actually take
+                 * effect, via an internal render-resolution scale instead of a mode-switch. */
+                if (!fullscreen_state) {
+                    int px = 0, py = 0;
+                    SDL_SetWindowSize(wnd, rw, rh);
+                    get_centered_positions_native(rw, rh, &px, &py);
+                    SDL_SetWindowPosition(wnd, px, py);
+                }
                 g_cfg_win_w = rw;   /* keep cfg authoritative (esp. DESKTOP) so turokConfigSave persists the truth */
                 g_cfg_win_h = rh;
             }
         }
         g_turok_req_win_w = g_turok_req_win_h = 0;
+        refresh_internal_resolution();   /* re-derive after EITHER the fullscreen toggle or the resolution change */
     }
 
     while (SDL_PollEvent(&event)) {
@@ -620,6 +664,7 @@ static void gfx_sdl_handle_events(void) {
                 if (event.key.keysym.sym == SDLK_RETURN && (event.key.keysym.mod & KMOD_ALT)) {
                     // alt-enter received, switch fullscreen state
                     set_fullscreen(!fullscreen_state, true);
+                    refresh_internal_resolution();   /* Alt-Enter into fullscreen at a saved non-native size needs the scale too */
                 } else if (!event.key.repeat) {
                     edge_from_key(event.key.keysym.scancode);   /* walk toggle / quicksave / quickload / weapon cycle */
                 }

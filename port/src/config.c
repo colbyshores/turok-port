@@ -43,6 +43,16 @@ int   g_turok_req_win_w      = 0;    /* >0 = set the windowed size to exactly th
 int   g_turok_req_win_h      = 0;
 int   g_turok_req_fullscreen = -1;   /* -1 = no change; 0 = windowed; 1 = fullscreen. */
 int   g_turok_req_dirty      = 0;    /* set by options.c; the backend clears it after applying. */
+/* INTERNAL render resolution while fullscreen. Fullscreen is ALWAYS borderless SDL_WINDOW_FULLSCREEN_DESKTOP
+ * (matches the desktop's native mode 1:1 — no real monitor mode-switch, so no XRandR/Wayland flakiness and no
+ * risk of a crash/kill stranding the display at a switched resolution). So a resolution PRESET picked while
+ * fullscreen can't resize the actual window/output; instead gfx_sdl2.cpp mirrors it here, and gfx_pc.cpp
+ * (gfx_start_frame/gfx_end_frame) renders the whole scene into an offscreen framebuffer at exactly this size,
+ * then scales+letterboxes (preserves aspect — no stretch/distortion) it up onto the real, native-resolution
+ * backbuffer at present time. 0 = disabled (render 1:1 at the real window/output size — windowed mode, or
+ * fullscreen at the native/DESKTOP preset, both leave this at 0 so there's no extra blit overhead). */
+int   g_turok_internal_w     = 0;
+int   g_turok_internal_h     = 0;
 /* In-game DRAW-DISTANCE slider (single slider; the fog recedes with it because the engine's fog is normalized to
  * the projection far plane). Defaults = ORIGINAL Turok. Backed by turok.cfg `drawdist` / `fog`. */
 float g_cfg_drawdist     = 1.0f;     /* DRAW DISTANCE multiplier (options slider). 1 = stock far clip; up to turok_drawdist_max() pushes the projection far plane out so the fog recedes/thins and reveals the vista it hid. */

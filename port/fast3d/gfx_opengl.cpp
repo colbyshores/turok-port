@@ -1317,6 +1317,63 @@ void gfx_opengl_copy_framebuffer(int fb_dst, int fb_src, int left, int top, bool
     glEnable(GL_SCISSOR_TEST);
 }
 
+/* PORT: internal-resolution render target — a SELF-CONTAINED pair of raw GL objects, deliberately
+ * independent of the framebuffers vector / gfx_framebuffers_enabled machinery above (which
+ * turok_gfx.c disables UNCONDITIONALLY on every PC backend, so reusing that machinery here would
+ * silently no-op every call — see the header comment on internal_res_bind/internal_res_present). */
+static GLuint   s_ires_fbo = 0, s_ires_color = 0, s_ires_depth = 0;
+static uint32_t s_ires_w = 0, s_ires_h = 0;
+
+void gfx_opengl_internal_res_bind(uint32_t width, uint32_t height) {
+    if (width < 1) width = 1;
+    if (height < 1) height = 1;
+    if (!s_ires_fbo) {
+        glGenFramebuffers(1, &s_ires_fbo);
+        glGenTextures(1, &s_ires_color);
+        glGenRenderbuffers(1, &s_ires_depth);
+    }
+    if (s_ires_w != width || s_ires_h != height) {
+        glBindTexture(GL_TEXTURE_2D, s_ires_color);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, (GLsizei)width, (GLsizei)height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        glBindRenderbuffer(GL_RENDERBUFFER, s_ires_depth);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, (GLsizei)width, (GLsizei)height);
+        glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, s_ires_fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_ires_color, 0);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, s_ires_depth);
+
+        s_ires_w = width;
+        s_ires_h = height;
+    } else {
+        glBindFramebuffer(GL_FRAMEBUFFER, s_ires_fbo);
+    }
+}
+
+/* GL_LINEAR (vs the NEAREST used by the same-purpose copy_framebuffer/resolve_msaa helpers above,
+ * which only ever copy 1:1 or MSAA-resolve) since this is a genuine up/downscale. Clears
+ * screen_fb to black first — that's what gives the letterbox bars for an aspect-mismatched dest
+ * rect. screen_fb is NOT always literal GL id 0 — see the header comment. */
+void gfx_opengl_internal_res_present(uint32_t screen_fb, int dst_x, int dst_y, int dst_width, int dst_height) {
+    if (!s_ires_fbo) return;
+    glDisable(GL_SCISSOR_TEST);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, screen_fb);
+    glClearColor(0.f, 0.f, 0.f, 1.f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, s_ires_fbo);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glBlitFramebuffer(0, 0, (GLint)s_ires_w, (GLint)s_ires_h,
+                       dst_x, dst_y, dst_x + dst_width, dst_y + dst_height,
+                       GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    glBindFramebuffer(GL_FRAMEBUFFER, current_framebuffer < framebuffers.size() ? framebuffers[current_framebuffer].fbo : 0);
+    glReadBuffer(GL_BACK);
+    glEnable(GL_SCISSOR_TEST);
+}
+
 void gfx_opengl_set_texture_filter(FilteringMode mode) {
     current_filter_mode = mode;
 }
@@ -1377,5 +1434,9 @@ struct GfxRenderingAPI gfx_opengl_api = {
     gfx_opengl_get_texture_filter,
     gfx_opengl_set_mipmap_filter,
     gfx_opengl_set_anisotropy_level,
-    gfx_opengl_get_max_anisotropy_level
+    gfx_opengl_get_max_anisotropy_level,
+    nullptr,   // invalidate_texture_cache — not needed by the GL backend
+    nullptr,   // set_fog — GL renders fog in the fragment shader from buf_vbo, not a fixed-function unit
+    gfx_opengl_internal_res_bind,
+    gfx_opengl_internal_res_present,
 };
