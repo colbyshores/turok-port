@@ -129,8 +129,8 @@ static INT32 s_DrawDistSlider = 128;	// draw-distance bar position (0..255). FIL
 /* 3DS swap-sticks row: the String is reassigned each Draw to show which stick LOOKS (aims). NB the LARGE_FONT
  * the options menu draws with has NO ':' or '-' glyph (they alias other letters), so the labels use plain words.
  * New 3DS only (dual-analog); on OG 3DS the row is inert (single stick = classic move+turn). */
-static char	text_look_cstick[] = {"look c stick"};		// swap_sticks 0 (default): C-stick aims, Circle Pad moves
-static char	text_look_cpad[]   = {"look circle pad"};	// swap_sticks 1: Circle Pad aims, C-stick moves
+static char	text_look_cpad[]   = {"look circle pad"};	// swap_sticks 0 (default): C-stick nub MOVES, Circle Pad AIMS
+static char	text_look_cstick[] = {"look c stick"};		// swap_sticks 1: Circle Pad moves, C-stick aims
 #endif
 
 #if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
@@ -223,7 +223,7 @@ t_Option options[]=
 	OPTIONSMENU_SPACING, text_controls,			// key/mouse rebind submenu
 #endif
 #ifdef PLATFORM_3DS
-	OPTIONSMENU_SPACING, text_look_cstick,		// swap-sticks toggle; String reassigned each Draw
+	OPTIONSMENU_SPACING, text_look_cpad,		// swap-sticks toggle; String reassigned each Draw
 #endif
 	OPTIONSMENU_SPACING, text_control_left,
 #ifndef GERMAN
@@ -1089,8 +1089,8 @@ void COptions__Draw(COptions *pThis, Gfx **ppDLP)
 #endif
 
 #ifdef PLATFORM_3DS
-			{	extern int g_cfg_swap_sticks;	/* row shows which stick AIMS: swap 0 = C-stick (default), swap 1 = Circle Pad */
-				options[OPTIONS_SWAPSTICKS].String = g_cfg_swap_sticks ? text_look_cpad : text_look_cstick ; }
+			{	extern int g_cfg_swap_sticks;	/* row shows which stick AIMS: swap 0 = Circle Pad (default, nub moves), swap 1 = C-stick */
+				options[OPTIONS_SWAPSTICKS].String = g_cfg_swap_sticks ? text_look_cstick : text_look_cpad ; }
 #endif
 
 #ifndef GERMAN

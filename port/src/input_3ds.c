@@ -92,14 +92,14 @@ void input3dsScan(void)
     }
     else
     {
-        /* New 3DS DUAL-ANALOG (matches ../perfect_dark): MOVE stick = fwd/back (stick_y) + STRAFE
-         * (g_turok_strafe), NO turn (stick_x=0); AIM stick = yaw (g_look_yaw) + pitch (g_look_pitch).
-         * swap_sticks picks which physical stick is which. Default (0): Circle Pad MOVES, C-stick AIMS.
-         * NB this is the analog-stick swap only — distinct from the engine's right/left-handed C-button
-         * option, which swaps the C-buttons <-> stick. */
+        /* New 3DS DUAL-ANALOG. BOTH sticks read as proportional analog axes (cpad_axis, same scale/deadzone).
+         * MOVE stick = fwd/back (stick_y) + STRAFE (g_turok_strafe), NO turn (stick_x=0); AIM stick = yaw
+         * (g_look_yaw) + pitch (g_look_pitch). Default (swap_sticks 0): the C-stick NUB MOVES (fwd/back/strafe),
+         * the Circle Pad AIMS. swap_sticks 1 flips them. NB this is the analog-stick swap only — distinct from
+         * the engine's right/left-handed C-button option (which swaps the C-buttons <-> stick). */
         s8 mvx, mvy, lkx, lky;
-        if (g_cfg_swap_sticks) { mvx = csx; mvy = csy; lkx = cpx; lky = cpy; }  /* swapped: C-stick moves, Circle Pad aims */
-        else                   { mvx = cpx; mvy = cpy; lkx = csx; lky = csy; }  /* default: Circle Pad moves, C-stick aims */
+        if (g_cfg_swap_sticks) { mvx = cpx; mvy = cpy; lkx = csx; lky = csy; }  /* swapped: Circle Pad moves, C-stick aims */
+        else                   { mvx = csx; mvy = csy; lkx = cpx; lky = cpy; }  /* default: C-stick (nub) moves, Circle Pad aims */
         sx = 0;                                       /* no analog turn from the move stick */
         sy = mvy;                                     /* analog forward/back */
         g_turok_strafe = (float)mvx / 80.0f;          /* analog strafe, -1..+1 (+ = right) */
