@@ -913,11 +913,18 @@ void CTMove__UpdateTurokInstance(CTMove *pThis, CEngineApp *pApp, CTControl *pCT
 							if (!g_cfg_recenter_look)
 							{
 								/* HOLD-LOOK (recenter OFF): accumulate the vertical look by the stick RATE and hold
-								 * it on release, instead of the position-based auto-return-to-horizon below. Up
-								 * (IsLookUp>0) decreases RotXPlayer (matches the position path's -= for up); clamped
-								 * to the same [-78deg up, +90deg down] range; scaled by the V-analog sensitivity. */
+								 * it on release, instead of the position-based auto-return-to-horizon below. Rate is
+								 * matched to the yaw TURN (CTMove__Turn): speed = look / TTURN_ANALOGUE_SCALER, capped
+								 * at TTURN_MAX_SPEED, applied as ANGLE_DTOR(speed)*frame_increment/1.1 — so looking
+								 * up/down is exactly as responsive as turning left/right. lk already carries the
+								 * V-analog sensitivity (from the stick_y scaling), just as the turn's res carries H.
+								 * Up (IsLookUp>0) decreases RotXPlayer (matches the position path's -= for up); clamped
+								 * to the same [-78deg up, +90deg down] range. */
 								float lk = CTControl__IsLookUp(pCTControl) - CTControl__IsLookDown(pCTControl);
-								pThis->RotXPlayer -= lk * (ANGLE_DTOR(90)/80.0f/24.0f) * scalerv * frame_increment;
+								float sp = lk / TTURN_ANALOGUE_SCALER;
+								if (sp >  TTURN_MAX_SPEED) sp =  TTURN_MAX_SPEED;
+								if (sp < -TTURN_MAX_SPEED) sp = -TTURN_MAX_SPEED;
+								pThis->RotXPlayer -= ANGLE_DTOR(sp) * frame_increment / 1.1f;
 								if (pThis->RotXPlayer < -ANGLE_DTOR(78)) pThis->RotXPlayer = -ANGLE_DTOR(78);
 								if (pThis->RotXPlayer >  ANGLE_DTOR(90)) pThis->RotXPlayer =  ANGLE_DTOR(90);
 								pThis->ActualRotXPlayer = pThis->RotXPlayer;   /* keep in sync (no jump if toggled) */
