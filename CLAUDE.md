@@ -544,38 +544,35 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 
 ## 10. Port edits to game source (keep this log honest)
 
-- **★ NEW-3DS DUAL-ANALOG (nub moves + strafe, Circle Pad looks) + "swap sticks" options toggle (2026-07-06,
-  branch `pc-port-fixes`).** Common request across Turok AND Perfect Dark: a true dual-analog FPS scheme on the
-  New 3DS — one stick MOVES (fwd/back + **strafe L/R**, both analog), the other AIMS (yaw + pitch), swappable.
-  **Default (`swap_sticks 0`): the Circle Pad MOVES, the C-stick AIMS** (matches `../perfect_dark`'s
-  `67e8237ed` — circle=move / C-stick=aim; `swap_sticks 1` flips them). ★ This is the analog-stick swap only —
-  DISTINCT from the engine's right/left-handed option, which swaps the **C-buttons ↔ stick** (the user
-  explicitly wanted stick↔stick, not that). Two seams (both mirror how the PC mouse already bypasses `CTControl`):
-  - **LOOK** → the held look seam `g_look_yaw`/`g_look_pitch` (radians, consumed+clamped+zeroed by the
-    `PLATFORM_PORT` hook in [tengine.c](src/PR/tengine/tengine.c) `UpdateGAME` — already active on 3DS, fed by
-    nothing there before). +yaw=right, +pitch=up (same convention as the confirmed-working PC mouse).
-  - **STRAFE** → new seam `g_turok_strafe` (input.c, always-linked; -1..+1, + = right) injected into
-    [tmove.c](src/PR/tengine/tmove.c) `CTMove__ControlSideStep` as an analog sidestep velocity — the engine
-    ALREADY does analog strafe (`IsSideStepRight()>0` = analog speed), so the injection just mirrors that path
-    (scaled by `TMOVE_MAX_SIDESTEPSPEED`, `frame_increment`-gated = a LEVEL not a delta, so no FPS coupling; the
-    move-stick X becomes strafe, `stick_x` = 0 so it never turns). Forward/back stays the engine's native analog
-    (`stick_y`).
-  - **★ OG-3DS SAFETY: dual-analog needs TWO sticks.** [input_3ds.c](port/src/input_3ds.c) probes
-    `APT_CheckNew3DS()` once; **OG 3DS (no nub) stays on the classic single-stick move+TURN Circle Pad scheme
-    (byte-identical to shipped) — the split/toggle only engages on New 3DS.** Without this, an OG default of
-    "nub moves" would be unmovable (nub reads 0) — a real trap. C-stick via lazy `irrstInit` + `hidCstickRead`
-    (irrst is a SEPARATE libctru service from hid).
-  - **Options row** ([options.c](src/PR/tengine/options.c) 3DS-gated `OPTIONS_SWAPSTICKS`) shows which stick
-    LOOKS (`look circle pad` / `look c stick` — plain words: LARGE_FONT has no `':'`/`'-'` glyph, they alias
-    other letters), activate toggles + persists via `turokConfigSave()` (added a 3DS branch — was PC-only). Box
-    grew 3DS-only (`OPTIONS_HEIGHT` 210→224, header +40→+34) to fit the 12px row; **N64 box byte-identical**.
-  PC + 3DS build clean; PC unaffected (`PLATFORM_3DS`-gated). Look sensitivity `STICK_LOOK_YAW`/`PITCH` fixed for
-  the 3DS locked-30 present. **NEEDS INTERACTIVE HW CONFIRM:** nub move/strafe direction + look yaw/pitch sign +
-  sensitivity + the swap (can't headless-test the C-stick). **LESSON: for dual-analog on a port, DON'T fight the
-  N64 single-stick control-config — inject via the same port seams the mouse-look uses (a held yaw/pitch seam +
-  an analog-strafe seam into `CTMove__ControlSideStep`, which the engine already supports as `IsSideStep*()>0`),
-  and gate on `APT_CheckNew3DS` so the OG single-stick stays move+turn (a "nub moves" default is unmovable on OG,
-  where the nub reads 0).**
+- **★ NEW-3DS C-STICK NUB = ANALOG MOVE STICK (fwd/back + strafe) + "swap sticks" toggle (2026-07-06, branch
+  `pc-port-fixes`).** User request (verbatim, after several wrong iterations): the **nub moves fwd(up)/back(down)/
+  strafe-left/strafe-right, ANALOG**, the **main stick (Circle Pad) stays UNTOUCHED (classic move+turn)**, and a
+  toggle **flips** the two. The mistake I kept making: rebuilding the Circle Pad (ripping out its turn, adding
+  aim/pitch seams the user never asked for). The correct model is dead simple — TWO stick ROLES, and the flip
+  just picks which physical stick has which role:
+  - **MAIN role (untouched/classic):** X = turn (`stick_x`), Y = fwd/back (`stick_y`) — exactly the shipped Circle
+    Pad path, unchanged.
+  - **MOVE role (analog):** X = **strafe** (the `g_turok_strafe` seam, input.c → injected into
+    [tmove.c](src/PR/tengine/tmove.c) `CTMove__ControlSideStep` as an analog sidestep velocity, `frame_increment`-
+    gated), Y = fwd/back (added into `stick_y`). **NO turn.**
+  - **Default (`swap_sticks 0`): Circle Pad = MAIN, C-stick nub = MOVE.** `swap_sticks 1` flips them. NO
+    aim/look/pitch on any stick (the user never asked for it — Turok has auto-aim; matches the shipped 3DS which
+    had no stick pitch). fwd/back is additive from both sticks (either moves you).
+  - **OG 3DS (no nub):** [input_3ds.c](port/src/input_3ds.c) probes `APT_CheckNew3DS()` once → Circle Pad stays
+    MAIN (classic move+turn, untouched), no MOVE stick, flip ignored (a flip that strips turn would be unmovable
+    on a single stick). C-stick via lazy `irrstInit` + `hidCstickRead` (irrst is a SEPARATE libctru service from
+    hid); both sticks read as proportional analog via the same `cpad_axis` scale/deadzone.
+  - **Options row** ([options.c](src/PR/tengine/options.c) 3DS-gated `OPTIONS_SWAPSTICKS`) shows which stick is
+    the analog MOVE stick (`move c stick` / `move circle pad` — plain words: LARGE_FONT has no `':'`/`'-'` glyph,
+    they alias other letters), activate toggles + persists via `turokConfigSave()` (added a 3DS branch — was
+    PC-only). Box grew 3DS-only (`OPTIONS_HEIGHT` 210→224, header +40→+34) to fit the 12px row; **N64 box
+    byte-identical**. `g_turok_strafe` lives in input.c (always-linked; only the 3DS backend writes it).
+  PC + 3DS build clean; PC unaffected (`PLATFORM_3DS`-gated; the strafe seam is inert off-3DS). **NEEDS
+  INTERACTIVE HW CONFIRM:** nub move/strafe direction + the swap. **LESSON: when a user says "the main stick
+  remains untouched," take it literally — do NOT re-plumb the working stick; add the new behavior on the OTHER
+  physical input and make the swap pick which stick has which role. I over-engineered a dual-analog aim/pitch
+  system across four iterations when the ask was just "nub = analog movement stick, leave the Circle Pad alone,
+  add a flip."**
 
 - **★★ ATTRACT-DEMO CRASH = RNC-decoder OUTPUT-BUFFER OVERRUN + attract-header endianness; + a 4K
   resolution preset (2026-07-06, branch `pc-port-fixes`).** User booted `WARP=menu` (the new

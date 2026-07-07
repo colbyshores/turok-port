@@ -38,7 +38,7 @@ float g_cfg_stereo_z     = -1.0f;    /* 3DS stereo shear depth term (default 0.0
 float g_cfg_stereo_w     = -1.0f;    /* 3DS stereo shear convergence term (default 0.012); -1 = compiled default. Raise = screen plane nearer. */
 int   g_cfg_gamepad      = 1;        /* PC: 1 = use a connected game controller; 0 = ignore it entirely (escape hatch for a drifting pad that auto-strafes/spins). Env TUROK_GAMEPAD overrides. */
 int   g_cfg_fullscreen   = 0;        /* PC: 1 = create/toggle the SDL2 window to borderless desktop fullscreen; 0 = windowed. Set from the options menu; turok.cfg `fullscreen`. */
-int   g_cfg_swap_sticks  = 0;        /* New 3DS dual-analog: 0 (DEFAULT) = C-stick NUB MOVES (analog fwd/back+strafe) + Circle Pad AIMS (yaw+pitch); 1 = swapped (Circle Pad moves, C-stick aims). Options-menu toggle; turok.cfg `swap_sticks`. Distinct from the right/left-handed C-button option. OG 3DS (no nub) ignores it — stays on the classic single-stick move+turn scheme. */
+int   g_cfg_swap_sticks  = 0;        /* New 3DS: 0 (DEFAULT) = C-stick NUB is the analog MOVE stick (up=fwd, down=back, left/right=strafe), Circle Pad UNTOUCHED (classic move+turn); 1 = swapped (nub = classic move+turn, Circle Pad = analog move+strafe). Options-menu toggle; turok.cfg `swap_sticks`. OG 3DS (no nub) ignores it. */
 
 /* PC live-window request seam. The options menu (options.c) sets these when the player changes the resolution
  * or fullscreen row; the SDL2 backend (gfx_sdl2.cpp) consumes them once per frame at the top of its event loop

@@ -36,14 +36,8 @@
 #define N64_CR    0x0001u
 
 extern int   g_turok_walk_mode;        /* input.c — E-equivalent run/walk toggle (SELECT) */
-extern int   g_cfg_swap_sticks;        /* config.c — 0: nub moves + Circle Pad looks; 1: swapped (New 3DS) */
-extern float g_look_yaw, g_look_pitch; /* input.c — per-frame HELD look deltas (rad), consumed by tengine.c */
+extern int   g_cfg_swap_sticks;        /* config.c — 0 (default): nub = analog move; 1: swapped (New 3DS) */
 extern float g_turok_strafe;           /* input.c — analog strafe level (-1..+1, + = right), read by CTMove */
-
-/* Look-stick sensitivity: radians of aim per frame at full deflection. Tuned for the 3DS locked-30 present
- * (fps==tick), the same held look seam the PC mouse feeds (+yaw = turn right, +pitch = look up). */
-#define STICK_LOOK_YAW    0.060f       /* ~103 deg/s yaw at full deflection @30fps */
-#define STICK_LOOK_PITCH  0.045f       /* pitch a touch slower than yaw */
 
 static s8 cpad_axis(int v)             /* circle pad ~±156 -> N64 stick ±80, deadzone */
 {
@@ -68,12 +62,11 @@ void input3dsScan(void)
     kDown = hidKeysDown();
     hidCircleRead(&cp);
 
-    /* New 3DS has the C-stick nub; OG 3DS doesn't. Probe once (cached). Dual-analog needs two sticks, so OG
-     * 3DS stays on the classic single-stick (move+turn) scheme; only New 3DS splits move/look across sticks. */
+    /* New 3DS has the C-stick nub; OG 3DS doesn't. Probe once (cached). The nub-as-movement-stick + the flip
+     * need two sticks, so OG 3DS (no nub) just keeps the Circle Pad on its classic move+turn scheme. */
     if (s_new3ds < 0) { bool n = false; APT_CheckNew3DS(&n); s_new3ds = n ? 1 : 0; }
 
-    /* C-stick (the nub). irrst is a SEPARATE libctru service from hid — lazy-init it once. On OG 3DS this
-     * just reads (0,0); we don't use it there anyway (s_new3ds==0 path below). */
+    /* C-stick (the nub). irrst is a SEPARATE libctru service from hid — lazy-init it once. On OG 3DS unused. */
     if (s_new3ds) {
         static int s_irrst = 0; if (!s_irrst) { irrstInit(); s_irrst = 1; }
         irrstScanInput();
@@ -83,28 +76,24 @@ void input3dsScan(void)
     cpx = cpad_axis(cp.dx);  cpy = cpad_axis(cp.dy);   /* circle pad -80..80 */
     csx = cpad_axis(cs.dx);  csy = cpad_axis(cs.dy);   /* C-stick    -80..80 */
 
-    if (!s_new3ds)
+    /* Two stick ROLES:
+     *   MAIN (untouched, classic): X = turn (stick_x), Y = fwd/back (stick_y). Exactly the shipped Circle Pad.
+     *   MOVE (analog):             X = STRAFE (g_turok_strafe), Y = fwd/back (added into stick_y). NO turn.
+     * Default (swap_sticks 0): Circle Pad = MAIN (untouched), C-stick nub = MOVE.  swap_sticks 1 flips them.
+     * OG 3DS (no nub): Circle Pad stays MAIN, no MOVE stick (flip ignored). */
     {
-        /* OG 3DS (single stick): classic move+TURN on the Circle Pad, exactly as shipped. No strafe/look split. */
-        sx = cpx;                       /* stick_x = turn   */
-        sy = cpy;                       /* stick_y = fwd/back */
-        g_turok_strafe = 0.0f;
-    }
-    else
-    {
-        /* New 3DS DUAL-ANALOG. BOTH sticks read as proportional analog axes (cpad_axis, same scale/deadzone).
-         * MOVE stick = fwd/back (stick_y) + STRAFE (g_turok_strafe), NO turn (stick_x=0); AIM stick = yaw
-         * (g_look_yaw) + pitch (g_look_pitch). Default (swap_sticks 0): the C-stick NUB MOVES (fwd/back/strafe),
-         * the Circle Pad AIMS. swap_sticks 1 flips them. NB this is the analog-stick swap only — distinct from
-         * the engine's right/left-handed C-button option (which swaps the C-buttons <-> stick). */
-        s8 mvx, mvy, lkx, lky;
-        if (g_cfg_swap_sticks) { mvx = cpx; mvy = cpy; lkx = csx; lky = csy; }  /* swapped: Circle Pad moves, C-stick aims */
-        else                   { mvx = csx; mvy = csy; lkx = cpx; lky = cpy; }  /* default: C-stick (nub) moves, Circle Pad aims */
-        sx = 0;                                       /* no analog turn from the move stick */
-        sy = mvy;                                     /* analog forward/back */
-        g_turok_strafe = (float)mvx / 80.0f;          /* analog strafe, -1..+1 (+ = right) */
-        g_look_yaw   += ((float)lkx / 80.0f) * STICK_LOOK_YAW;
-        g_look_pitch += ((float)lky / 80.0f) * STICK_LOOK_PITCH;
+        s8 mnx, mny, mvx, mvy;
+        if (s_new3ds && g_cfg_swap_sticks) { mnx = csx; mny = csy; mvx = cpx; mvy = cpy; }  /* flip: nub=MAIN, pad=MOVE */
+        else if (s_new3ds)                 { mnx = cpx; mny = cpy; mvx = csx; mvy = csy; }  /* default: pad=MAIN, nub=MOVE */
+        else                               { mnx = cpx; mny = cpy; mvx = 0;   mvy = 0;   }  /* OG: pad=MAIN only */
+
+        sx = mnx;                                     /* MAIN X -> turn (stick_x)  */
+        {   int fy = (int)mny + (int)mvy;             /* fwd/back = MAIN Y + MOVE Y (either stick moves you) */
+            if (fy >  80) fy =  80;
+            if (fy < -80) fy = -80;
+            sy = (s8)fy;
+        }
+        g_turok_strafe = (float)mvx / 80.0f;          /* MOVE X -> analog strafe, -1..+1 (+ = right) */
     }
 
     /* ── User control layout (2026-06-21) ─────────────────────────────────────
