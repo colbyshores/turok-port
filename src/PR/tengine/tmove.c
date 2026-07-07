@@ -2651,6 +2651,21 @@ CVector3 CTMove__ControlSideStep(CTMove *pThis, CEngineApp *pApp, CTControl *pCT
 	sinSideY = sin(pIns->m_RotY - ANGLE_PI/2);
 	cosSideY = cos(pIns->m_RotY - ANGLE_PI/2);
 
+#ifdef PLATFORM_PORT
+	/* Port dual-analog STRAFE seam (the 3DS move-stick X; + = right). Injected as an analog sidestep velocity
+	 * exactly like the ressr>0 / ressl>0 analog paths below — a LEVEL scaled by frame_increment (tick-gated),
+	 * additive with the C-button/keyboard digital strafe. g_turok_strafe lives in input.c (always-linked). */
+	{	extern float g_turok_strafe;
+		if (g_turok_strafe != 0.0f)
+		{
+			float sp = g_turok_strafe * TUROK_WALKCAP(TMOVE_MAX_SIDESTEPSPEED);
+			vDesiredPos.x += sp*frame_increment*sinSideY;
+			vDesiredPos.z += sp*frame_increment*cosSideY;
+			player_is_moving = TRUE;
+			CTMove__QuietNoise(pThis);
+		}
+	}
+#endif
 
 	// *** turok side stepping right
 	ressr = CTControl__IsSideStepRight ( pCTControl );

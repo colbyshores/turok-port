@@ -544,28 +544,36 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 
 ## 10. Port edits to game source (keep this log honest)
 
-- **★ 3DS NEW-3DS C-STICK LOOK + "swap sticks" options toggle (2026-07-06, branch `pc-port-fixes`).**
-  Common request across Turok AND Perfect Dark: let the New 3DS C-stick (the nub) aim/look. Wired the
-  nub through the SAME held look seam the PC mouse uses (`g_look_yaw`/`g_look_pitch`, consumed +
-  clamped + zeroed by the `PLATFORM_PORT` hook in [tengine.c](src/PR/tengine/tengine.c) `UpdateGAME` —
-  already active on 3DS, previously fed by nothing there). **Default (`swap_sticks 0`): Circle Pad
-  moves+turns (as before), C-stick looks/aims (yaw+pitch)** — so New 3DS gets nub-look out of the box;
-  a new **options-menu toggle** ([options.c](src/PR/tengine/options.c), 3DS-gated `OPTIONS_SWAPSTICKS`
-  row) + `turok.cfg swap_sticks` **flips which physical stick moves vs looks**. [input_3ds.c](port/src/input_3ds.c):
-  lazy `irrstInit()` (the C-stick is a SEPARATE libctru service from hid — OG 3DS w/o a nub just reads
-  (0,0) → nub-look harmlessly inert, so OG behavior is byte-identical/no regression), `hidCstickRead`,
-  route each stick to MOVE (engine analog: x=turn, y=fwd/back via `inputSetState`) or LOOK (the held
-  seam) per the flag; look sensitivity fixed for the 3DS locked-30 present (`STICK_LOOK_YAW`/`PITCH`,
-  +yaw=right, +pitch=up — same convention as the confirmed-working PC mouse). The options box grew
-  3DS-only (`OPTIONS_HEIGHT` 210→224, header +40→+34) to fit the extra 12px row; **N64 box byte-
-  identical** (the `#else`). Persist on menu-exit via `turokConfigSave()` (added a 3DS branch —
-  previously PC-only). LARGE_FONT has no `':'`/`'-'` glyph (they alias other letters) so the row label
-  is plain words: `look c stick` / `look circle pad`. PC + 3DS build clean; PC unaffected (the whole
-  feature is `PLATFORM_3DS`-gated). **NEEDS INTERACTIVE HW CONFIRM:** nub yaw/pitch sign + sensitivity
-  feel + the toggle swapping correctly (can't headless-test the C-stick). **LESSON: a game with a held
-  mouse-look seam already wired for `PLATFORM_PORT` (yaw/pitch radians consumed in UpdateGAME) makes
-  3DS dual-stick nearly free — feed the New-3DS C-stick into the SAME seam; the only 3DS-specific bit is
-  lazy `irrstInit` + `hidCstickRead` (irrst ≠ hid) and the OG-3DS-reads-zero graceful degrade.**
+- **★ NEW-3DS DUAL-ANALOG (nub moves + strafe, Circle Pad looks) + "swap sticks" options toggle (2026-07-06,
+  branch `pc-port-fixes`).** Common request across Turok AND Perfect Dark: a true dual-analog FPS scheme on the
+  New 3DS — one stick MOVES (fwd/back + **strafe L/R**, both analog), the other LOOKS (yaw + pitch), swappable.
+  **Default (`swap_sticks 0`): the C-stick nub MOVES, the Circle Pad LOOKS** (the user's requested layout);
+  `swap_sticks 1` flips them. Two seams (both mirror how the PC mouse already bypasses `CTControl`):
+  - **LOOK** → the held look seam `g_look_yaw`/`g_look_pitch` (radians, consumed+clamped+zeroed by the
+    `PLATFORM_PORT` hook in [tengine.c](src/PR/tengine/tengine.c) `UpdateGAME` — already active on 3DS, fed by
+    nothing there before). +yaw=right, +pitch=up (same convention as the confirmed-working PC mouse).
+  - **STRAFE** → new seam `g_turok_strafe` (input.c, always-linked; -1..+1, + = right) injected into
+    [tmove.c](src/PR/tengine/tmove.c) `CTMove__ControlSideStep` as an analog sidestep velocity — the engine
+    ALREADY does analog strafe (`IsSideStepRight()>0` = analog speed), so the injection just mirrors that path
+    (scaled by `TMOVE_MAX_SIDESTEPSPEED`, `frame_increment`-gated = a LEVEL not a delta, so no FPS coupling; the
+    move-stick X becomes strafe, `stick_x` = 0 so it never turns). Forward/back stays the engine's native analog
+    (`stick_y`).
+  - **★ OG-3DS SAFETY: dual-analog needs TWO sticks.** [input_3ds.c](port/src/input_3ds.c) probes
+    `APT_CheckNew3DS()` once; **OG 3DS (no nub) stays on the classic single-stick move+TURN Circle Pad scheme
+    (byte-identical to shipped) — the split/toggle only engages on New 3DS.** Without this, an OG default of
+    "nub moves" would be unmovable (nub reads 0) — a real trap. C-stick via lazy `irrstInit` + `hidCstickRead`
+    (irrst is a SEPARATE libctru service from hid).
+  - **Options row** ([options.c](src/PR/tengine/options.c) 3DS-gated `OPTIONS_SWAPSTICKS`) shows which stick
+    LOOKS (`look circle pad` / `look c stick` — plain words: LARGE_FONT has no `':'`/`'-'` glyph, they alias
+    other letters), activate toggles + persists via `turokConfigSave()` (added a 3DS branch — was PC-only). Box
+    grew 3DS-only (`OPTIONS_HEIGHT` 210→224, header +40→+34) to fit the 12px row; **N64 box byte-identical**.
+  PC + 3DS build clean; PC unaffected (`PLATFORM_3DS`-gated). Look sensitivity `STICK_LOOK_YAW`/`PITCH` fixed for
+  the 3DS locked-30 present. **NEEDS INTERACTIVE HW CONFIRM:** nub move/strafe direction + look yaw/pitch sign +
+  sensitivity + the swap (can't headless-test the C-stick). **LESSON: for dual-analog on a port, DON'T fight the
+  N64 single-stick control-config — inject via the same port seams the mouse-look uses (a held yaw/pitch seam +
+  an analog-strafe seam into `CTMove__ControlSideStep`, which the engine already supports as `IsSideStep*()>0`),
+  and gate on `APT_CheckNew3DS` so the OG single-stick stays move+turn (a "nub moves" default is unmovable on OG,
+  where the nub reads 0).**
 
 - **★★ ATTRACT-DEMO CRASH = RNC-decoder OUTPUT-BUFFER OVERRUN + attract-header endianness; + a 4K
   resolution preset (2026-07-06, branch `pc-port-fixes`).** User booted `WARP=menu` (the new
