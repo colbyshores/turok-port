@@ -105,7 +105,9 @@ void input3dsScan(void)
         else                               { lkx = cpx; lky = cpy; mvx = 0;   mvy = 0;   }  /* OG: pad=LOOK only */
 
         sx = lkx;                                     /* LOOK X -> stick_x = TURN  (untouched) */
-        sy = lky;                                     /* LOOK Y -> stick_y = LOOK up/down (untouched) */
+        {   extern int g_cfg_invert_look;             /* LOOK Y -> stick_y = LOOK up/down */
+            sy = g_cfg_invert_look ? (s8)(-lky) : lky;/* invert ON (default) = push up looks DOWN */
+        }
         g_turok_strafe  = (float)mvx / 80.0f;         /* MOVE X -> analog STRAFE (-1..+1, + = right) */
         g_turok_forward = (float)mvy / 80.0f;         /* MOVE Y -> analog FWD/BACK (-1..+1, + = forward) */
     }

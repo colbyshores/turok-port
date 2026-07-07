@@ -25,11 +25,11 @@
 #define OPTIONS_HEIGHT	(236)
 #define OPTIONSMENU_Y 			(OPTIONS_Y + 30)
 #elif defined(PLATFORM_3DS)
-/* 3DS: two extra rows vs stock (swap-sticks + recenter-look toggles, ~12px each) — grow the box + tighten the
- * header gap so every row stays on-screen. 3DS-only; the N64 build keeps the stock 210 box (the #else). */
+/* 3DS: three extra rows vs stock (swap-sticks + recenter-look + invert-look toggles, ~12px each) — grow the box
+ * + tighten the header gap so every row stays on-screen. 3DS-only; the N64 build keeps the stock 210 box. */
 #define OPTIONS_WIDTH	(208)
-#define OPTIONS_HEIGHT	(238)
-#define OPTIONSMENU_Y 			(OPTIONS_Y + 28)
+#define OPTIONS_HEIGHT	(252)
+#define OPTIONSMENU_Y 			(OPTIONS_Y + 22)
 #else
 #define OPTIONS_WIDTH	(208)
 #define OPTIONS_HEIGHT	(210)
@@ -134,6 +134,8 @@ static char	text_move_cpad[]   = {"move circle pad"};	// swap_sticks 1: Circle P
 /* Vertical-look recenter toggle (LARGE_FONT: plain words only, no ':'/'-'). */
 static char	text_recenter_on[]  = {"recenter view"};	// recenter_look 1 (default): view auto-returns to horizon on release
 static char	text_recenter_off[] = {"hold view"};		// recenter_look 0: pitch stays where you leave it
+static char	text_invert_on[]    = {"invert look"};		// invert_look 1 (default): push the look stick up = look down
+static char	text_invert_off[]   = {"normal look"};		// invert_look 0: push up = look up
 #endif
 
 #if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
@@ -228,6 +230,7 @@ t_Option options[]=
 #ifdef PLATFORM_3DS
 	OPTIONSMENU_SPACING, text_move_cstick,		// swap-sticks toggle; String reassigned each Draw
 	OPTIONSMENU_SPACING, text_recenter_on,		// recenter-look toggle; String reassigned each Draw
+	OPTIONSMENU_SPACING, text_invert_on,		// invert-look toggle; String reassigned each Draw
 #endif
 	OPTIONSMENU_SPACING, text_control_left,
 #ifndef GERMAN
@@ -646,6 +649,12 @@ INT32 COptions__Update(COptions *pThis)
 		{
 			extern int g_cfg_recenter_look;
 			g_cfg_recenter_look ^= 1 ;
+			ReturnValue = -1 ;
+		}
+		else if (ReturnValue == OPTIONS_INVERTLOOK)	/* activate toggles vertical-look invert vs normal */
+		{
+			extern int g_cfg_invert_look;
+			g_cfg_invert_look ^= 1 ;
 			ReturnValue = -1 ;
 		}
 #endif
@@ -1110,6 +1119,8 @@ void COptions__Draw(COptions *pThis, Gfx **ppDLP)
 				options[OPTIONS_SWAPSTICKS].String = g_cfg_swap_sticks ? text_move_cpad : text_move_cstick ; }
 			{	extern int g_cfg_recenter_look;	/* row shows the vertical-look mode: 1 = auto-recenter (default), 0 = hold */
 				options[OPTIONS_RECENTER].String = g_cfg_recenter_look ? text_recenter_on : text_recenter_off ; }
+			{	extern int g_cfg_invert_look;	/* row shows the vertical-look invert: 1 = inverted (default), 0 = normal */
+				options[OPTIONS_INVERTLOOK].String = g_cfg_invert_look ? text_invert_on : text_invert_off ; }
 #endif
 
 #ifndef GERMAN

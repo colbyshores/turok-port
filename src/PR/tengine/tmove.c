@@ -548,6 +548,25 @@ void CTMove__NewLifeSetup(CTMove *pThis)
 
 
 
+#ifdef PLATFORM_3DS
+/* Rate-based HOLD look (used when the recenter-view option is OFF): accumulate the vertical look by the stick
+ * RATE and hold it on release, instead of the position-based auto-return-to-horizon. Rate matched to the yaw
+ * turn (CTMove__Turn): speed = look / TTURN_ANALOGUE_SCALER, capped at TTURN_MAX_SPEED, applied as
+ * ANGLE_DTOR(speed)*frame_increment/1.1 — so pitch is exactly as responsive as turning. lk already carries the
+ * V-analog sensitivity (from stick_y scaling). Up (IsLookUp>0) decreases RotXPlayer; clamped to [-78,+90]. */
+static void CTMove__HoldLookPitch(CTMove *pThis, CTControl *pCTControl)
+{
+	float lk = CTControl__IsLookUp(pCTControl) - CTControl__IsLookDown(pCTControl);
+	float sp = lk / TTURN_ANALOGUE_SCALER;
+	if (sp >  TTURN_MAX_SPEED) sp =  TTURN_MAX_SPEED;
+	if (sp < -TTURN_MAX_SPEED) sp = -TTURN_MAX_SPEED;
+	pThis->RotXPlayer -= ANGLE_DTOR(sp) * frame_increment / 1.1f;
+	if (pThis->RotXPlayer < -ANGLE_DTOR(78)) pThis->RotXPlayer = -ANGLE_DTOR(78);
+	if (pThis->RotXPlayer >  ANGLE_DTOR(90)) pThis->RotXPlayer =  ANGLE_DTOR(90);
+	pThis->ActualRotXPlayer = pThis->RotXPlayer;   /* keep in sync (no jump if the option is toggled) */
+}
+#endif
+
 // update the turok game object instance
 //
 void CTMove__UpdateTurokInstance(CTMove *pThis, CEngineApp *pApp, CTControl *pCTControl)
@@ -867,17 +886,35 @@ void CTMove__UpdateTurokInstance(CTMove *pThis, CEngineApp *pApp, CTControl *pCT
 #ifdef ALLOW_UPSIDEDOWN_UNDERWATER
 						CTMove__TurnOnXAxis(pThis, pApp, pCTControl);
 #else
+#ifdef PLATFORM_3DS
+						{	extern int g_cfg_recenter_look;
+							if (!g_cfg_recenter_look) CTMove__HoldLookPitch(pThis, pCTControl);
+							else {
+#endif
 						pThis->ActualRotXPlayer = (CTControl__IsLookUp   (pCTControl) - CTControl__IsLookDown(pCTControl))*ANGLE_DTOR(-90)/80;
 						dm = (pThis->ActualRotXPlayer - pThis->RotXPlayer) / (12/scalerv);
 						pThis->RotXPlayer += dm * frame_increment * 2;
+#ifdef PLATFORM_3DS
+							}
+						}
+#endif
 #endif
 						pCI = &ci_playerunderwater;
 					}
 					else
 					{
+#ifdef PLATFORM_3DS
+						{	extern int g_cfg_recenter_look;
+							if (!g_cfg_recenter_look) CTMove__HoldLookPitch(pThis, pCTControl);
+							else {
+#endif
 						pThis->ActualRotXPlayer = (CTControl__IsLookUp   (pCTControl) - CTControl__IsLookDown(pCTControl))*ANGLE_DTOR(-80)/80;
 						dm = (pThis->ActualRotXPlayer - pThis->RotXPlayer) / (6/scalerv);
 						pThis->RotXPlayer += dm * frame_increment * 2;
+#ifdef PLATFORM_3DS
+							}
+						}
+#endif
 						pCI = &ci_playerunderwater;
 					}
 					break;
@@ -890,9 +927,18 @@ void CTMove__UpdateTurokInstance(CTMove *pThis, CEngineApp *pApp, CTControl *pCT
 					}
 					else
 					{
+#ifdef PLATFORM_3DS
+						{	extern int g_cfg_recenter_look;
+							if (!g_cfg_recenter_look) CTMove__HoldLookPitch(pThis, pCTControl);
+							else {
+#endif
 						pThis->ActualRotXPlayer = (CTControl__IsLookUp   (pCTControl) - CTControl__IsLookDown(pCTControl))*ANGLE_DTOR(-80)/80;
 						dm = (pThis->ActualRotXPlayer - pThis->RotXPlayer) / (6/scalerv);
 						pThis->RotXPlayer += dm * frame_increment * 2;
+#ifdef PLATFORM_3DS
+							}
+						}
+#endif
 					}
 					pCI = &ci_playeronwatersurface;
 					break;
@@ -912,22 +958,7 @@ void CTMove__UpdateTurokInstance(CTMove *pThis, CEngineApp *pApp, CTControl *pCT
 						{	extern int g_cfg_recenter_look;
 							if (!g_cfg_recenter_look)
 							{
-								/* HOLD-LOOK (recenter OFF): accumulate the vertical look by the stick RATE and hold
-								 * it on release, instead of the position-based auto-return-to-horizon below. Rate is
-								 * matched to the yaw TURN (CTMove__Turn): speed = look / TTURN_ANALOGUE_SCALER, capped
-								 * at TTURN_MAX_SPEED, applied as ANGLE_DTOR(speed)*frame_increment/1.1 — so looking
-								 * up/down is exactly as responsive as turning left/right. lk already carries the
-								 * V-analog sensitivity (from the stick_y scaling), just as the turn's res carries H.
-								 * Up (IsLookUp>0) decreases RotXPlayer (matches the position path's -= for up); clamped
-								 * to the same [-78deg up, +90deg down] range. */
-								float lk = CTControl__IsLookUp(pCTControl) - CTControl__IsLookDown(pCTControl);
-								float sp = lk / TTURN_ANALOGUE_SCALER;
-								if (sp >  TTURN_MAX_SPEED) sp =  TTURN_MAX_SPEED;
-								if (sp < -TTURN_MAX_SPEED) sp = -TTURN_MAX_SPEED;
-								pThis->RotXPlayer -= ANGLE_DTOR(sp) * frame_increment / 1.1f;
-								if (pThis->RotXPlayer < -ANGLE_DTOR(78)) pThis->RotXPlayer = -ANGLE_DTOR(78);
-								if (pThis->RotXPlayer >  ANGLE_DTOR(90)) pThis->RotXPlayer =  ANGLE_DTOR(90);
-								pThis->ActualRotXPlayer = pThis->RotXPlayer;   /* keep in sync (no jump if toggled) */
+								CTMove__HoldLookPitch(pThis, pCTControl);   /* HOLD (no recenter) */
 							}
 							else
 #endif
