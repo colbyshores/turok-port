@@ -544,35 +544,54 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 
 ## 10. Port edits to game source (keep this log honest)
 
-- **★ NEW-3DS C-STICK NUB = ANALOG MOVE STICK (fwd/back + strafe) + "swap sticks" toggle (2026-07-06, branch
-  `pc-port-fixes`).** User request (verbatim, after several wrong iterations): the **nub moves fwd(up)/back(down)/
-  strafe-left/strafe-right, ANALOG**, the **main stick (Circle Pad) stays UNTOUCHED (classic move+turn)**, and a
-  toggle **flips** the two. The mistake I kept making: rebuilding the Circle Pad (ripping out its turn, adding
-  aim/pitch seams the user never asked for). The correct model is dead simple — TWO stick ROLES, and the flip
-  just picks which physical stick has which role:
-  - **MAIN role (untouched/classic):** X = turn (`stick_x`), Y = fwd/back (`stick_y`) — exactly the shipped Circle
-    Pad path, unchanged.
-  - **MOVE role (analog):** X = **strafe** (the `g_turok_strafe` seam, input.c → injected into
-    [tmove.c](src/PR/tengine/tmove.c) `CTMove__ControlSideStep` as an analog sidestep velocity, `frame_increment`-
-    gated), Y = fwd/back (added into `stick_y`). **NO turn.**
-  - **Default (`swap_sticks 0`): Circle Pad = MAIN, C-stick nub = MOVE.** `swap_sticks 1` flips them. NO
-    aim/look/pitch on any stick (the user never asked for it — Turok has auto-aim; matches the shipped 3DS which
-    had no stick pitch). fwd/back is additive from both sticks (either moves you).
-  - **OG 3DS (no nub):** [input_3ds.c](port/src/input_3ds.c) probes `APT_CheckNew3DS()` once → Circle Pad stays
-    MAIN (classic move+turn, untouched), no MOVE stick, flip ignored (a flip that strips turn would be unmovable
-    on a single stick). C-stick via lazy `irrstInit` + `hidCstickRead` (irrst is a SEPARATE libctru service from
-    hid); both sticks read as proportional analog via the same `cpad_axis` scale/deadzone.
+- **★★ NEW-3DS C-STICK NUB = ANALOG MOVE STICK (fwd/back + strafe) + "swap sticks" toggle — ROOT CAUSE was
+  "`stick_y` = LOOK, not forward" (2026-07-06, branch `pc-port-fixes`).** User request (verbatim, after MANY
+  wrong iterations): the **nub moves fwd(up)/back(down)/strafe-left/strafe-right, ANALOG**, the **main stick
+  (Circle Pad) stays UNTOUCHED (classic move+turn)**, and a toggle **flips** the two.
+  - **★ THE ACTUAL BUG (why every prior build had "nub up = LOOK up"):** in Turok's default (right-handed)
+    control config the N64 analog stick (`OSContPad stick_x/stick_y`) is the **LOOK/TURN** stick, NOT a move
+    stick: `stick_y` = **look up/down** ([tcontrol.c](src/PR/tengine/tcontrol.c#L400) `TypeLookUp =
+    CTTYPE_STICK_SFORWARD` → `IsLookUp` → pitch `ActualRotXPlayer`), `stick_x` = **turn** (`CTTYPE_STICK_SLEFT/
+    SRIGHT` → `CTMove__Turn` → `m_RotY`). MOVEMENT (fwd/back/strafe) is on the digital **C-buttons**
+    (`U/D/L/R_CBUTTONS`, `CTTYPE_DOWN`). So the whole-session false assumption "`stick_y` = forward" was wrong —
+    feeding the nub's Y into `stick_y` made it **LOOK up/down**. The user's own diagnostic nailed it: the last
+    build had the nub's X on a dedicated movement seam (strafe **worked**) but its Y **added into `sy`→`stick_y`**
+    (`fy = mny + mvy; sy = fy`) → looked. That asymmetry (X moves, Y looks) is the exact fingerprint.
+  - **★ THE FIX — a MOVE stick must NEVER touch `stick_x/stick_y`; it injects analog translation straight into
+    `CTMove`** via two port seams in [input.c](port/src/input.c) (always-linked; only the 3DS backend writes them):
+    - `g_turok_forward` (−1..+1, + = forward) → [tmove.c](src/PR/tengine/tmove.c) `CTMove__ControlFBward`:
+      `vDesiredPos += g_turok_forward*RUNSPEED*frame_increment*(sin/cos)(m_RotY+π)` — identical form + sign to the
+      engine's own analog-forward path (`resf>0`).
+    - `g_turok_strafe` (−1..+1, + = right) → `CTMove__ControlSideStep`: same as the engine's analog sidestep-right
+      (`ressr>0`, along `m_RotY−π/2`).
+    Both `frame_increment`-gated (a LEVEL not a delta → no FPS coupling) and player-NULL-guarded.
+  - **★ CONTROL-LOCKOUT GATE (verifier-caught):** the seams are read from globals in `CTMove`, so they BYPASS
+    `PlayerControllerData` — the funnel the engine zeroes to disable control ([control.c](src/PR/tengine/control.c#L139)
+    no-controller/demo-start, [attract.c](src/PR/tengine/attract.c#L1107) OVERWRITES it with the recorded demo
+    during playback). Without a gate, a thumb on the nub would desync a playing attract demo / drive a cutscene.
+    Fixed by gating both seam applications on `!CAttractDemo__Active() && !CCamera__InCinemaMode(&pApp->m_Camera)`
+    (both already-used predicates in tmove.c; normal play = both false → seam applies).
+  - **Stick roles + swap** ([input_3ds.c](port/src/input_3ds.c)): the LOOK stick keeps `stick_x`(turn)/`stick_y`
+    (look) UNTOUCHED; the MOVE stick feeds only `g_turok_forward/strafe`. Default (`swap_sticks 0`): Circle Pad =
+    LOOK, C-stick nub = MOVE; `swap_sticks 1` flips which physical stick has which role. NO aim/pitch on any stick
+    (user never asked; Turok has auto-aim). `circlePosition cs` is **zero-initialized** (fail-safe: if the New-3DS
+    irrst C-stick read fails, the seams see 0 not stack garbage — the documented "moves with no input" class).
+  - **OG 3DS (no nub):** `APT_CheckNew3DS()` probed once → Circle Pad stays LOOK (turn+look, untouched), no MOVE
+    stick, flip ignored. C-stick via lazy `irrstInit` + `hidCstickRead` (irrst is a SEPARATE libctru service from
+    hid); both sticks read proportional-analog via the same `cpad_axis` scale/deadzone.
   - **Options row** ([options.c](src/PR/tengine/options.c) 3DS-gated `OPTIONS_SWAPSTICKS`) shows which stick is
-    the analog MOVE stick (`move c stick` / `move circle pad` — plain words: LARGE_FONT has no `':'`/`'-'` glyph,
-    they alias other letters), activate toggles + persists via `turokConfigSave()` (added a 3DS branch — was
-    PC-only). Box grew 3DS-only (`OPTIONS_HEIGHT` 210→224, header +40→+34) to fit the 12px row; **N64 box
-    byte-identical**. `g_turok_strafe` lives in input.c (always-linked; only the 3DS backend writes it).
-  PC + 3DS build clean; PC unaffected (`PLATFORM_3DS`-gated; the strafe seam is inert off-3DS). **NEEDS
-  INTERACTIVE HW CONFIRM:** nub move/strafe direction + the swap. **LESSON: when a user says "the main stick
-  remains untouched," take it literally — do NOT re-plumb the working stick; add the new behavior on the OTHER
-  physical input and make the swap pick which stick has which role. I over-engineered a dual-analog aim/pitch
-  system across four iterations when the ask was just "nub = analog movement stick, leave the Circle Pad alone,
-  add a flip."**
+    the analog MOVE stick (`move c stick` / `move circle pad` — plain words: LARGE_FONT has no `':'`/`'-'` glyph),
+    activate toggles + persists via `turokConfigSave()` (3DS branch added). Box grew 3DS-only (`OPTIONS_HEIGHT`
+    210→224) to fit the row; **N64 box byte-identical**.
+  PC + 3DS build clean; PC unaffected (`PLATFORM_3DS`-gated; seams inert off-3DS). Verified via a 5-agent
+  adversarial workflow (control model, both seam signs, routing, lockout) + manual sign-check vs the engine's own
+  analog paths; pushed to HW over FTP (sha1 round-trip verified). **NEEDS INTERACTIVE HW CONFIRM:** nub
+  move/strafe direction + the swap. **★★ LESSON: on an N64 FPS port, do NOT assume the analog stick is a MOVE
+  stick — in a right-handed/C-button config it's the LOOK/TURN stick (`stick_y` = pitch, `stick_x` = turn), and
+  movement is digital C-buttons. A new analog MOVE stick therefore CANNOT go through `stick_x/stick_y` (that
+  drives look/turn); it must inject translation directly into the movement code (`CTMove`), and that seam then
+  needs the same control-lockout gate the engine's own inputs get via `PlayerControllerData` (attract demo /
+  cinematics), or it escapes the lockout. Grep the actual `CTTYPE_*` stick bindings before mapping a stick.**
 
 - **★★ ATTRACT-DEMO CRASH = RNC-decoder OUTPUT-BUFFER OVERRUN + attract-header endianness; + a 4K
   resolution preset (2026-07-06, branch `pc-port-fixes`).** User booted `WARP=menu` (the new

@@ -34,11 +34,15 @@ int g_turok_walk_mode = 0;
  * zeroed by the tengine.c mouse-look hook. Held (no spring back to center), gated PLATFORM_PORT. */
 float g_look_yaw = 0.0f, g_look_pitch = 0.0f;
 
-/* Analog STRAFE level (-1..+1, + = strafe right), written by the backend (the 3DS dual-analog move-stick X),
- * read by CTMove__ControlSideStep and injected as an analog sidestep velocity (frame_increment-gated like all
- * movement, so it's a LEVEL not a delta — no FPS coupling). 0 = no strafe. Always-linked so every build resolves
- * the symbol; only the 3DS backend writes it today (keyboard/mouse strafe still uses the C-button/bind path). */
-float g_turok_strafe = 0.0f;
+/* Analog MOVEMENT levels for the 3DS dual-analog "move stick" (the nub), -1..+1. In Turok's control config the
+ * N64 analog stick is the LOOK stick (stick_y = look up/down, stick_x = turn), so a movement stick CANNOT go
+ * through stick_x/stick_y — it must inject translation directly into the movement code:
+ *   g_turok_forward (+ = forward) -> CTMove__ControlFBward  (translate along m_RotY)
+ *   g_turok_strafe  (+ = right)   -> CTMove__ControlSideStep (translate perpendicular)
+ * Both frame_increment-gated in CTMove (a LEVEL not a delta — no FPS coupling). Always-linked; only the 3DS
+ * backend writes them (keyboard/mouse movement uses its own bind path). */
+float g_turok_strafe  = 0.0f;
+float g_turok_forward = 0.0f;
 
 /* Discrete weapon-cycle accumulator (signed notch count: +next, -prev), written by the scroll wheel in
  * the SDL2 backend, consumed ONE step per LOGIC TICK by tmove.c (CTMove__UpdateTurokInstance). A dedicated

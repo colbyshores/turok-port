@@ -2422,6 +2422,28 @@ CVector3 CTMove__ControlFBward(CTMove *pThis, CEngineApp *pApp, CTControl *pCTCo
 	sinRotY = sin(pIns->m_RotY + ANGLE_PI);
 	cosRotY = cos(pIns->m_RotY + ANGLE_PI);
 
+#ifdef PLATFORM_PORT
+	/* Port dual-analog FORWARD/BACK seam (the 3DS move-stick / nub Y; + = forward, - = backward). Turok's N64
+	 * analog stick is the LOOK stick (its forward = LookUp, CTTYPE_STICK_SFORWARD), so an analog move stick must
+	 * translate the player HERE, not via stick_y. Injected as a proportional velocity along the facing dir,
+	 * exactly like the analogue-forward paths below; frame_increment-gated (a LEVEL, no FPS coupling). Additive
+	 * with the C-button/keyboard digital forward. g_turok_forward lives in input.c (always-linked). */
+	{	extern float g_turok_forward;
+		/* Gate on the SAME lockouts the engine uses to neutralize player control — the seam bypasses
+		 * PlayerControllerData (which control.c zeroes with no controller / at demo start, and attract.c
+		 * OVERWRITES with the recorded demo during playback), so without this a nub nudge would desync a
+		 * playing/recording attract demo or drive a cutscene. Normal play: both false -> seam applies. */
+		if (g_turok_forward != 0.0f && !CAttractDemo__Active()
+		    && !CCamera__InCinemaMode(&pApp->m_Camera))
+		{
+			float sp = g_turok_forward * TUROK_WALKCAP(TMOVE_MAX_RUNSPEED);
+			vDesiredPos.x += sp*frame_increment*sinRotY;
+			vDesiredPos.z += sp*frame_increment*cosRotY;
+			player_is_moving = TRUE;
+			CTMove__QuietNoise(pThis);
+		}
+	}
+#endif
 
 	// player cannot run while ducking
 	if (duckFlag == PLAYER_NOT_DUCKING)
@@ -2656,7 +2678,10 @@ CVector3 CTMove__ControlSideStep(CTMove *pThis, CEngineApp *pApp, CTControl *pCT
 	 * exactly like the ressr>0 / ressl>0 analog paths below — a LEVEL scaled by frame_increment (tick-gated),
 	 * additive with the C-button/keyboard digital strafe. g_turok_strafe lives in input.c (always-linked). */
 	{	extern float g_turok_strafe;
-		if (g_turok_strafe != 0.0f)
+		/* Gate on the same lockouts as the forward seam (see CTMove__ControlFBward) — ignore the analog
+		 * strafe during attract demo record/playback and cinematics; normal play applies it. */
+		if (g_turok_strafe != 0.0f && !CAttractDemo__Active()
+		    && !CCamera__InCinemaMode(&pApp->m_Camera))
 		{
 			float sp = g_turok_strafe * TUROK_WALKCAP(TMOVE_MAX_SIDESTEPSPEED);
 			vDesiredPos.x += sp*frame_increment*sinSideY;

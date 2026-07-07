@@ -38,6 +38,7 @@
 extern int   g_turok_walk_mode;        /* input.c — E-equivalent run/walk toggle (SELECT) */
 extern int   g_cfg_swap_sticks;        /* config.c — 0 (default): nub = analog move; 1: swapped (New 3DS) */
 extern float g_turok_strafe;           /* input.c — analog strafe level (-1..+1, + = right), read by CTMove */
+extern float g_turok_forward;          /* input.c — analog fwd/back level (-1..+1, + = forward), read by CTMove */
 
 static s8 cpad_axis(int v)             /* circle pad ~±156 -> N64 stick ±80, deadzone */
 {
@@ -51,7 +52,8 @@ static s8 cpad_axis(int v)             /* circle pad ~±156 -> N64 stick ±80, d
 void input3dsScan(void)
 {
     u32 kHeld, kDown;
-    circlePosition cp, cs;
+    circlePosition cp, cs = {0};        /* cs zero-init = fail-safe: if the New-3DS C-stick (irrst) read
+                                           fails to populate it, the seams see 0, not stack garbage. */
     u16 btn = 0;
     s8  sx = 0, sy = 0;
     s8  cpx, cpy, csx, csy;
@@ -76,24 +78,22 @@ void input3dsScan(void)
     cpx = cpad_axis(cp.dx);  cpy = cpad_axis(cp.dy);   /* circle pad -80..80 */
     csx = cpad_axis(cs.dx);  csy = cpad_axis(cs.dy);   /* C-stick    -80..80 */
 
-    /* Two stick ROLES:
-     *   MAIN (untouched, classic): X = turn (stick_x), Y = fwd/back (stick_y). Exactly the shipped Circle Pad.
-     *   MOVE (analog):             X = STRAFE (g_turok_strafe), Y = fwd/back (added into stick_y). NO turn.
-     * Default (swap_sticks 0): Circle Pad = MAIN (untouched), C-stick nub = MOVE.  swap_sticks 1 flips them.
-     * OG 3DS (no nub): Circle Pad stays MAIN, no MOVE stick (flip ignored). */
+    /* ★ Turok's N64 analog stick is the LOOK stick (stick_x = turn, stick_y = LOOK up/down). So the two roles:
+     *   LOOK stick (UNTOUCHED): X -> stick_x (turn), Y -> stick_y (look up/down). The shipped Circle Pad.
+     *   MOVE stick (analog):    X -> g_turok_strafe (strafe), Y -> g_turok_forward (fwd/back). Injected into
+     *                           the movement code (CTMove) — NEVER the analog stick, or "move up" would LOOK up.
+     * Default (swap_sticks 0): Circle Pad = LOOK (untouched), C-stick nub = MOVE.  swap_sticks 1 flips them.
+     * OG 3DS (no nub): Circle Pad stays LOOK; movement is the face-button C-buttons (flip ignored). */
     {
-        s8 mnx, mny, mvx, mvy;
-        if (s_new3ds && g_cfg_swap_sticks) { mnx = csx; mny = csy; mvx = cpx; mvy = cpy; }  /* flip: nub=MAIN, pad=MOVE */
-        else if (s_new3ds)                 { mnx = cpx; mny = cpy; mvx = csx; mvy = csy; }  /* default: pad=MAIN, nub=MOVE */
-        else                               { mnx = cpx; mny = cpy; mvx = 0;   mvy = 0;   }  /* OG: pad=MAIN only */
+        s8 lkx, lky, mvx, mvy;
+        if (s_new3ds && g_cfg_swap_sticks) { lkx = csx; lky = csy; mvx = cpx; mvy = cpy; }  /* flip: nub=LOOK, pad=MOVE */
+        else if (s_new3ds)                 { lkx = cpx; lky = cpy; mvx = csx; mvy = csy; }  /* default: pad=LOOK, nub=MOVE */
+        else                               { lkx = cpx; lky = cpy; mvx = 0;   mvy = 0;   }  /* OG: pad=LOOK only */
 
-        sx = mnx;                                     /* MAIN X -> turn (stick_x)  */
-        {   int fy = (int)mny + (int)mvy;             /* fwd/back = MAIN Y + MOVE Y (either stick moves you) */
-            if (fy >  80) fy =  80;
-            if (fy < -80) fy = -80;
-            sy = (s8)fy;
-        }
-        g_turok_strafe = (float)mvx / 80.0f;          /* MOVE X -> analog strafe, -1..+1 (+ = right) */
+        sx = lkx;                                     /* LOOK X -> stick_x = TURN  (untouched) */
+        sy = lky;                                     /* LOOK Y -> stick_y = LOOK up/down (untouched) */
+        g_turok_strafe  = (float)mvx / 80.0f;         /* MOVE X -> analog STRAFE (-1..+1, + = right) */
+        g_turok_forward = (float)mvy / 80.0f;         /* MOVE Y -> analog FWD/BACK (-1..+1, + = forward) */
     }
 
     /* ── User control layout (2026-06-21) ─────────────────────────────────────
