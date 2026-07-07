@@ -546,9 +546,11 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 
 - **★ NEW-3DS DUAL-ANALOG (nub moves + strafe, Circle Pad looks) + "swap sticks" options toggle (2026-07-06,
   branch `pc-port-fixes`).** Common request across Turok AND Perfect Dark: a true dual-analog FPS scheme on the
-  New 3DS — one stick MOVES (fwd/back + **strafe L/R**, both analog), the other LOOKS (yaw + pitch), swappable.
-  **Default (`swap_sticks 0`): the C-stick nub MOVES, the Circle Pad LOOKS** (the user's requested layout);
-  `swap_sticks 1` flips them. Two seams (both mirror how the PC mouse already bypasses `CTControl`):
+  New 3DS — one stick MOVES (fwd/back + **strafe L/R**, both analog), the other AIMS (yaw + pitch), swappable.
+  **Default (`swap_sticks 0`): the Circle Pad MOVES, the C-stick AIMS** (matches `../perfect_dark`'s
+  `67e8237ed` — circle=move / C-stick=aim; `swap_sticks 1` flips them). ★ This is the analog-stick swap only —
+  DISTINCT from the engine's right/left-handed option, which swaps the **C-buttons ↔ stick** (the user
+  explicitly wanted stick↔stick, not that). Two seams (both mirror how the PC mouse already bypasses `CTControl`):
   - **LOOK** → the held look seam `g_look_yaw`/`g_look_pitch` (radians, consumed+clamped+zeroed by the
     `PLATFORM_PORT` hook in [tengine.c](src/PR/tengine/tengine.c) `UpdateGAME` — already active on 3DS, fed by
     nothing there before). +yaw=right, +pitch=up (same convention as the confirmed-working PC mouse).
