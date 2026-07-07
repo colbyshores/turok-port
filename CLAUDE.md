@@ -615,6 +615,22 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
      options.c label/row/toggle/box-grow 224→238). **NEEDS INTERACTIVE HW CONFIRM** (climb + the hold-look
      feel/rate). PC+3DS build clean; device has it (sha1-verified over FTP).
 
+- **★ 3DS SAVE-DIR NOT CREATED on a fresh CIA install (the Perfect Dark "eeprom folder" bug class) — FIXED
+  (2026-07-07, branch `pc-port-fixes`).** User asked whether Turok shares PD's bug where the save folder isn't
+  created if it doesn't already exist. **It did, but only for the CIA.** The save (`turok.pak`, [os_shim.c](port/src/os_shim.c)
+  `vpak_flush` `fopen(...,"wb")`) and settings (`turok.cfg`, [config.c](port/src/config.c) `turokConfigSave`
+  `fopen(...,"w")`) both write to `sdmc:/3ds/turok/` but **neither `mkdir`s it**, and `fopen(w)` does NOT create
+  parent dirs. The only `mkdir` was in `plat3dsBootLog`, gated behind `debug 1` — so a clean play build never
+  created the folder. **Why only the CIA:** on the `.3dsx` the player creates `sdmc:/3ds/turok/` themselves to
+  drop the ROM in, so it exists; the CIA bundles the ROM in **RomFS** (`romfsMountSelf`), so a fresh install may
+  never have that folder → the first save / first options change silently fails to write. **FIX:** a new
+  unconditional `plat3dsEnsureDataDir()` ([sys_3ds.c](port/src/sys_3ds.c)) `mkdir`s `sdmc:/3ds` then
+  `sdmc:/3ds/turok` (mkdir isn't recursive; EEXIST is fine), called once at the very top of the 3DS `main` boot
+  ([turok_main.c](port/src/turok_main.c)) before `turokConfigLoad` and any save. **LESSON: `fopen(path,"w")` never
+  creates parent directories — any host save/config/log path under a sub-folder must `mkdir` the folder (all
+  levels) first, and a CIA that bundles its assets in RomFS won't have the SD data folder auto-created the way a
+  `.3dsx`-with-external-assets does.**
+
 - **★★ ATTRACT-DEMO CRASH = RNC-decoder OUTPUT-BUFFER OVERRUN + attract-header endianness; + a 4K
   resolution preset (2026-07-06, branch `pc-port-fixes`).** User booted `WARP=menu` (the new
   title/attract front-end), idled, and got a SIGSEGV. Crash log: `fault_addr 0x0adb7000` (page-aligned

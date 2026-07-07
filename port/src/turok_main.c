@@ -286,6 +286,9 @@ int main(int argc, char **argv)
      * the game's port traces fprintf(stderr,...) through it. */
     { extern void turok3dsSetStderr(void *); extern void *plat3dsRealStderr(void);
       turok3dsSetStderr(plat3dsRealStderr()); }
+    /* Create sdmc:/3ds/turok before anything writes there (save/settings) — the CIA bundles the ROM in
+     * RomFS so this folder may not exist on a fresh install, and fopen(w) won't create it. */
+    { extern void plat3dsEnsureDataDir(void); plat3dsEnsureDataDir(); }
 #endif
     setvbuf(stderr, NULL, _IONBF, 0);
     BL("main: start");

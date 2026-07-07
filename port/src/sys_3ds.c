@@ -111,6 +111,17 @@ void __appInit(void)
 #define TUROK_BOOTLOG_DIR  "sdmc:/3ds/turok"
 #define TUROK_BOOTLOG_PATH "sdmc:/3ds/turok/boot.log"
 
+/* Ensure the SD data directory exists so the save (turok.pak), settings (turok.cfg) and boot.log can be
+ * written. On the .3dsx the player creates sdmc:/3ds/turok themselves to drop the ROM in, but the CIA bundles
+ * the ROM in RomFS, so a fresh install may never have this folder — and fopen(...,"w"/"wb") does NOT create
+ * it, so the first save/settings write would silently fail (the Perfect Dark "eeprom folder not created" bug).
+ * mkdir is not recursive, so create both levels; EEXIST is fine (best-effort). Call once early at boot. */
+void plat3dsEnsureDataDir(void)
+{
+    mkdir("sdmc:/3ds", 0777);
+    mkdir(TUROK_BOOTLOG_DIR, 0777);
+}
+
 void plat3dsBootLog(const char *msg)
 {
     static int started = 0;
