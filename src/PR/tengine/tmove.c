@@ -908,6 +908,23 @@ void CTMove__UpdateTurokInstance(CTMove *pThis, CEngineApp *pApp, CTControl *pCT
 					{
 						pThis->RotYPlayer = (CTControl__IsLookRight(pCTControl) - CTControl__IsLookLeft(pCTControl))*ANGLE_DTOR( 90)/80;
 
+#ifdef PLATFORM_3DS
+						{	extern int g_cfg_recenter_look;
+							if (!g_cfg_recenter_look)
+							{
+								/* HOLD-LOOK (recenter OFF): accumulate the vertical look by the stick RATE and hold
+								 * it on release, instead of the position-based auto-return-to-horizon below. Up
+								 * (IsLookUp>0) decreases RotXPlayer (matches the position path's -= for up); clamped
+								 * to the same [-78deg up, +90deg down] range; scaled by the V-analog sensitivity. */
+								float lk = CTControl__IsLookUp(pCTControl) - CTControl__IsLookDown(pCTControl);
+								pThis->RotXPlayer -= lk * (ANGLE_DTOR(90)/80.0f/24.0f) * scalerv * frame_increment;
+								if (pThis->RotXPlayer < -ANGLE_DTOR(78)) pThis->RotXPlayer = -ANGLE_DTOR(78);
+								if (pThis->RotXPlayer >  ANGLE_DTOR(90)) pThis->RotXPlayer =  ANGLE_DTOR(90);
+								pThis->ActualRotXPlayer = pThis->RotXPlayer;   /* keep in sync (no jump if toggled) */
+							}
+							else
+#endif
+						{
 						// make it so you can't look backwards when you jump
 						pThis->ActualRotXPlayer = -pThis->JumpLookAng;
 
@@ -919,6 +936,10 @@ void CTMove__UpdateTurokInstance(CTMove *pThis, CEngineApp *pApp, CTControl *pCT
 
 						dm = (pThis->ActualRotXPlayer - pThis->RotXPlayer) / (6/scalerv);
 						pThis->RotXPlayer += dm * frame_increment * 2;
+						}
+#ifdef PLATFORM_3DS
+						}
+#endif
 					}
 					pCI = &ci_player;
 					break;

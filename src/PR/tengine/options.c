@@ -25,11 +25,11 @@
 #define OPTIONS_HEIGHT	(236)
 #define OPTIONSMENU_Y 			(OPTIONS_Y + 30)
 #elif defined(PLATFORM_3DS)
-/* 3DS: one extra row (the swap-sticks toggle, 12px) vs stock — grow the box + tighten the header gap so
- * every row stays on-screen. 3DS-only; the N64 build keeps the stock 210 box (the #else). */
+/* 3DS: two extra rows vs stock (swap-sticks + recenter-look toggles, ~12px each) — grow the box + tighten the
+ * header gap so every row stays on-screen. 3DS-only; the N64 build keeps the stock 210 box (the #else). */
 #define OPTIONS_WIDTH	(208)
-#define OPTIONS_HEIGHT	(224)
-#define OPTIONSMENU_Y 			(OPTIONS_Y + 34)
+#define OPTIONS_HEIGHT	(238)
+#define OPTIONSMENU_Y 			(OPTIONS_Y + 28)
 #else
 #define OPTIONS_WIDTH	(208)
 #define OPTIONS_HEIGHT	(210)
@@ -131,6 +131,9 @@ static INT32 s_DrawDistSlider = 128;	// draw-distance bar position (0..255). FIL
  * letters), so the labels use plain words. New 3DS only; on OG 3DS the row is inert (single stick move+turn). */
 static char	text_move_cstick[] = {"move c stick"};		// swap_sticks 0 (default): C-stick nub is the analog MOVE stick
 static char	text_move_cpad[]   = {"move circle pad"};	// swap_sticks 1: Circle Pad is the MOVE stick (nub = classic)
+/* Vertical-look recenter toggle (LARGE_FONT: plain words only, no ':'/'-'). */
+static char	text_recenter_on[]  = {"recenter view"};	// recenter_look 1 (default): view auto-returns to horizon on release
+static char	text_recenter_off[] = {"hold view"};		// recenter_look 0: pitch stays where you leave it
 #endif
 
 #if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
@@ -224,6 +227,7 @@ t_Option options[]=
 #endif
 #ifdef PLATFORM_3DS
 	OPTIONSMENU_SPACING, text_move_cstick,		// swap-sticks toggle; String reassigned each Draw
+	OPTIONSMENU_SPACING, text_recenter_on,		// recenter-look toggle; String reassigned each Draw
 #endif
 	OPTIONSMENU_SPACING, text_control_left,
 #ifndef GERMAN
@@ -629,6 +633,12 @@ INT32 COptions__Update(COptions *pThis)
 		{
 			extern int g_cfg_swap_sticks;
 			g_cfg_swap_sticks ^= 1 ;
+			ReturnValue = -1 ;
+		}
+		else if (ReturnValue == OPTIONS_RECENTER)	/* activate toggles vertical-look auto-recenter vs hold */
+		{
+			extern int g_cfg_recenter_look;
+			g_cfg_recenter_look ^= 1 ;
 			ReturnValue = -1 ;
 		}
 #endif
@@ -1091,6 +1101,8 @@ void COptions__Draw(COptions *pThis, Gfx **ppDLP)
 #ifdef PLATFORM_3DS
 			{	extern int g_cfg_swap_sticks;	/* row shows which stick is the analog MOVE stick: swap 0 = C-stick (default), swap 1 = Circle Pad */
 				options[OPTIONS_SWAPSTICKS].String = g_cfg_swap_sticks ? text_move_cpad : text_move_cstick ; }
+			{	extern int g_cfg_recenter_look;	/* row shows the vertical-look mode: 1 = auto-recenter (default), 0 = hold */
+				options[OPTIONS_RECENTER].String = g_cfg_recenter_look ? text_recenter_on : text_recenter_off ; }
 #endif
 
 #ifndef GERMAN

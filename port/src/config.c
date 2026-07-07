@@ -39,6 +39,7 @@ float g_cfg_stereo_w     = -1.0f;    /* 3DS stereo shear convergence term (defau
 int   g_cfg_gamepad      = 1;        /* PC: 1 = use a connected game controller; 0 = ignore it entirely (escape hatch for a drifting pad that auto-strafes/spins). Env TUROK_GAMEPAD overrides. */
 int   g_cfg_fullscreen   = 0;        /* PC: 1 = create/toggle the SDL2 window to borderless desktop fullscreen; 0 = windowed. Set from the options menu; turok.cfg `fullscreen`. */
 int   g_cfg_swap_sticks  = 0;        /* New 3DS: 0 (DEFAULT) = C-stick NUB is the analog MOVE stick (up=fwd, down=back, left/right=strafe), Circle Pad UNTOUCHED (classic move+turn); 1 = swapped (nub = classic move+turn, Circle Pad = analog move+strafe). Options-menu toggle; turok.cfg `swap_sticks`. OG 3DS (no nub) ignores it. */
+int   g_cfg_recenter_look = 1;       /* 3DS vertical-look: 1 (DEFAULT = shipped behavior) = auto-recenter (releasing the look stick eases the view back to the horizon); 0 = HOLD (the pitch stays where you left it). Options-menu toggle; turok.cfg `recenter_look`. */
 
 /* PC live-window request seam. The options menu (options.c) sets these when the player changes the resolution
  * or fullscreen row; the SDL2 backend (gfx_sdl2.cpp) consumes them once per frame at the top of its event loop
@@ -255,6 +256,7 @@ void turokConfigLoad(void)
         else if (!strcmp(key, "gamepad"))           g_cfg_gamepad      = (int)val ? 1 : 0;
         else if (!strcmp(key, "fullscreen"))        g_cfg_fullscreen   = (int)val ? 1 : 0;
         else if (!strcmp(key, "swap_sticks"))       g_cfg_swap_sticks  = (int)val ? 1 : 0;
+        else if (!strcmp(key, "recenter_look"))     g_cfg_recenter_look = (int)val ? 1 : 0;
         else if (!strcmp(key, "fog"))               g_cfg_fog          = (int)val ? 1 : 0;
         else if (!strcmp(key, "drawdist"))          g_cfg_drawdist     = (float)val;
         else if (!strcmp(key, "widescreen"))        g_cfg_widescreen   = (int)val ? 1 : 0;
@@ -304,6 +306,7 @@ void turokConfigSave(void)
     fprintf(f, "window_height %d\n",       g_cfg_win_h);
     fprintf(f, "fullscreen %d\n",          g_cfg_fullscreen);
     fprintf(f, "swap_sticks %d\n",         g_cfg_swap_sticks);
+    fprintf(f, "recenter_look %d\n",       g_cfg_recenter_look);
     fprintf(f, "audio_3ds %d\n",           g_cfg_audio_3ds);
     fprintf(f, "music %d\n",               g_cfg_music);
     fprintf(f, "warp %d\n",                g_cfg_warp);

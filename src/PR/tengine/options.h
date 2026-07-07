@@ -28,6 +28,7 @@ enum OptionSelections
 #endif
 #ifdef PLATFORM_3DS
 	OPTIONS_SWAPSTICKS,			// 3DS only: swap Circle Pad <-> C-stick (which stick moves vs looks)
+	OPTIONS_RECENTER,			// 3DS only: toggle vertical-look auto-recenter (ON=view returns to horizon; OFF=holds)
 #endif
 	OPTIONS_CONTROL,
 #ifndef GERMAN

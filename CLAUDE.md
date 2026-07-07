@@ -593,6 +593,28 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
   needs the same control-lockout gate the engine's own inputs get via `PlayerControllerData` (attract demo /
   cinematics), or it escapes the lockout. Grep the actual `CTTYPE_*` stick bindings before mapping a stick.**
 
+- **★ 3DS NUB FOLLOW-UPS — climb-speed fix + vertical-look RECENTER toggle (2026-07-06, branch `pc-port-fixes`).**
+  Two user-reported items after the nub-move fix landed on HW:
+  1. **Nub forward wouldn't climb slopes/cliffs.** The C-stick nub is stiffer with a SMALLER raw range than the
+     Circle Pad, so the shared `/156` `cpad_axis` scale never let `g_turok_forward` reach 1.0 — the nub walked on
+     flat ground but at sub-full run speed, and the collision step-up needs full `TMOVE_MAX_RUNSPEED` (the digital
+     forward ramps to it) to climb. FIX: a dedicated `cstick_axis()` (`/90` + clamp) in
+     [input_3ds.c](port/src/input_3ds.c) so a firm nub push normalizes to full ±80 = 1.0 = full run = climbs
+     anything the digital forward climbs; still proportional below. Circle Pad keeps `/156`; each stick is
+     normalized by its OWN range so both reach full in whatever role. **LESSON: the New-3DS C-stick (irrst) has a
+     smaller usable range than the Circle Pad — reusing the pad's scale caps the nub below full, which reads as
+     "moves on flat but won't climb" (climbing needs full run speed). Normalize each physical stick by its own
+     range.**
+  2. **RECENTER toggle for the vertical look** (`OPTIONS_RECENTER`, 3DS-gated, `turok.cfg recenter_look`,
+     default 1 = shipped). Turok's vertical look is POSITION-based: `ActualRotXPlayer` is recomputed from the
+     look stick's deflection every frame ([tmove.c](src/PR/tengine/tmove.c) ground-look default case ~912), so
+     releasing the look stick eases the view back to the horizon (auto-recenter). Some players want the pitch to
+     STAY. Toggle OFF swaps in a RATE-based HOLD path (accumulate pitch by the stick rate, clamp to the same
+     [-78°,+90°] range, hold on release), gated `PLATFORM_3DS && !g_cfg_recenter_look` so N64/PC compile the
+     original position path byte-identical. Plumbed exactly like `swap_sticks` (config.c define/parse/save,
+     options.c label/row/toggle/box-grow 224→238). **NEEDS INTERACTIVE HW CONFIRM** (climb + the hold-look
+     feel/rate). PC+3DS build clean; device has it (sha1-verified over FTP).
+
 - **★★ ATTRACT-DEMO CRASH = RNC-decoder OUTPUT-BUFFER OVERRUN + attract-header endianness; + a 4K
   resolution preset (2026-07-06, branch `pc-port-fixes`).** User booted `WARP=menu` (the new
   title/attract front-end), idled, and got a SIGSEGV. Crash log: `fault_addr 0x0adb7000` (page-aligned
