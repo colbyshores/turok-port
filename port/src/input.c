@@ -51,6 +51,11 @@ float g_turok_forward = 0.0f;
  * Defined here (always-linked) so the EGL/OSMesa headless builds resolve the symbol. */
 int g_weapon_cycle = 0;
 
+/* 3DS menu CANCEL/back request (set by the input backend when B is pressed while a menu is up; consumed by
+ * the pause/options code to back out one level). Always-linked so all builds resolve it; only the 3DS
+ * backend writes it and only the 3DS-gated menu code reads it. */
+int g_turok_menu_cancel = 0;
+
 /* PC-ONLY quick-save / quick-load requests (F5 / F9 in the SDL2 backend), consumed by the tengine.c hook.
  * A PC dev convenience, separate from the in-game N64 save system; the 3DS uses save points + the file-backed
  * pak (os_shim.c) and has no F5/F9. Gated off 3DS so the whole quick-save path is PC-only. */

@@ -1411,6 +1411,18 @@ INT32 CPause__Update(CPause *pThis)
 		if (CTControl__IsUseMenu(pCTControl))
 			ReturnValue = pThis->m_Selection ;
 
+#ifdef PLATFORM_3DS
+		/* 3DS: B (cancel) from the in-game pause menu backs out = resume the game. Ignored on the title
+		 * screen (no "back" from title). */
+		{	extern int g_turok_menu_cancel;
+			if (g_turok_menu_cancel && GetApp()->m_Mode != MODE_TITLE)
+			{
+				g_turok_menu_cancel = 0;
+				pThis->m_Mode = PAUSE_FADEDOWN ;
+			}
+		}
+#endif
+
 		// do corresponding action TITLE SCREEN
 		if (GetApp()->m_Mode == MODE_TITLE)
 		{

@@ -2794,6 +2794,18 @@ BOOL CEngineApp__MenuUp(CEngineApp *pThis)
 }
 
 
+#ifdef PLATFORM_3DS
+/* 3DS: is any pause/options/load menu on screen? input_3ds routes the D-pad -> menu nav and A/B -> accept/
+ * cancel while this is true, independent of the in-game control map. Covers the pause menu itself AND the
+ * options/load sub-screens (which fade the pause mode down but set m_bOptions/m_bLoad). */
+int turokMenuActive(void)
+{
+	CEngineApp *pApp = GetApp();
+	if (!pApp) return 0;
+	return (pApp->m_Pause.m_Mode != PAUSE_NULL) || pApp->m_bOptions || pApp->m_bLoad;
+}
+#endif
+
 void CEngineApp__ScreenShot(CEngineApp *pThis)
 {
 #ifdef SCREEN_SHOT

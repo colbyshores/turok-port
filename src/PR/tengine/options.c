@@ -601,6 +601,13 @@ INT32 COptions__Update(COptions *pThis)
 		if (CTControl__IsUseMenu(pCTControl))
 			ReturnValue = pThis->m_Selection ;
 
+#ifdef PLATFORM_3DS
+		/* 3DS: B (cancel) backs out of the options screen = the EXIT action (saves cfg + returns to pause). */
+		{	extern int g_turok_menu_cancel;
+			if (g_turok_menu_cancel) { g_turok_menu_cancel = 0; ReturnValue = OPTIONS_EXIT; }
+		}
+#endif
+
 #if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
 		if (ReturnValue == OPTIONS_RESOLUTION)		/* activate cycles forward through the presets + DESKTOP */
 		{

@@ -110,6 +110,29 @@ void input3dsScan(void)
         g_turok_forward = (float)mvy / 80.0f;         /* MOVE Y -> analog FWD/BACK (-1..+1, + = forward) */
     }
 
+    /* ── PAUSE / OPTIONS MENU: route the D-pad to menu nav (the menu reads U/D/L/R_JPAD for navigation AND
+     * L/R_JPAD for slider adjust), A -> accept (N64 A_BUTTON = the menu's UseMenu), B -> cancel/back, START
+     * passes through. Totally independent of the in-game map: the in-game movement/weapon/look buttons are
+     * suppressed while a menu is up so they can't leak into it, and the analog seams are zeroed so the player
+     * can't drift while paused. */
+    {   extern int turokMenuActive(void);
+        extern int g_turok_menu_cancel;
+        if (turokMenuActive()) {
+            u16 mb = 0;
+            if (kHeld & KEY_DUP)    mb |= N64_DU;      /* menu up    */
+            if (kHeld & KEY_DDOWN)  mb |= N64_DD;      /* menu down  */
+            if (kHeld & KEY_DLEFT)  mb |= N64_DL;      /* menu left / slider - */
+            if (kHeld & KEY_DRIGHT) mb |= N64_DR;      /* menu right / slider + */
+            if (kHeld & KEY_A)      mb |= N64_A;       /* accept (menu accept is single-press) */
+            if (kHeld & KEY_START)  mb |= N64_START;   /* start also accepts / toggles pause */
+            g_turok_menu_cancel = (kDown & KEY_B) ? 1 : 0;   /* B = cancel / back one level */
+            g_turok_strafe = 0.0f;  g_turok_forward = 0.0f;  /* no player movement while paused */
+            inputSetState(mb, 0, 0);
+            return;
+        }
+        g_turok_menu_cancel = 0;
+    }
+
     /* ── User control layout (2026-06-21) ─────────────────────────────────────
      * Engine right-handed config: movement = C-buttons, Fire=Z_TRIG, Jump=R_TRIG,
      * WeaponNext=A_BUTTON, WeaponPrev=B_BUTTON. We map the 3DS physical buttons

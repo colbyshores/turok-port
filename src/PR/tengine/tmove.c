@@ -5531,7 +5531,7 @@ void CTMove__SwimSurfaceMovement(CTMove *pThis, CEngineApp *pApp, CTControl *pCT
 									dm,
 									resj,
 									prevYVel;
-	int							waterFlag;
+	int							waterFlag, swimFwd;
 
 
 	// get instance pointer to turok
@@ -5612,8 +5612,16 @@ void CTMove__SwimSurfaceMovement(CTMove *pThis, CEngineApp *pApp, CTControl *pCT
 	vDesiredPos = pIns->ah.ih.m_vPos;
 
 	// make it easier to get underwater by looking down
+	swimFwd = (CTControl__IsSwimForward(pCTControl) != 0);
+#ifdef PLATFORM_3DS
+	/* 3DS analog MOVE stick (nub) forward also counts as "swim forward" so look-down + nub submerges. */
+	{	extern float g_turok_forward;
+		if (g_turok_forward > 0.2f && !CAttractDemo__Active() && !CCamera__InCinemaMode(&pApp->m_Camera))
+			swimFwd = 1;
+	}
+#endif
 	if (    (ANGLE_RTOD(pThis->RotXPlayer) < -40.0)			// previous value = -3.0
-		  && (CTControl__IsSwimForward(pCTControl))
+		  && (swimFwd)
 		  && (!pThis->CannotJumpFromSurface) )
 	{
 		// player is trying to leave the water surface
@@ -5773,6 +5781,15 @@ CVector3 CTMove__ControlSwimMovement(CTMove *pThis, CEngineApp *pApp, CTControl 
 	// player in shallow water ?
 	shallow = CEngineApp__PlayerInShallowWater(pApp);
 
+#ifdef PLATFORM_3DS
+	/* 3DS analog MOVE stick (nub): it bypasses PlayerControllerData (its analog seam only feeds ground
+	 * movement), so drive the swim's digital forward/back/side inputs directly at each read below. In shallow
+	 * water the code path uses ControlFBward/ControlSideStep instead, where the ground seam already applies —
+	 * so this only covers the deep/underwater swim. Gated off attract-demo/cinematics like the ground seam. */
+	extern float g_turok_forward, g_turok_strafe;
+	int nub_move = (!CAttractDemo__Active() && !CCamera__InCinemaMode(&pApp->m_Camera));
+#endif
+
 	// get direction to travel when swimming
 	vUp.x = 0;
 	vUp.y = 1;
@@ -5909,6 +5926,9 @@ CVector3 CTMove__ControlSwimMovement(CTMove *pThis, CEngineApp *pApp, CTControl 
 	else
 	{
 		resf = CTControl__IsSwimForward(pCTControl);
+#ifdef PLATFORM_3DS
+		if (nub_move && g_turok_forward >  0.2f) resf = -1.0f;   /* nub up = swim forward */
+#endif
 
 		// update burst speed - only if forward control is held in
 		if (resf == 0)
@@ -5948,6 +5968,9 @@ CVector3 CTMove__ControlSwimMovement(CTMove *pThis, CEngineApp *pApp, CTControl 
 
 	// *** player swimming backwards ?
 	resb = CTControl__IsSwimBackward(pCTControl);
+#ifdef PLATFORM_3DS
+	if (nub_move && g_turok_forward < -0.2f) resb = -1.0f;   /* nub down = swim backward */
+#endif
 	if (resb < 0)
 	{
 		// digital backward
@@ -5990,6 +6013,9 @@ CVector3 CTMove__ControlSwimMovement(CTMove *pThis, CEngineApp *pApp, CTControl 
 	// *** player swimming right ?
 	velocity = 0;
 	resr = CTControl__IsSwimSideStepR(pCTControl);
+#ifdef PLATFORM_3DS
+	if (nub_move && g_turok_strafe >  0.2f) resr = -1.0f;   /* nub right = swim strafe right */
+#endif
 	if (resr < 0)
 	{
 		// digital sidestep right
@@ -6007,6 +6033,9 @@ CVector3 CTMove__ControlSwimMovement(CTMove *pThis, CEngineApp *pApp, CTControl 
 
 	// *** player swimming left ?
 	resl = CTControl__IsSwimSideStepL(pCTControl);
+#ifdef PLATFORM_3DS
+	if (nub_move && g_turok_strafe < -0.2f) resl = -1.0f;   /* nub left = swim strafe left */
+#endif
 	if (resl < 0)
 	{
 		// digital sidestep left
@@ -6704,6 +6733,16 @@ CVector3 CTMove__ControlCliffUpDown(CTMove *pThis, CEngineApp *pApp, CTControl *
 
 	// turok moving up
 	resf = CTControl__IsClimbUp(pCTControl);
+#ifdef PLATFORM_3DS
+	/* 3DS analog MOVE stick (nub): forward = climb up. The nub bypasses PlayerControllerData (its analog
+	 * seam only feeds ground movement), so drive the climb's digital IsClimbUp result directly here. Gated
+	 * off attract-demo/cinematics like the ground seam. Climb is a digital hand-over-hand cycle, so a
+	 * digital assert (not analog) is correct/faithful. */
+	{	extern float g_turok_forward;
+		if (g_turok_forward > 0.2f && !CAttractDemo__Active() && !CCamera__InCinemaMode(&pApp->m_Camera))
+			resf = -1.0f;
+	}
+#endif
 	if (    (resf < 0)
 		  && (!pThis->ClimbOneHand)
 		  && (!CTControl__IsClimbLeft(pCTControl))
