@@ -49,6 +49,20 @@ static s8 cpad_axis(int v)             /* circle pad ~±156 -> N64 stick ±80, d
     return (s8)s;
 }
 
+/* C-stick NUB scale: the New-3DS nub is stiffer with a SMALLER raw range than the Circle Pad, so the
+ * /156 pad scale never reaches full ±80 -> as the analog MOVE stick it topped out below full run speed,
+ * which walks on flat ground but is too slow to climb slopes/cliffs (the digital forward ramps to full
+ * TMOVE_MAX_RUNSPEED; the nub must too). Normalize the nub by its OWN range (/90) + clamp so a firm push
+ * = full ±80 = 1.0 = full run speed, matching the digital forward; still proportional below that. */
+static s8 cstick_axis(int v)
+{
+    if (v > -24 && v < 24) return 0;
+    int s = (v * 80) / 90;
+    if (s >  80) s =  80;
+    if (s < -80) s = -80;
+    return (s8)s;
+}
+
 void input3dsScan(void)
 {
     u32 kHeld, kDown;
@@ -75,8 +89,8 @@ void input3dsScan(void)
         hidCstickRead(&cs);             /* macro -> irrstCstickRead */
     } else { cs.dx = cs.dy = 0; }
 
-    cpx = cpad_axis(cp.dx);  cpy = cpad_axis(cp.dy);   /* circle pad -80..80 */
-    csx = cpad_axis(cs.dx);  csy = cpad_axis(cs.dy);   /* C-stick    -80..80 */
+    cpx = cpad_axis(cp.dx);    cpy = cpad_axis(cp.dy);   /* circle pad -80..80 (its ±156 range) */
+    csx = cstick_axis(cs.dx);  csy = cstick_axis(cs.dy); /* C-stick nub -80..80 (reaches full for climb) */
 
     /* ★ Turok's N64 analog stick is the LOOK stick (stick_x = turn, stick_y = LOOK up/down). So the two roles:
      *   LOOK stick (UNTOUCHED): X -> stick_x (turn), Y -> stick_y (look up/down). The shipped Circle Pad.
