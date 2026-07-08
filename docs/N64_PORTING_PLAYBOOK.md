@@ -672,10 +672,72 @@ factor (in the fog stage's own constant) for the draws that genuinely use the sh
 
 ---
 
+## 21. Stereoscopic 3D on a Fast3D→PICA port: it's real-HW-only, the eye-sign is a coin-flip, and 2D UI must be flattened by PROJECTION (not vertex-w)
+
+Single-pass stereo on the 3DS is a per-eye **clip-space shear** (Fast3D already did the MVP on the CPU, so you
+reuse the one transform for both eyes and just shift disparity — do NOT port Forsaken's GPU-MVP off-axis
+projection; §14). Four hard-won rules:
+
+- **It is ONLY judgeable on real hardware.** Mandarine/Citra report the 3D slider as **0 (mono)**, so stereo
+  never renders in the emulator. Every stereo decision needs an on-device A/B with the slider up. Corollary: ship
+  stereo knobs as `.cfg`/menu options so you can sweep them on HW with no rebuild.
+- **The eye-sign is a coin-flip that is easily PSEUDOSCOPIC** ("far looks near / near looks far"). The eye→panel
+  *wiring* (`sTopLeft→GFX_LEFT`, left eye `eyeSign=-1`) can be perfectly correct and it still comes out inverted,
+  because the 3DS top screen renders **rotated 270°** and the shear rides the rotated axis (matrix row `r[1]`) —
+  the rotation applies a common-mode horizontal sign to BOTH eye images that can flip crossed↔uncrossed disparity
+  *without* swapping which physical eye sees what. Reasoning about the sign in *render* space misses this; only HW
+  tells you. **Method:** add a default-OFF `stereo_swap` sign toggle, A/B on HW, then **flip the default once
+  confirmed.** ★ When you flip the default, flip the **sign multiplier** (`sEyeSwap`), NOT the config's default
+  *value* — keep `swap 0` = the good state so the menu label ("invert off") stays honest. And beware the
+  **stale-saved-value trap**: a device that saved `swap 1` while testing the pre-flip build keeps the now-wrong
+  sign (the config override beats the new compiled default) — reset it; a fresh install is fine.
+- **2D UI must be flattened (drawn mono, `eyeSign=0`), and you must classify 2D by the PROJECTION, not vertex w.**
+  The obvious auto-detect — "is vertex-0's clip `w ≈ 1.0`?" — catches `gfx_draw_rectangle` texrects (exact
+  `w=1.0`) but MISSES menu geometry drawn as **ortho triangles**: a `guOrtho` with a **precision scaler** (e.g.
+  32) gives clip `w ≈ 32`, so the menu box/bar/text read as "3D," get the shear, and the **selection highlighter
+  is doubled / "pulled apart."** Fix: classify with the **L1 norm of the projection's perspective column**
+  (`|P[0][3]|+|P[1][3]|+|P[2][3]| < 0.5` ⇒ ortho ⇒ 2D) — the SAME rotation-invariant test the widescreen code
+  uses — and OR it into the per-draw `is2d`. That is scaler- *and* rotation-invariant and flattens **all** 2D
+  (menu + HUD) while never touching 3D (perspective → norm ≥ 1). (Perfect Dark instead uses an explicit
+  `set_no_stereo` span driven by a `0x2D0057` GBI marker; the projection-column test is simpler and game-agnostic,
+  and catches the elements a marker span can miss.)
+- **A "more 3D" strength knob scales BOTH shear terms together** (the depth `shearZ` and the convergence
+  `shearW`), which keeps the convergence plane (`z/w = -shearW/shearZ`) fixed and just adds pop. Scaling only the
+  depth term moves the screen plane instead. Don't bump the compiled default blind (too much = ghosting/eye-strain)
+  — expose the multiplier and let the user pick.
+
+## 22. The 3DS app lifecycle (APT): unused-screen backlight for battery, and a CLEAN quit (never `exit()` from game code)
+
+Three 3DS-only lifecycle facts that bite every port with a top-screen-only HUD:
+
+- **Power off the unused bottom-screen backlight for battery** — `gspLcdInit()` +
+  `GSPLCD_PowerOffBacklight(GSPLCD_SCREEN_BOTTOM)` (transient session; `<3ds.h>` pulls in `gsplcd.h`). But the
+  backlight state is **not sticky across APT transitions**, so wrap it in an `aptHook`: power it back **ON** on
+  `APTHOOK_ONSUSPEND` (HOME menu) and `ONSLEEP` — else the HOME menu's bottom screen is dark — and **re-apply
+  your off preference** on `ONRESTORE`/`ONWAKEUP` (the OS re-lights both panels on wake). If the window manager
+  had no prior APT hook, this is its first one.
+- **A pause-menu "quit to HOME" must NOT call `exit()` from game code.** The GSP graphics event thread is still
+  running; on `svcExitProcess` its stack is unmapped and it data-aborts (the "quit crash"). Route the quit through
+  the SAME teardown the HOME-menu-close path uses: set a flag, and in the per-frame window-manager
+  `handle_events` do `audioThreadStop()` (join the audio worker) + the C3D/gfx teardown (`C3D_Fini()` + `gfxExit()`
+  — stops the GSP thread) **before** `exit(0)`. ★ And **re-light the bottom backlight in that teardown**: a direct
+  `exit()` does NOT fire `APTHOOK_ONSUSPEND`, so put `PowerOnBacklight(BOTTOM)` at the top of the shared close
+  function (covers both HOME-close and pause-quit).
+- **The SD save/config/log folder is not auto-created.** `fopen(path,"w")` never makes parent directories, and a
+  **CIA that bundles its assets in RomFS** (so the player never hand-creates the SD data folder the way a
+  `.3dsx`-with-external-ROM does) will silently fail its first save / settings write. `mkdir` the folder (all
+  levels — `mkdir` isn't recursive) once at boot, before any save. (The Perfect Dark "eeprom folder not created"
+  bug class.)
+
+---
+
 *Distilled 2026-06-18 from the Turok: Dinosaur Hunter port (incl. the full classic-ABI audio pipeline: threaded
 synth, software Acmd mixer, bank/rate/placeholder fixes). §17 added 2026-06-26 (the near-clip wall-see-through fix —
 fixed Turok; tried-and-dropped as a HW no-op on Perfect Dark). §18 added 2026-06-26 (the viewmodel mid-frame
 z-clear — 3DS weapon-through-walls fix). §19 added 2026-06-26 (per-frame O(n) safety scan → slow motion on the 3DS;
 the no-catch-up tick clock turns a heavy per-frame cost into slow-mo). §20 added 2026-06-27 (distance fog in the
 TEV, not the f24 `1/w` FogLut — and the no-free-per-vertex-channel constraint that forces per-vertex + per-draw fog
-paths). See `CLAUDE.md` for the project-specific log and `docs/REFERENCES.md` for the per-sibling reference notes.*
+paths). §21–§22 added 2026-07-07 (stereoscopic 3D — real-HW-only eye-sign + the default-flip methodology + 2D-flatten
+by projection-column not vertex-w; and the 3DS APT lifecycle — bottom-screen backlight across sleep/HOME + a clean
+quit that never `exit()`s from game code + the CIA-RomFS save-folder mkdir). See `CLAUDE.md` for the project-specific
+log and `docs/REFERENCES.md` for the per-sibling reference notes.*
