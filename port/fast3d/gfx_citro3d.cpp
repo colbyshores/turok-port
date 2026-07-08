@@ -179,6 +179,10 @@ extern "C" int g_cfg_fogclamp;                    // config.c — turok.cfg `fog
 #define STEREO_SHEAR_W 0.006f
 static float sShearZ = STEREO_SHEAR_Z;   // runtime copies (turok.cfg override; swept on HW, no rebuild)
 static float sShearW = STEREO_SHEAR_W;
+// ★ turok.cfg stereo_swap: negate the per-eye shear to invert depth (fixes a pseudoscopic "far looks near"
+// report). 1.0 (default) = current HW-tuned convention; -1.0 = swapped. Applied in buildTransform; mono
+// (eyeSign=0) is inert. The eye→panel mapping (sTopLeft→GFX_LEFT/…) is standard-correct and NOT touched.
+static float sEyeSwap = 1.0f;
 
 // Top screen target is the portrait framebuffer: 240 wide x 400 tall.
 #define TOP_W 240
@@ -2403,8 +2407,8 @@ static void buildTransform(C3D_Mtx *m, float eyeSign, float level, float zoom) {
     const float syf = 2.0f / (kGY1 - kGY0), oyf =  1.0f - syf * kGY1;
     Mtx_Zeros(m);
     m->r[0].x = 0.f;   m->r[0].y = syf;  m->r[0].z = 0.f;  m->r[0].w = oyf;
-    m->r[1].x = -sxf;  m->r[1].y = 0.f;  m->r[1].z = eyeSign * sShearZ * level;
-                                         m->r[1].w = -oxf + eyeSign * sShearW * level;
+    m->r[1].x = -sxf;  m->r[1].y = 0.f;  m->r[1].z = eyeSign * sEyeSwap * sShearZ * level;
+                                         m->r[1].w = -oxf + eyeSign * sEyeSwap * sShearW * level;
     m->r[2].x = 0.f;   m->r[2].y = 0.f;  m->r[2].z = 1.f;  m->r[2].w = 0.f;
     m->r[3].x = 0.f;   m->r[3].y = 0.f;  m->r[3].z = 0.f;  m->r[3].w = 1.f;
     // Uniform warp zoom in clip space: scale the output x/y rows so the geometry zooms about the panel
@@ -2977,6 +2981,11 @@ static void gfx_citro3d_init(void) {
     { extern float g_cfg_stereo_z, g_cfg_stereo_w;
       if (g_cfg_stereo_z >= 0.f) sShearZ = g_cfg_stereo_z;
       if (g_cfg_stereo_w >= 0.f) sShearW = g_cfg_stereo_w; }
+    /* turok.cfg stereo_strength — scale BOTH shear terms together (more/less POP, convergence plane fixed);
+     * stereo_swap — invert the eye sign (pseudoscopic fix). Both default to the compiled look (1.0 / off). */
+    { extern float g_cfg_stereo_strength; extern int g_cfg_stereo_swap;
+      if (g_cfg_stereo_strength > 0.f) { sShearZ *= g_cfg_stereo_strength; sShearW *= g_cfg_stereo_strength; }
+      sEyeSwap = g_cfg_stereo_swap ? -1.0f : 1.0f; }
 #if PD_BAKE_THREAD
     if (sAutoBake) bakeThreadStart();   // only spin up the worker (+ its linearAlloc scratch) when baking is on
 #endif

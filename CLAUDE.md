@@ -615,6 +615,48 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
      options.c label/row/toggle/box-grow 224→238). **NEEDS INTERACTIVE HW CONFIRM** (climb + the hold-look
      feel/rate). PC+3DS build clean; device has it (sha1-verified over FTP).
 
+- **★ 3DS COMMUNITY-FEEDBACK TRIAGE — stereo tunables + bottom-screen backlight + mipmap verdict (2026-07-07,
+  branch `stereo-mipmap-battery-review`).** A user posted 4 issues; triaged with a 4-agent investigate→adversarial-
+  verify Workflow (all changes 3DS-gated, defaults = current behavior so the HW-tuned look is byte-identical until
+  opted into; stereo is real-HW-only diagnosable — Mandarine reads the 3D slider as 0 = mono).
+  1. **"Stereo L/R inverted (far looks near)" = PLAUSIBLE pseudoscopic, HW-only.** The eye→panel mapping is
+     standard-correct (`sTopLeft`→`GFX_LEFT`, replay renders `eyeSign=-1` into Left / `+1` into Right, [gfx_3ds.c](port/fast3d/gfx_3ds.c#L78)
+     + [gfx_citro3d.cpp](port/fast3d/gfx_citro3d.cpp) end_frame) — NOT a content swap. But the shear rides matrix
+     row `r[1]`=`outpos.y`, and the 270° panel rotation maps that to physical-horizontal with a common-mode sign
+     that CAN invert physical disparity to pseudoscopic — undeterminable off-HW (the "keep SHEAR_Z positive"
+     comment reasons only in render space and misses the rotation flip). The existing `stereo_z`/`stereo_w` cfg
+     REJECT negatives (`>=0.f` guard + the `-1` "use-default" sentinel), so there was NO way to test inversion.
+     FIX: `turok.cfg stereo_swap` (default 0 = current) → `sEyeSwap` negates `eyeSign` in buildTransform; mono
+     (eyeSign=0) inert. Did NOT flip the default — only shear magnitude/convergence were ever HW-tuned, the eye
+     sign never was, so it's opt-in.
+  2. **"Stereo negligible" = already tunable + likely a SYMPTOM of #1** (a pseudoscopic image reads as flat — the
+     brain won't fuse it). Did NOT bump the compiled default (0.10/0.006, HW-validated; too much = ghosting/eye-
+     strain). Added `turok.cfg stereo_strength` (default 1.0 = inert) scaling BOTH shear terms together (keeps the
+     convergence plane fixed, just more POP — what raising `stereo_z` alone fails to do). Fixed the stale
+     config.c comment drift (said 0.04/0.012; real compiled defaults are 0.10/0.006).
+  3. **"Bottom screen backlight could be off for battery" = REAL, IMPLEMENTED.** The bottom screen is genuinely
+     unused (only cleared to black each frame). [gfx_3ds.c](port/fast3d/gfx_3ds.c): `gspLcdInit()` +
+     `GSPLCD_PowerOffBacklight(GSPLCD_SCREEN_BOTTOM)` at init (gated `turok.cfg bottom_backlight`, default 0 =
+     OFF/save battery), **re-asserted via an `aptHook` on `APTHOOK_ONRESTORE/ONWAKEUP`** because the OS re-lights
+     BOTH panels on sleep/wake (gfx_3ds had no prior hook — without it the light flickers back after every sleep).
+     API verified against `/opt/devkitpro/libctru/include/3ds/services/gsplcd.h`.
+  4. **"Mipmap vertical distortion" = HARDWARE LIMITATION, NOT a code bug → REPORT_ONLY (no change).** It's the
+     PICA200's lack of anisotropic filtering + f24 texcoord derivative-collapse on tiled surfaces (documented at
+     gfx_citro3d.cpp:76-100), already three-layer-mitigated (even-integer UV fold + clip-space midpoint split +
+     box-filtered mip chain + content-keyed facade bake). Every bake/mip constant is HW-tuned across many sessions;
+     a blind change would regress flare-safety / the FCRAM budget / near-panel sharpness. Instead: the user can A/B
+     the EXISTING read-at-init knobs (SD `.txt`: `perfectdark/texlodmips.txt`, `banjo/mips.txt`, `banjo/mipnearest.txt`,
+     `perfectdark/autobake.txt`, each a single 0/1) and supply a concrete repro (level/warp, surface, distance) —
+     only then would a SCOPED per-texture LOD-bias be justified. **LESSON: on a Fast3D→PICA port, "textures distort
+     vertically at some distances" is almost always the PICA's missing anisotropic filtering (a hardware limit),
+     not a mipmap bug — don't touch the tuned bake/mip code without a repro that isolates a specific asset the bake
+     heuristic misses.**
+  PC + 3DS build clean; all knobs default to the current look. **NEEDS INTERACTIVE HW CONFIRM** (stereo_swap /
+  stereo_strength on the 3D slider; bottom backlight off). **LESSON (stereo): the physical eye a target maps to
+  (GFX_LEFT/RIGHT) and the shear SIGN are independent — a pseudoscopic report is a sign issue, not a target swap,
+  and when the shear rides a rotated axis the panel rotation itself can flip physical disparity, so make the sign a
+  default-off toggle rather than guessing (it's only verifiable on real HW with the slider up).**
+
 - **★ 3DS SAVE-DIR NOT CREATED on a fresh CIA install (the Perfect Dark "eeprom folder" bug class) — FIXED
   (2026-07-07, branch `pc-port-fixes`).** User asked whether Turok shares PD's bug where the save folder isn't
   created if it doesn't already exist. **It did, but only for the CIA.** The save (`turok.pak`, [os_shim.c](port/src/os_shim.c)

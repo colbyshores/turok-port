@@ -35,6 +35,25 @@ static bool  sStereoEnabled = true;   // master toggle (config/arg)
 
 static int   sTargetFps = 60;
 
+// ── Bottom-screen backlight (battery) ──────────────────────────────────────
+// The bottom screen is UNUSED (Turok's HUD is all top-screen; the bottom target is only cleared to black),
+// so its backlight is wasted power. Turn it off (turok.cfg bottom_backlight, default 0 = off). The OS restores
+// BOTH backlights on sleep/wake, so an APT hook re-asserts our off state on resume (gfx_3ds has no other hook).
+static aptHookCookie s_lcd_hook;
+static void lcd_backlight_apply(void) {
+    extern int g_cfg_bottom_backlight;
+    if (g_cfg_bottom_backlight) return;                    // user opted to keep it lit
+    if (R_SUCCEEDED(gspLcdInit())) {                       // transient gsp::Lcd session (standard idiom)
+        GSPLCD_PowerOffBacklight(GSPLCD_SCREEN_BOTTOM);
+        gspLcdExit();
+    }
+}
+static void lcd_apt_hook(APT_HookType hook, void *param) {
+    (void)param;
+    if (hook == APTHOOK_ONRESTORE || hook == APTHOOK_ONWAKEUP)   // resume / lid-open re-lit the panel → re-off it
+        lcd_backlight_apply();
+}
+
 // ---------------------------------------------------------------------------
 
 void *gfx3dsTopTarget(int eye) {
@@ -82,9 +101,14 @@ static void gfx_3ds_init(const struct GfxWindowInitSettings *settings) {
     BK_TR(BK_TR_TARGET, "RTs created topL=%p topR=%p bottom=%p%s",
           (void *)sTopLeft, (void *)sTopRight, (void *)sBottom,
           (!sTopLeft || !sTopRight || !sBottom) ? " NULL!" : "");
+
+    // Power off the unused bottom-screen backlight (battery), and keep it off across sleep/wake.
+    lcd_backlight_apply();
+    aptHook(&s_lcd_hook, lcd_apt_hook, NULL);
 }
 
 static void gfx_3ds_close(void) {
+    aptUnhook(&s_lcd_hook);   // stop re-asserting; HOME/Luma re-lights both panels on exit
     C3D_Fini();
     gfxExit();
 }

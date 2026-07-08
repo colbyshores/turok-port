@@ -34,8 +34,11 @@ int   g_cfg_debug        = 0;        /* 1 = enable the 3DS boot.log / svcOutputD
 int   g_cfg_fps          = -1;       /* present-rate cap (3DS); -1 = platform default (30 on 3DS = locked, beat-free), 0 = uncapped/vsync */
 int   g_cfg_tick         = -1;       /* logic tick rate (3DS); -1 = platform default (0 on 3DS = logic every present), 30 = 30Hz logic + interp */
 int   g_cfg_bake         = 0;        /* 3DS facade texture baking: 0 = OFF (default — Turok's organic art rarely needs the PICA tiled-UV bake, cf. sm64-port; no worker, no hitch), 1 = on (async worker) */
-float g_cfg_stereo_z     = -1.0f;    /* 3DS stereo shear depth term (default 0.04); -1 = compiled default. On-device tuning, real-HW only. */
-float g_cfg_stereo_w     = -1.0f;    /* 3DS stereo shear convergence term (default 0.012); -1 = compiled default. Raise = screen plane nearer. */
+float g_cfg_stereo_z     = -1.0f;    /* 3DS stereo shear depth term (compiled default 0.10); -1 = use compiled default. On-device tuning, real-HW only. */
+float g_cfg_stereo_w     = -1.0f;    /* 3DS stereo shear convergence term (compiled default 0.006); -1 = use compiled default. Raise = screen plane nearer. */
+float g_cfg_stereo_strength = 1.0f;  /* 3DS stereo POP multiplier: scales BOTH shear terms together (keeps the convergence plane fixed, just more/less depth). 1.0 (DEFAULT) = compiled look. Raise if the 3D feels weak; real-HW only. turok.cfg `stereo_strength`. */
+int   g_cfg_stereo_swap  = 0;        /* 3DS stereo eye-sign swap: 0 (DEFAULT) = current HW-tuned convention; 1 = invert depth (fixes a pseudoscopic "far looks near / near looks far" report). Real-HW only (Mandarine is mono). turok.cfg `stereo_swap`. */
+int   g_cfg_bottom_backlight = 0;    /* 3DS: 0 (DEFAULT) = power OFF the unused bottom-screen backlight to save battery; 1 = keep it lit. turok.cfg `bottom_backlight`. */
 int   g_cfg_gamepad      = 1;        /* PC: 1 = use a connected game controller; 0 = ignore it entirely (escape hatch for a drifting pad that auto-strafes/spins). Env TUROK_GAMEPAD overrides. */
 int   g_cfg_fullscreen   = 0;        /* PC: 1 = create/toggle the SDL2 window to borderless desktop fullscreen; 0 = windowed. Set from the options menu; turok.cfg `fullscreen`. */
 int   g_cfg_swap_sticks  = 0;        /* New 3DS: 0 (DEFAULT) = C-stick NUB is the analog MOVE stick (up=fwd, down=back, left/right=strafe), Circle Pad UNTOUCHED (classic move+turn); 1 = swapped (nub = classic move+turn, Circle Pad = analog move+strafe). Options-menu toggle; turok.cfg `swap_sticks`. OG 3DS (no nub) ignores it. */
@@ -254,6 +257,9 @@ void turokConfigLoad(void)
         else if (!strcmp(key, "bake"))              g_cfg_bake         = (int)val ? 1 : 0;
         else if (!strcmp(key, "stereo_z"))          g_cfg_stereo_z     = (float)val;
         else if (!strcmp(key, "stereo_w"))          g_cfg_stereo_w     = (float)val;
+        else if (!strcmp(key, "stereo_strength"))   g_cfg_stereo_strength = (float)val;
+        else if (!strcmp(key, "stereo_swap"))       g_cfg_stereo_swap  = (int)val ? 1 : 0;
+        else if (!strcmp(key, "bottom_backlight"))  g_cfg_bottom_backlight = (int)val ? 1 : 0;
         else if (!strcmp(key, "gamepad"))           g_cfg_gamepad      = (int)val ? 1 : 0;
         else if (!strcmp(key, "fullscreen"))        g_cfg_fullscreen   = (int)val ? 1 : 0;
         else if (!strcmp(key, "swap_sticks"))       g_cfg_swap_sticks  = (int)val ? 1 : 0;
@@ -319,6 +325,9 @@ void turokConfigSave(void)
     fprintf(f, "bake %d\n",                g_cfg_bake);
     fprintf(f, "stereo_z %.4f\n",          g_cfg_stereo_z);
     fprintf(f, "stereo_w %.4f\n",          g_cfg_stereo_w);
+    fprintf(f, "stereo_strength %.4f\n",   g_cfg_stereo_strength);
+    fprintf(f, "stereo_swap %d\n",         g_cfg_stereo_swap);
+    fprintf(f, "bottom_backlight %d\n",    g_cfg_bottom_backlight);
     fprintf(f, "gamepad %d\n",             g_cfg_gamepad);
     fprintf(f, "fog %d\n",                 g_cfg_fog);
     fprintf(f, "drawdist %.4f\n",          g_cfg_drawdist);
