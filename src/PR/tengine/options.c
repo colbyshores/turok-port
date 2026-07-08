@@ -77,8 +77,16 @@ static char	text_blood_green[] = {"green blood"};
 static char	text_musicvolume[] = {"music volume"};
 static char	text_sfxvolume[] = {"sfx volume"};
 static char	text_opacity[] = {"opacity"};
+#ifdef PLATFORM_PORT
+/* PORT: the two analog-sensitivity sliders are repurposed as PER-STICK: m_HAnalog scales the whole LOOK/aim
+ * stick (turn + look-pitch, control.c), m_VAnalog scales the MOVE stick (g_turok_forward/strafe, tmove.c).
+ * (3DS Circle Pad + C-stick / a PC gamepad's two sticks.) N64 keeps the stock per-axis rows (the #else). */
+static char	text_hanalog[] = {"look sensitivity"};
+static char	text_vanalog[] = {"move sensitivity"};
+#else
 static char	text_hanalog[] = {"horizontal analog"};
 static char	text_vanalog[] = {"vertical analog"};
+#endif
 static char	text_exit[] = {"exit"};
 static char	text_levelicons[] = {"level icons"};
 #endif

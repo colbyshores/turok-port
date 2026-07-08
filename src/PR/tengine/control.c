@@ -183,7 +183,15 @@ void ProcessPlayerController(void)
 #ifdef ANALOG_SCALER_TEST
 
 	scalerh = ((float)GetApp()->m_Options.m_HAnalog) / 128.0;
+#ifdef PLATFORM_PORT
+	/* PORT: the two analog-sensitivity sliders are repurposed as PER-STICK (options menu shows "look
+	 * sensitivity" + "move sensitivity"): m_HAnalog = the whole LOOK stick (turn AND look-pitch), and
+	 * m_VAnalog is the MOVE stick (applied to g_turok_forward/strafe in tmove.c). So look-pitch uses
+	 * m_HAnalog here, not m_VAnalog. Default 128 => 1.0x on both. N64 keeps the per-axis behavior (#else). */
+	scalerv = ((float)GetApp()->m_Options.m_HAnalog) / 128.0;
+#else
 	scalerv = ((float)GetApp()->m_Options.m_VAnalog) / 128.0;
+#endif
 
 	if (scalerh < (20.0/128.0))
 		scalerh = 20.0/128.0;

@@ -2495,7 +2495,12 @@ CVector3 CTMove__ControlFBward(CTMove *pThis, CEngineApp *pApp, CTControl *pCTCo
 		if (g_turok_forward != 0.0f && !CAttractDemo__Active()
 		    && !CCamera__InCinemaMode(&pApp->m_Camera))
 		{
-			float sp = g_turok_forward * TUROK_WALKCAP(TMOVE_MAX_RUNSPEED);
+			/* PORT: "move sensitivity" (m_VAnalog, options menu) scales the analog move level; clamp to the
+			 * full-run range so >1x just reaches top speed sooner. Default 128 => 1.0x (unchanged). */
+			float fwd = g_turok_forward;
+			{	float ms = ((float)pApp->m_Options.m_VAnalog)/128.0f; fwd *= ms;
+				if (fwd > 1.0f) fwd = 1.0f; if (fwd < -1.0f) fwd = -1.0f; }
+			float sp = fwd * TUROK_WALKCAP(TMOVE_MAX_RUNSPEED);
 			vDesiredPos.x += sp*frame_increment*sinRotY;
 			vDesiredPos.z += sp*frame_increment*cosRotY;
 			player_is_moving = TRUE;
@@ -2742,7 +2747,11 @@ CVector3 CTMove__ControlSideStep(CTMove *pThis, CEngineApp *pApp, CTControl *pCT
 		if (g_turok_strafe != 0.0f && !CAttractDemo__Active()
 		    && !CCamera__InCinemaMode(&pApp->m_Camera))
 		{
-			float sp = g_turok_strafe * TUROK_WALKCAP(TMOVE_MAX_SIDESTEPSPEED);
+			/* PORT: "move sensitivity" (m_VAnalog) scales the analog strafe level too. Default 128 => 1.0x. */
+			float str = g_turok_strafe;
+			{	float ms = ((float)pApp->m_Options.m_VAnalog)/128.0f; str *= ms;
+				if (str > 1.0f) str = 1.0f; if (str < -1.0f) str = -1.0f; }
+			float sp = str * TUROK_WALKCAP(TMOVE_MAX_SIDESTEPSPEED);
 			vDesiredPos.x += sp*frame_increment*sinSideY;
 			vDesiredPos.z += sp*frame_increment*cosSideY;
 			player_is_moving = TRUE;

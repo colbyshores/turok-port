@@ -527,9 +527,11 @@ static void turok_sdl_update_input(void) {
     if (k[SDL_SCANCODE_UP])    sy += 80;
     if (k[SDL_SCANCODE_DOWN])  sy -= 80;
 
-    /* gamepad: left stick = move (Y fwd/back, X strafe via C-buttons); right stick = HELD look (g_look_*);
-     * RT fire, A jump, shoulders cycle weapons (A/B button path, tick-gated), Start pause. D-pad -> C-buttons
-     * (movement) NOT the raw D-pad, which would fire the native run/walk toggle. */
+    /* gamepad: left stick = ANALOG move (-> g_turok_forward/strafe, so the "move sensitivity" slider applies,
+     * like the 3DS nub); right stick = HELD look (g_look_*, "look sensitivity"); RT fire, A jump, shoulders
+     * cycle weapons (A/B button path, tick-gated), Start pause. D-pad -> C-buttons (movement) NOT the raw
+     * D-pad, which would fire the native run/walk toggle. */
+    { extern float g_turok_forward, g_turok_strafe; g_turok_forward = g_turok_strafe = 0.0f; }  /* off/centered = no move */
     if (g_sdl_controller && gamepad_on()) {
         SDL_GameController *c = g_sdl_controller;
         int lx = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_LEFTX);
@@ -551,9 +553,10 @@ static void turok_sdl_update_input(void) {
         if (!lAct) { lx = ly = 0; }
         if (!rAct) { rx = ry = 0; }
         #undef ABSI
-        signed char gy = (signed char)(-(int)axis_to_n64(ly));
-        if (gy) sy = gy;
-        if (lx < -12000) btn |= N64_CL; else if (lx > 12000) btn |= N64_CR;   /* strafe */
+        /* left stick -> analog MOVE seam (tmove.c applies "move sensitivity"); axis_to_n64 deadzones. */
+        { extern float g_turok_forward, g_turok_strafe;
+          g_turok_forward = -(float)axis_to_n64(ly) / 80.0f;   /* up = forward   */
+          g_turok_strafe  =  (float)axis_to_n64(lx) / 80.0f; } /* right = strafe  */
         float gs = mouse_sens() * 0.00004f;
         if (rx < -8000 || rx > 8000) g_look_yaw   += (float)rx * gs;
         if (ry < -8000 || ry > 8000) g_look_pitch += (float)ry * gs * (mouse_invert() ? 1.0f : -1.0f);
