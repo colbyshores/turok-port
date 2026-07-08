@@ -37,22 +37,29 @@ static int   sTargetFps = 60;
 
 // ── Bottom-screen backlight (battery) ──────────────────────────────────────
 // The bottom screen is UNUSED (Turok's HUD is all top-screen; the bottom target is only cleared to black),
-// so its backlight is wasted power. Turn it off (turok.cfg bottom_backlight, default 0 = off). The OS restores
-// BOTH backlights on sleep/wake, so an APT hook re-asserts our off state on resume (gfx_3ds has no other hook).
+// so its backlight is wasted power. Turn it off (turok.cfg bottom_backlight, default 0 = off). ★ But whenever
+// we LEAVE the game — HOME menu (ONSUSPEND) or sleep (ONSLEEP) — power it back ON so the HOME menu / other
+// titles have a lit bottom screen; then re-apply our preference on return (ONRESTORE/ONWAKEUP). Without the
+// ONSUSPEND restore the HOME menu's bottom screen stays dark. gfx_3ds had no other APT hook, so this is it.
 static aptHookCookie s_lcd_hook;
-static void lcd_backlight_apply(void) {
-    extern int g_cfg_bottom_backlight;                     // 1 = keep lit, 0 = off (save battery)
+static void lcd_set_bottom(int on) {
     if (R_SUCCEEDED(gspLcdInit())) {                       // transient gsp::Lcd session (standard idiom)
-        if (g_cfg_bottom_backlight) GSPLCD_PowerOnBacklight(GSPLCD_SCREEN_BOTTOM);
-        else                        GSPLCD_PowerOffBacklight(GSPLCD_SCREEN_BOTTOM);
+        if (on) GSPLCD_PowerOnBacklight(GSPLCD_SCREEN_BOTTOM);
+        else    GSPLCD_PowerOffBacklight(GSPLCD_SCREEN_BOTTOM);
         gspLcdExit();
     }
+}
+static void lcd_backlight_apply(void) {
+    extern int g_cfg_bottom_backlight;                     // 1 = keep lit, 0 = off (save battery)
+    lcd_set_bottom(g_cfg_bottom_backlight);
 }
 // Live re-apply from the options menu when the player toggles bottom_backlight (both directions).
 void turok3dsRefreshBottomBacklight(void) { lcd_backlight_apply(); }
 static void lcd_apt_hook(APT_HookType hook, void *param) {
     (void)param;
-    if (hook == APTHOOK_ONRESTORE || hook == APTHOOK_ONWAKEUP)   // resume / lid-open re-lit the panel → re-off it
+    if (hook == APTHOOK_ONSUSPEND || hook == APTHOOK_ONSLEEP)    // HOME menu / sleep → give the bottom screen back
+        lcd_set_bottom(1);
+    else if (hook == APTHOOK_ONRESTORE || hook == APTHOOK_ONWAKEUP)  // back in-game → our preference (off by default)
         lcd_backlight_apply();
 }
 

@@ -633,15 +633,16 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
      on HW — the right sequence: a default-off toggle to test, THEN flip the default once confirmed.)
   2. **"Stereo negligible" = already tunable + likely a SYMPTOM of #1** (a pseudoscopic image reads as flat — the
      brain won't fuse it). Did NOT bump the compiled default (0.10/0.006, HW-validated; too much = ghosting/eye-
-     strain). Added `turok.cfg stereo_strength` (default 1.0 = inert) scaling BOTH shear terms together (keeps the
-     convergence plane fixed, just more POP — what raising `stereo_z` alone fails to do). Fixed the stale
-     config.c comment drift (said 0.04/0.012; real compiled defaults are 0.10/0.006).
+     strain). Added `turok.cfg stereo_strength` scaling BOTH shear terms together (keeps the convergence plane
+     fixed, just more POP — what raising `stereo_z` alone fails to do). **★ DEFAULT = 3.0 (the options-menu "3d
+     depth max"), per the user** (was 1.0=inert). Fixed the stale config.c comment drift (0.04/0.012 → 0.10/0.006).
   3. **"Bottom screen backlight could be off for battery" = REAL, IMPLEMENTED.** The bottom screen is genuinely
      unused (only cleared to black each frame). [gfx_3ds.c](port/fast3d/gfx_3ds.c): `gspLcdInit()` +
      `GSPLCD_PowerOffBacklight(GSPLCD_SCREEN_BOTTOM)` at init (gated `turok.cfg bottom_backlight`, default 0 =
-     OFF/save battery), **re-asserted via an `aptHook` on `APTHOOK_ONRESTORE/ONWAKEUP`** because the OS re-lights
-     BOTH panels on sleep/wake (gfx_3ds had no prior hook — without it the light flickers back after every sleep).
-     API verified against `/opt/devkitpro/libctru/include/3ds/services/gsplcd.h`.
+     OFF/save battery). **★ An `aptHook` powers the bottom backlight back ON on `APTHOOK_ONSUSPEND` (HOME menu) /
+     `ONSLEEP` — else the HOME menu's bottom screen stays dark — and re-applies our preference on `ONRESTORE` /
+     `ONWAKEUP`** (the OS also re-lights both panels on sleep/wake, so the resume re-assert is needed regardless).
+     gfx_3ds had no prior APT hook. API verified against `/opt/devkitpro/libctru/include/3ds/services/gsplcd.h`.
   4. **"Mipmap vertical distortion" = HARDWARE LIMITATION, NOT a code bug → REPORT_ONLY (no change).** It's the
      PICA200's lack of anisotropic filtering + f24 texcoord derivative-collapse on tiled surfaces (documented at
      gfx_citro3d.cpp:76-100), already three-layer-mitigated (even-integer UV fold + clip-space midpoint split +
