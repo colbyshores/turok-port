@@ -41,13 +41,15 @@ static int   sTargetFps = 60;
 // BOTH backlights on sleep/wake, so an APT hook re-asserts our off state on resume (gfx_3ds has no other hook).
 static aptHookCookie s_lcd_hook;
 static void lcd_backlight_apply(void) {
-    extern int g_cfg_bottom_backlight;
-    if (g_cfg_bottom_backlight) return;                    // user opted to keep it lit
+    extern int g_cfg_bottom_backlight;                     // 1 = keep lit, 0 = off (save battery)
     if (R_SUCCEEDED(gspLcdInit())) {                       // transient gsp::Lcd session (standard idiom)
-        GSPLCD_PowerOffBacklight(GSPLCD_SCREEN_BOTTOM);
+        if (g_cfg_bottom_backlight) GSPLCD_PowerOnBacklight(GSPLCD_SCREEN_BOTTOM);
+        else                        GSPLCD_PowerOffBacklight(GSPLCD_SCREEN_BOTTOM);
         gspLcdExit();
     }
 }
+// Live re-apply from the options menu when the player toggles bottom_backlight (both directions).
+void turok3dsRefreshBottomBacklight(void) { lcd_backlight_apply(); }
 static void lcd_apt_hook(APT_HookType hook, void *param) {
     (void)param;
     if (hook == APTHOOK_ONRESTORE || hook == APTHOOK_ONWAKEUP)   // resume / lid-open re-lit the panel → re-off it

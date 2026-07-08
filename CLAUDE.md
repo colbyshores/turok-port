@@ -651,8 +651,17 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
      vertically at some distances" is almost always the PICA's missing anisotropic filtering (a hardware limit),
      not a mipmap bug — don't touch the tuned bake/mip code without a repro that isolates a specific asset the bake
      heuristic misses.**
+  **OPTIONS-MENU "display" submenu (2026-07-07, same branch):** all three are also exposed in-game via a new
+  3DS-only `OPTIONS_DISPLAY` main-menu row ("display") that opens a small submenu (mirrors the PC CONTROLS
+  submenu pattern — `s_DisplayActive` static, branched at the top of `COptions__Update`/`Draw`) with three rows:
+  **invert 3d** (stereo_swap toggle), **3d depth low/med/high/max** (stereo_strength cycler, named levels to
+  avoid the LARGE_FONT `.` gap), **bottom light** (backlight toggle), + back. Each applies LIVE — the stereo
+  config read was refactored into `turok3dsRefreshStereo()` (recomputes sShearZ/W/sEyeSwap from the compiled base
+  each call, so repeated toggles don't compound the strength multiplier) and the backlight into
+  `turok3dsRefreshBottomBacklight()`, both called from the submenu; back saves via `turokConfigSave()`. Main box
+  grew 252→264 (13 rows on New 3DS land ~y=226, within 240). File-scope statics only (the struct-growth gotcha).
   PC + 3DS build clean; all knobs default to the current look. **NEEDS INTERACTIVE HW CONFIRM** (stereo_swap /
-  stereo_strength on the 3D slider; bottom backlight off). **LESSON (stereo): the physical eye a target maps to
+  stereo_strength on the 3D slider; bottom backlight off; the submenu nav/render). **LESSON (stereo): the physical eye a target maps to
   (GFX_LEFT/RIGHT) and the shear SIGN are independent — a pseudoscopic report is a sign issue, not a target swap,
   and when the shear rides a rotated axis the panel rotation itself can flip physical disparity, so make the sign a
   default-off toggle rather than guessing (it's only verifiable on real HW with the slider up).**

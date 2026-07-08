@@ -25,10 +25,11 @@
 #define OPTIONS_HEIGHT	(236)
 #define OPTIONSMENU_Y 			(OPTIONS_Y + 30)
 #elif defined(PLATFORM_3DS)
-/* 3DS: three extra rows vs stock (swap-sticks + recenter-look + invert-look toggles, ~12px each) — grow the box
- * + tighten the header gap so every row stays on-screen. 3DS-only; the N64 build keeps the stock 210 box. */
+/* 3DS: four extra rows vs stock (swap-sticks + recenter + invert + display toggles, ~12px each) — grow the box
+ * + tighten the header gap so every row stays on-screen (New-3DS last row lands ~y=226, within 240). 3DS-only;
+ * the N64 build keeps the stock 210 box. */
 #define OPTIONS_WIDTH	(208)
-#define OPTIONS_HEIGHT	(252)
+#define OPTIONS_HEIGHT	(264)
 #define OPTIONSMENU_Y 			(OPTIONS_Y + 22)
 #else
 #define OPTIONS_WIDTH	(208)
@@ -136,6 +137,45 @@ static char	text_recenter_on[]  = {"recenter view"};	// recenter_look 1 (default
 static char	text_recenter_off[] = {"hold view"};		// recenter_look 0: pitch stays where you leave it
 static char	text_invert_on[]    = {"invert look"};		// invert_look 1 (default): push the look stick up = look down
 static char	text_invert_off[]   = {"normal look"};		// invert_look 0: push up = look up
+
+/* ── DISPLAY submenu (3D depth + bottom-screen backlight) ────────────────────────────────────────────────
+ * A sub-mode of the options screen (like the PC CONTROLS submenu): a single main-menu row "display" opens a
+ * small box with three rows — 3D depth invert, 3D depth strength, bottom-screen backlight — plus back. State =
+ * FILE-SCOPE STATICS ONLY (never COptions/CEngineApp fields — the struct-growth layout-corruption gotcha).
+ * All three drive turok.cfg values applied LIVE (turok3dsRefreshStereo / turok3dsRefreshBottomBacklight), so a
+ * toggle takes effect immediately. LARGE_FONT = plain words + digits only (no ':' / '-' / '.'). */
+static char	text_display[]      = {"display"};			// main-menu row -> the display submenu
+static char	text_stswap_off[]   = {"invert 3d off"};	// stereo_swap 0 (default): normal depth
+static char	text_stswap_on[]    = {"invert 3d on"};		// stereo_swap 1: swapped depth (pseudoscopic fix)
+static char	text_botlight_off[] = {"bottom light off"};	// bottom_backlight 0 (default = off, saves battery)
+static char	text_botlight_on[]  = {"bottom light on"};	// bottom_backlight 1: keep the bottom screen lit
+static char	text_str_low[]      = {"3d depth low"};		// stereo_strength named levels (avoid the font '.' gap)
+static char	text_str_med[]      = {"3d depth med"};
+static char	text_str_high[]     = {"3d depth high"};
+static char	text_str_max[]      = {"3d depth max"};
+static char	text_back_row[]     = {"back"};
+static int	s_DisplayActive = 0;	/* 1 = the display submenu is showing */
+static int	s_DisplaySel    = 0;	/* selected row 0..DISPLAY_ROWS-1 */
+#define DISPLAY_ROW_SWAP		(0)
+#define DISPLAY_ROW_STRENGTH	(1)
+#define DISPLAY_ROW_BOTLIGHT	(2)
+#define DISPLAY_ROW_BACK		(3)
+#define DISPLAY_ROWS			(4)
+#define DISPLAY_WIDTH			(216)
+#define DISPLAY_HEIGHT			(84)
+#define DISPLAY_X				((320/2) - (DISPLAY_WIDTH/2))
+#define DISPLAY_Y				((240/2) - (DISPLAY_HEIGHT/2))
+#define DISPLAY_ROW_SP			(16)
+#define DISPLAY_MENU_Y			(DISPLAY_Y + 12)
+static INT32 options_display_update(COptions *pThis) ;
+static void  options_display_draw(COptions *pThis, Gfx **ppDLP) ;
+static const float s_str_levels[4] = { 1.0f, 1.5f, 2.0f, 3.0f };	/* stereo_strength cycler values */
+static int display_strength_index(void)
+{
+	extern float g_cfg_stereo_strength; int i, best = 0; float bd = 1e9f;
+	for (i = 0; i < 4; i++) { float d = g_cfg_stereo_strength - s_str_levels[i]; if (d < 0) d = -d; if (d < bd) { bd = d; best = i; } }
+	return best;
+}
 #endif
 
 #if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
@@ -231,6 +271,7 @@ t_Option options[]=
 	OPTIONSMENU_SPACING, text_move_cstick,		// swap-sticks toggle; String reassigned each Draw
 	OPTIONSMENU_SPACING, text_recenter_on,		// recenter-look toggle; String reassigned each Draw
 	OPTIONSMENU_SPACING, text_invert_on,		// invert-look toggle; String reassigned each Draw
+	OPTIONSMENU_SPACING, text_display,			// -> display submenu (3D depth + bottom backlight)
 #endif
 	OPTIONSMENU_SPACING, text_control_left,
 #ifndef GERMAN
@@ -439,6 +480,10 @@ INT32 COptions__Update(COptions *pThis)
 #if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
 	if (s_ControlsActive)
 		return options_controls_update(pThis) ;
+#endif
+#ifdef PLATFORM_3DS
+	if (s_DisplayActive)
+		return options_display_update(pThis) ;
 #endif
 
 #ifdef EDIT_FOG_AND_LIGHTS
@@ -657,6 +702,12 @@ INT32 COptions__Update(COptions *pThis)
 			g_cfg_invert_look ^= 1 ;
 			ReturnValue = -1 ;
 		}
+		else if (ReturnValue == OPTIONS_DISPLAY)	/* activate enters the display (3D + backlight) submenu */
+		{
+			s_DisplayActive = 1 ;
+			s_DisplaySel = 0 ;
+			ReturnValue = -1 ;
+		}
 #endif
 #ifndef GERMAN
 		else if (ReturnValue == OPTIONS_BLOOD)
@@ -825,6 +876,101 @@ static void options_controls_draw(COptions *pThis, Gfx **ppDLP)
 	}
 }
 #endif	/* PLATFORM_PORT && !PLATFORM_3DS */
+
+#ifdef PLATFORM_3DS
+//------------------------------------------------------------------------
+// DISPLAY submenu (3D depth invert/strength + bottom-screen backlight) — a sub-mode of the options screen.
+// Every row activates (A) — 3D invert toggles, 3D depth cycles low->medium->high->max, bottom light toggles,
+// back saves + returns. All applied LIVE. B (cancel) also backs out. Stereo is only visible on real HW.
+//------------------------------------------------------------------------
+static INT32 options_display_update(COptions *pThis)
+{
+	(void)pThis ;
+
+	if (CEngineApp__MenuDown(GetApp())) { BarTimer = 0 ; if (++s_DisplaySel >= DISPLAY_ROWS) s_DisplaySel = 0 ; }
+	if (CEngineApp__MenuUp(GetApp()))   { BarTimer = 0 ; if (--s_DisplaySel < 0) s_DisplaySel = DISPLAY_ROWS-1 ; }
+
+	{	int back = 0 ;
+		extern int g_turok_menu_cancel ;
+		if (g_turok_menu_cancel) { g_turok_menu_cancel = 0 ; back = 1 ; }	/* B = back out of the submenu */
+
+		if (!back && CTControl__IsUseMenu(pCTControl))
+		{
+			extern int g_cfg_stereo_swap, g_cfg_bottom_backlight ;
+			extern float g_cfg_stereo_strength ;
+			extern void turok3dsRefreshStereo(void) ;
+			extern void turok3dsRefreshBottomBacklight(void) ;
+			switch (s_DisplaySel)
+			{
+				case DISPLAY_ROW_SWAP:
+					g_cfg_stereo_swap ^= 1 ; turok3dsRefreshStereo() ; break ;
+				case DISPLAY_ROW_STRENGTH:
+					g_cfg_stereo_strength = s_str_levels[(display_strength_index() + 1) & 3] ;
+					turok3dsRefreshStereo() ; break ;
+				case DISPLAY_ROW_BOTLIGHT:
+					g_cfg_bottom_backlight ^= 1 ; turok3dsRefreshBottomBacklight() ; break ;
+				default: /* DISPLAY_ROW_BACK */
+					back = 1 ; break ;
+			}
+		}
+
+		if (back)
+		{
+			extern void turokConfigSave(void) ;
+			turokConfigSave() ;			/* persist the 3D + backlight choices */
+			s_DisplayActive = 0 ;
+			s_DisplaySel = 0 ;
+		}
+	}
+
+	return -1 ;
+}
+
+static void options_display_draw(COptions *pThis, Gfx **ppDLP)
+{
+	int   i, y ;
+	char *line ;
+	extern int g_cfg_stereo_swap, g_cfg_bottom_backlight ;
+	static char *str_lbl[4] = { text_str_low, text_str_med, text_str_high, text_str_max } ;
+
+	if (pThis->m_Alpha == 0)
+		return ;
+
+	COnScreen__InitBoxDraw(ppDLP) ;
+	COnScreen__DrawHilightBox(ppDLP,
+							  DISPLAY_X, DISPLAY_Y,
+							  DISPLAY_X+DISPLAY_WIDTH, DISPLAY_Y+DISPLAY_HEIGHT,
+							  1, FALSE, 0,0,0, 180 * pThis->m_Alpha) ;
+
+	// selection bar
+	y = DISPLAY_MENU_Y + s_DisplaySel * DISPLAY_ROW_SP ;
+	CPause__InitPolygon(ppDLP) ;
+	CPause__DrawBar(ppDLP, DISPLAY_X+8, y-1, DISPLAY_WIDTH-16, DISPLAY_ROW_SP, pThis->m_Alpha) ;
+
+	// rows (LARGE_FONT: plain words + digits, no ':' / '-' / '.')
+	COnScreen__InitFontDraw(ppDLP) ;
+	COnScreen__SetFontScale(0.8, 0.6) ;
+	y = DISPLAY_MENU_Y ;
+	for (i = 0; i < DISPLAY_ROWS; i++)
+	{
+		switch (i)
+		{
+			case DISPLAY_ROW_SWAP:     line = g_cfg_stereo_swap ? text_stswap_on : text_stswap_off ; break ;
+			case DISPLAY_ROW_STRENGTH: line = str_lbl[display_strength_index()] ; break ;
+			case DISPLAY_ROW_BOTLIGHT: line = g_cfg_bottom_backlight ? text_botlight_on : text_botlight_off ; break ;
+			default:                   line = text_back_row ; break ;
+		}
+
+		if (i == s_DisplaySel)
+			COnScreen__SetFontColor(ppDLP, 200*1.25, 200*1.25, 138*1.25, 86*1.25, 71*1.25, 47*1.25) ;
+		else
+			COnScreen__SetFontColor(ppDLP, 200*.9, 200*.9, 138*.9, 86*.9, 71*.9, 47*.9) ;
+
+		COnScreen__DrawText(ppDLP, line, DISPLAY_X+12, y, (int)(255 * pThis->m_Alpha), FALSE, TRUE) ;
+		y += DISPLAY_ROW_SP ;
+	}
+}
+#endif	/* PLATFORM_3DS */
 
 #ifdef EDIT_FOG_AND_LIGHTS
 //------------------------------------------------------------------------
@@ -1061,6 +1207,9 @@ void COptions__Draw(COptions *pThis, Gfx **ppDLP)
 
 #if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
 	if (s_ControlsActive) { options_controls_draw(pThis, ppDLP) ; return ; }
+#endif
+#ifdef PLATFORM_3DS
+	if (s_DisplayActive) { options_display_draw(pThis, ppDLP) ; return ; }
 #endif
 
 #ifdef EDIT_FOG_AND_LIGHTS

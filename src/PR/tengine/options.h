@@ -30,6 +30,7 @@ enum OptionSelections
 	OPTIONS_SWAPSTICKS,			// 3DS only: swap Circle Pad <-> C-stick (which stick moves vs looks)
 	OPTIONS_RECENTER,			// 3DS only: toggle vertical-look auto-recenter (ON=view returns to horizon; OFF=holds)
 	OPTIONS_INVERTLOOK,			// 3DS only: toggle vertical-look invert (ON=push up looks down; OFF=normal)
+	OPTIONS_DISPLAY,			// 3DS only: enters the display submenu (3D depth invert/strength + bottom-screen backlight)
 #endif
 	OPTIONS_CONTROL,
 #ifndef GERMAN

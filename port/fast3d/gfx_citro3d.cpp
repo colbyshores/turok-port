@@ -184,6 +184,18 @@ static float sShearW = STEREO_SHEAR_W;
 // (eyeSign=0) is inert. The eye→panel mapping (sTopLeft→GFX_LEFT/…) is standard-correct and NOT touched.
 static float sEyeSwap = 1.0f;
 
+// Re-derive the stereo runtime state from turok.cfg (stereo_z/stereo_w overrides, stereo_strength multiplier,
+// stereo_swap eye-sign). Called once at init AND live from the options-menu display submenu (so a toggle takes
+// effect immediately, no restart). extern "C" so the C options menu can call it. Always recomputes from the
+// compiled base so repeated calls don't compound the strength multiplier.
+extern "C" void turok3dsRefreshStereo(void) {
+    extern float g_cfg_stereo_z, g_cfg_stereo_w, g_cfg_stereo_strength; extern int g_cfg_stereo_swap;
+    sShearZ = (g_cfg_stereo_z >= 0.f) ? g_cfg_stereo_z : STEREO_SHEAR_Z;
+    sShearW = (g_cfg_stereo_w >= 0.f) ? g_cfg_stereo_w : STEREO_SHEAR_W;
+    if (g_cfg_stereo_strength > 0.f) { sShearZ *= g_cfg_stereo_strength; sShearW *= g_cfg_stereo_strength; }
+    sEyeSwap = g_cfg_stereo_swap ? -1.0f : 1.0f;
+}
+
 // Top screen target is the portrait framebuffer: 240 wide x 400 tall.
 #define TOP_W 240
 #define TOP_H 400
@@ -2976,16 +2988,9 @@ static void gfx_citro3d_init(void) {
      * PICA tiled-UV precision case the bake fixes (unlike PD's tiled corridors; cf. sm64-port, which
      * bakes nothing). `bake 1` re-enables the async facade bake on the spare core. */
     { extern int g_cfg_bake; if (!g_cfg_bake) sAutoBake = 0; }
-    /* turok.cfg stereo_z / stereo_w — on-device tuning of the 3D shear without a rebuild
-     * (stereo is only visible on real hardware; -1 = use the compiled defaults). */
-    { extern float g_cfg_stereo_z, g_cfg_stereo_w;
-      if (g_cfg_stereo_z >= 0.f) sShearZ = g_cfg_stereo_z;
-      if (g_cfg_stereo_w >= 0.f) sShearW = g_cfg_stereo_w; }
-    /* turok.cfg stereo_strength — scale BOTH shear terms together (more/less POP, convergence plane fixed);
-     * stereo_swap — invert the eye sign (pseudoscopic fix). Both default to the compiled look (1.0 / off). */
-    { extern float g_cfg_stereo_strength; extern int g_cfg_stereo_swap;
-      if (g_cfg_stereo_strength > 0.f) { sShearZ *= g_cfg_stereo_strength; sShearW *= g_cfg_stereo_strength; }
-      sEyeSwap = g_cfg_stereo_swap ? -1.0f : 1.0f; }
+    /* turok.cfg stereo_z/stereo_w overrides + stereo_strength + stereo_swap — on-device 3D tuning without a
+     * rebuild (stereo is only visible on real hardware). Also re-callable live from the options submenu. */
+    turok3dsRefreshStereo();
 #if PD_BAKE_THREAD
     if (sAutoBake) bakeThreadStart();   // only spin up the worker (+ its linearAlloc scratch) when baking is on
 #endif
