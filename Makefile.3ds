@@ -211,7 +211,7 @@ clean:
 #   make -f Makefile.3ds release          # clean build -> turok.cia (+ self-contained
 #                                          # .3dsx), both with the retail ROM bundled;
 #                                          # prints artifacts + SHA1, ready to upload.
-#   make -f Makefile.3ds archive-upload    # push those artifacts to archive.org/details/turok3ds
+#   make -f Makefile.3ds archive-upload    # push those artifacts to archive.org/details/turok3ds-port
 #   make -f Makefile.3ds archive           # release + archive-upload in one shot.
 #
 # The CIA embeds the retail ROM in its RomFS (self-contained install, no SD-card ROM
@@ -219,7 +219,7 @@ clean:
 # so the HBL binary is equally self-contained. Upload uses the `ia` CLI (internetarchive
 # module) with the S3 keys in ~/.config/internetarchive/ia.ini — same as forsaken3ds.
 IA          ?= $(HOME)/miniconda3/bin/ia
-IA_ITEM     ?= turok3ds
+IA_ITEM     ?= turok3ds-port
 RELEASE_3DSX := $(OUTPUT).3dsx
 
 .PHONY: release release-3dsx archive-upload archive

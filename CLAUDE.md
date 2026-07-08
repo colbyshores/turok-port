@@ -368,16 +368,19 @@ what the sibling 3DS builds already use.
 
 When the user says **"push to production"** (or "ship it" / "release" / "push the CIA to archive.org"), that
 means run the archive.org release pipeline — the same flow as the sibling `../forsaken` port. It builds a
-**self-contained CIA with the retail ROM bundled** and uploads it to **`archive.org/details/turok3ds`**:
+**self-contained CIA with the retail ROM bundled** and uploads it to **`archive.org/details/turok3ds-port`**:
 
 ```bash
 make -f Makefile.3ds release          # force-clean build -> build_3ds/turok.cia (+ ROM-bundled .3dsx),
                                        #   prints the artifacts + SHA1. Verify these before uploading.
-make -f Makefile.3ds archive-upload    # push turok.cia + turok.3dsx to archive.org/details/turok3ds
+make -f Makefile.3ds archive-upload    # push turok.cia + turok.3dsx to archive.org/details/turok3ds-port
 make -f Makefile.3ds archive           # release + archive-upload in one shot
 ```
 
-- **Item id** `turok3ds` (`IA_ITEM` var); metadata mirrors the `forsaken3ds` item (mediatype=software,
+- ★★ **Item id = `turok3ds-port`** (`IA_ITEM` var, the Makefile default as of 2026-07-07). **The old `turok3ds`
+  item is DEPRECATED — the user does NOT use it; the public reddit release links `turok3ds-port`.** Only publish
+  to `turok3ds-port`. (`turok3ds` still exists but is dead; don't upload to it.)
+- Metadata mirrors the `forsaken3ds` item (mediatype=software,
   collection=open_source_software, creator "Colby Shores (3DS Port)", subject tags, description). Re-running
   replaces the files in place at the same URL and keeps prior versions in the item history.
 - Upload uses the **`ia` CLI** (internetarchive module) with the S3 keys in `~/.config/internetarchive/ia.ini`.
@@ -392,7 +395,7 @@ make -f Makefile.3ds archive           # release + archive-upload in one shot
 - Prereqs (all gitignored, user-supplied, already in place): `baserom.us.v12.z64`, `turok.jpg`, `turok.ico`,
   `turok.wav`, and the `makerom`/`bannertool` binaries in `tools/3ds-cia/`.
 - First release live: **2026-07-06** — `turok.cia` + `turok.3dsx` (9.1 MB each) at
-  https://archive.org/details/turok3ds.
+  https://archive.org/details/turok3ds-port (the public item; the old `turok3ds` is deprecated).
 
 ---
 
