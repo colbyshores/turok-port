@@ -626,9 +626,11 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
      that CAN invert physical disparity to pseudoscopic — undeterminable off-HW (the "keep SHEAR_Z positive"
      comment reasons only in render space and misses the rotation flip). The existing `stereo_z`/`stereo_w` cfg
      REJECT negatives (`>=0.f` guard + the `-1` "use-default" sentinel), so there was NO way to test inversion.
-     FIX: `turok.cfg stereo_swap` (default 0 = current) → `sEyeSwap` negates `eyeSign` in buildTransform; mono
-     (eyeSign=0) inert. Did NOT flip the default — only shear magnitude/convergence were ever HW-tuned, the eye
-     sign never was, so it's opt-in.
+     FIX: `turok.cfg stereo_swap` → `sEyeSwap` negates `eyeSign` in buildTransform; mono (eyeSign=0) inert.
+     **★ HW-CONFIRMED (2026-07-07): the reporter was RIGHT — the original sign was pseudoscopic. So the CORRECTED
+     sign (`sEyeSwap` default `-1.0f`, `stereo_swap 0`) is now the DEFAULT; `stereo_swap 1` flips back to the old
+     inverted sign as an escape hatch.** (First shipped as opt-in default-off, then flipped once the user A/B'd it
+     on HW — the right sequence: a default-off toggle to test, THEN flip the default once confirmed.)
   2. **"Stereo negligible" = already tunable + likely a SYMPTOM of #1** (a pseudoscopic image reads as flat — the
      brain won't fuse it). Did NOT bump the compiled default (0.10/0.006, HW-validated; too much = ghosting/eye-
      strain). Added `turok.cfg stereo_strength` (default 1.0 = inert) scaling BOTH shear terms together (keeps the

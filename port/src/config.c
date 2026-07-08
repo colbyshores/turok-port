@@ -37,7 +37,7 @@ int   g_cfg_bake         = 0;        /* 3DS facade texture baking: 0 = OFF (defa
 float g_cfg_stereo_z     = -1.0f;    /* 3DS stereo shear depth term (compiled default 0.10); -1 = use compiled default. On-device tuning, real-HW only. */
 float g_cfg_stereo_w     = -1.0f;    /* 3DS stereo shear convergence term (compiled default 0.006); -1 = use compiled default. Raise = screen plane nearer. */
 float g_cfg_stereo_strength = 1.0f;  /* 3DS stereo POP multiplier: scales BOTH shear terms together (keeps the convergence plane fixed, just more/less depth). 1.0 (DEFAULT) = compiled look. Raise if the 3D feels weak; real-HW only. turok.cfg `stereo_strength`. */
-int   g_cfg_stereo_swap  = 0;        /* 3DS stereo eye-sign swap: 0 (DEFAULT) = current HW-tuned convention; 1 = invert depth (fixes a pseudoscopic "far looks near / near looks far" report). Real-HW only (Mandarine is mono). turok.cfg `stereo_swap`. */
+int   g_cfg_stereo_swap  = 0;        /* 3DS stereo eye-sign: 0 (DEFAULT) = CORRECTED depth (HW-confirmed 2026-07-07 — the original convention was pseudoscopic "far looks near"); 1 = the old INVERTED sign. Real-HW only (Mandarine is mono). turok.cfg `stereo_swap`. */
 int   g_cfg_bottom_backlight = 0;    /* 3DS: 0 (DEFAULT) = power OFF the unused bottom-screen backlight to save battery; 1 = keep it lit. turok.cfg `bottom_backlight`. */
 int   g_cfg_gamepad      = 1;        /* PC: 1 = use a connected game controller; 0 = ignore it entirely (escape hatch for a drifting pad that auto-strafes/spins). Env TUROK_GAMEPAD overrides. */
 int   g_cfg_fullscreen   = 0;        /* PC: 1 = create/toggle the SDL2 window to borderless desktop fullscreen; 0 = windowed. Set from the options menu; turok.cfg `fullscreen`. */

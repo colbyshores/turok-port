@@ -179,10 +179,11 @@ extern "C" int g_cfg_fogclamp;                    // config.c — turok.cfg `fog
 #define STEREO_SHEAR_W 0.006f
 static float sShearZ = STEREO_SHEAR_Z;   // runtime copies (turok.cfg override; swept on HW, no rebuild)
 static float sShearW = STEREO_SHEAR_W;
-// ★ turok.cfg stereo_swap: negate the per-eye shear to invert depth (fixes a pseudoscopic "far looks near"
-// report). 1.0 (default) = current HW-tuned convention; -1.0 = swapped. Applied in buildTransform; mono
-// (eyeSign=0) is inert. The eye→panel mapping (sTopLeft→GFX_LEFT/…) is standard-correct and NOT touched.
-static float sEyeSwap = 1.0f;
+// ★ Per-eye shear sign. HW-CONFIRMED (2026-07-07): the original convention was PSEUDOSCOPIC ("far looks near"),
+// so the CORRECTED sign (-1) is now the DEFAULT (stereo_swap 0). turok.cfg stereo_swap 1 flips back to the old
+// (inverted) sign for anyone who wants it. Applied in buildTransform; mono (eyeSign=0) is inert. The eye→panel
+// mapping (sTopLeft→GFX_LEFT/…) is standard-correct and NOT touched — this is only the parallax sign.
+static float sEyeSwap = -1.0f;
 
 // Re-derive the stereo runtime state from turok.cfg (stereo_z/stereo_w overrides, stereo_strength multiplier,
 // stereo_swap eye-sign). Called once at init AND live from the options-menu display submenu (so a toggle takes
@@ -193,7 +194,7 @@ extern "C" void turok3dsRefreshStereo(void) {
     sShearZ = (g_cfg_stereo_z >= 0.f) ? g_cfg_stereo_z : STEREO_SHEAR_Z;
     sShearW = (g_cfg_stereo_w >= 0.f) ? g_cfg_stereo_w : STEREO_SHEAR_W;
     if (g_cfg_stereo_strength > 0.f) { sShearZ *= g_cfg_stereo_strength; sShearW *= g_cfg_stereo_strength; }
-    sEyeSwap = g_cfg_stereo_swap ? -1.0f : 1.0f;
+    sEyeSwap = g_cfg_stereo_swap ? 1.0f : -1.0f;   // 0 (default) = corrected depth; 1 = old inverted
 }
 
 // Top screen target is the portrait framebuffer: 240 wide x 400 tall.
