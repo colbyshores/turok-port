@@ -669,6 +669,19 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
   and when the shear rides a rotated axis the panel rotation itself can flip physical disparity, so make the sign a
   default-off toggle rather than guessing (it's only verifiable on real HW with the slider up).**
 
+- **★ 3DS PAUSE-MENU "quit game" → HOME menu (2026-07-07, branch `stereo-mipmap-battery-review`).** The
+  `PAUSE_QUIT` row existed but was gated `PLATFORM_PORT && !PLATFORM_3DS` (PC-only, `exit(0)`). Un-gated it to
+  `PLATFORM_PORT` (enum in [pause.h](src/PR/tengine/pause.h), `text_quit` + `pause_text[]` + the handler in
+  [pause.c](src/PR/tengine/pause.c)). ★ On 3DS a bare `exit()` faults the still-running GSP event thread (the
+  documented quit-crash), so the 3DS `PAUSE_QUIT` case sets a new always-linked flag `g_turok_quit_requested`
+  ([input.c](port/src/input.c)) that [gfx_3ds.c](port/fast3d/gfx_3ds.c) `gfx_3ds_handle_events` checks alongside
+  `!aptMainLoop()` and runs the SAME clean teardown (`audioThreadStop()` + `gfx_3ds_close()` = C3D_Fini/gfxExit
+  → stops the GSP thread → `exit(0)`) — caught within one frame. The pause box auto-sizes from the item count
+  (`CPause__GetPauseOptionAmt`), so the extra row needs no layout change. PC keeps its `exit(0)`; N64 has no
+  PAUSE_QUIT. **LESSON: never `exit()` a 3DS homebrew straight from game code — route the quit through the window
+  manager's HOME-close teardown path (stop the audio thread + C3D_Fini/gfxExit before the process exits), or the
+  GSP event thread data-aborts on `svcExitProcess`.**
+
 - **★ 3DS SAVE-DIR NOT CREATED on a fresh CIA install (the Perfect Dark "eeprom folder" bug class) — FIXED
   (2026-07-07, branch `pc-port-fixes`).** User asked whether Turok shares PD's bug where the save folder isn't
   created if it doesn't already exist. **It did, but only for the CIA.** The save (`turok.pak`, [os_shim.c](port/src/os_shim.c)

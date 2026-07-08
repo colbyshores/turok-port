@@ -35,8 +35,8 @@ enum PauseSelections
 	PAUSE_ENTERCHEAT,
 	PAUSE_CHEATMENU,
 	PAUSE_RESTART_GAME,
-#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
-	PAUSE_QUIT,			// PC: quit to desktop
+#ifdef PLATFORM_PORT
+	PAUSE_QUIT,			// PC: quit to desktop; 3DS: quit to the HOME menu
 #endif
 	PAUSE_END_SELECTION
 } ;

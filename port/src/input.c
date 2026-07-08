@@ -56,6 +56,11 @@ int g_weapon_cycle = 0;
  * backend writes it and only the 3DS-gated menu code reads it. */
 int g_turok_menu_cancel = 0;
 
+/* 3DS pause-menu QUIT request (set by pause.c PAUSE_QUIT on 3DS; consumed by gfx_3ds.c's per-frame
+ * handle_events, which does the clean GSP/audio teardown then exit — same path as a HOME-menu close).
+ * Always-linked so all builds resolve it; only the 3DS pause code writes it and only gfx_3ds reads it. */
+int g_turok_quit_requested = 0;
+
 /* PC-ONLY quick-save / quick-load requests (F5 / F9 in the SDL2 backend), consumed by the tengine.c hook.
  * A PC dev convenience, separate from the in-game N64 save system; the 3DS uses save points + the file-backed
  * pak (os_shim.c) and has no F5/F9. Gated off 3DS so the whole quick-save path is PC-only. */

@@ -188,8 +188,8 @@ static char	text_train2[] = {0x4f, 0x6e, 0x75, 0x7a, 0x53, 0x79, 0x56, 0x4d, -1}
 static char	text_areyousure[] = {0x6D, 0x72, 0x57, 0x4D, 0x7A, 0x57, 0x80, 0x4E, 0x51, -1};
 #endif
 
-#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
-static char	text_quit[] = {"quit game"} ;		// PC: quit to desktop
+#ifdef PLATFORM_PORT
+static char	text_quit[] = {"quit game"} ;		// PC: quit to desktop; 3DS: quit to HOME menu
 #endif
 
 
@@ -214,7 +214,7 @@ char *pause_text[]=
 	text_entercheat,
 	text_cheatmenu,
 	text_restart,
-#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
+#ifdef PLATFORM_PORT
 	text_quit,
 #endif
 } ;
@@ -1589,9 +1589,17 @@ INT32 CPause__Update(CPause *pThis)
 					ReturnValue = -1 ;
 					break ;
 
-#if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
-				case PAUSE_QUIT:			// PC: quit to desktop (matches the SDL window-close path)
+#ifdef PLATFORM_PORT
+				case PAUSE_QUIT:
+#if defined(PLATFORM_3DS)
+					/* 3DS: request a clean quit to the HOME menu. gfx_3ds does the GSP + audio-thread
+					 * teardown before exiting (a bare exit() would fault the still-running GSP event
+					 * thread — the documented quit-crash). Caught next frame in gfx_3ds_handle_events. */
+					{ extern int g_turok_quit_requested; g_turok_quit_requested = 1; }
+#else
+					/* PC: quit to desktop (matches the SDL window-close path). */
 					{ extern void exit(int); exit(0); }
+#endif
 					break ;
 #endif
 

@@ -153,8 +153,9 @@ static void gfx_3ds_get_centered_positions(int32_t w, int32_t h, int32_t *x, int
 }
 
 static void gfx_3ds_handle_events(void) {
-    if (!aptMainLoop()) {
-        // HOME-menu close / power → return to the homebrew menu. videoShutdown() does NOT call
+    extern int g_turok_quit_requested;   // pause-menu "quit game" → clean exit to HOME (same path as HOME-close)
+    if (!aptMainLoop() || g_turok_quit_requested) {
+        // HOME-menu close / power / pause-menu quit → return to the homebrew menu. videoShutdown() does NOT call
         // wmAPI->close, so C3D/gfx were never torn down on exit: the GSP event thread kept running and
         // faulted (gspWaitForAnyEvent → syncArbitrateAddress) when svcExitProcess unmapped its stack —
         // the quit crash (Luma data-abort, far≈sp). The standard teardown (C3D_Fini + gfxExit) stops the
