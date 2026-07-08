@@ -198,6 +198,12 @@ never a struct field — growing the menu struct corrupts a stale build). Rows: 
 saves the config. For PD, wire the three values into its own options UI however PD does it — the portable part
 is the **config + live-refresh seam**, not Turok's menu widget.
 
+**★ Menu-row DEFAULT states (Turok, shipped):** the **"invert 3d" row defaults to OFF** (`stereo_swap 0`),
+which — after the §2 default flip — is the *corrected* depth, so a fresh install gets correct 3D with the row
+left off (turning it ON gives the old inverted look). "3d depth" defaults to **max**; "bottom light" defaults
+to **off**. Keep the label semantics honest: "invert 3d OFF" must be the *good* state, so the corrected sign
+has to be the `stereo_swap 0` side (that's why §2 flips `sEyeSwap`'s default, not the config default value).
+
 ---
 
 ## 5. Change "D" that wasn't — Mipmap "vertical distortion" = the PICA aniso limit (no fix)
@@ -242,6 +248,16 @@ isolates a specific asset the bake heuristic misses justifies a *scoped* per-tex
    compounds the multiplier.
 6. **"Vertical distortion at distance" = missing anisotropic filtering (hardware), not a mipmap bug.** Don't
    touch the tuned bake/mip code without an asset-isolating repro.
+7. **Flipping a default that was previously an opt-in toggle leaves stale SAVED values on devices.** After you
+   ship the swap as opt-in (`stereo_swap 0` = old sign), any tester who toggled it ON has `stereo_swap 1` saved
+   in their config. When you then flip the compiled default (make `sEyeSwap`'s `swap 0` side the corrected
+   sign), that saved `1` now selects the *wrong* (old) sign — the config override wins over the new default. So
+   after a default flip: keep the toggle's on/off *labels* aligned to good/bad (flip `sEyeSwap`, NOT the config
+   default value, so `swap 0` stays the good state and the menu row stays "off"=correct), and expect testers to
+   have a stale saved value — reset it (or tell them to set the row back to off once). A fresh install is
+   unaffected (it takes the compiled default). *(Turok: the shipped default is `stereo_swap 0`, and both the
+   compiled default and the device's own `turok.cfg` read `stereo_swap 0` = "invert 3d off" = corrected — so
+   nothing to migrate there; the hazard only bites a device that saved `1` mid-testing.)*
 
 *Turok commits (branch `stereo-mipmap-battery-review`): `9f316a9` (knobs) · `d30e760` (menu) · `bc0d304`
 (default flip) · `779be40` (HOME backlight + MAX default).*
