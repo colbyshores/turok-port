@@ -681,6 +681,25 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
   PAUSE_QUIT. **LESSON: never `exit()` a 3DS homebrew straight from game code — route the quit through the window
   manager's HOME-close teardown path (stop the audio thread + C3D_Fini/gfxExit before the process exits), or the
   GSP event thread data-aborts on `svcExitProcess`.**
+  - **Follow-up (2026-07-07): restore the bottom backlight on quit.** The pause-quit path does a direct `exit()`,
+    which does NOT fire `APTHOOK_ONSUSPEND`, so the powered-off bottom backlight stayed dark on the HOME/HBL
+    return. Added `lcd_set_bottom(1)` at the top of `gfx_3ds_close` (the common teardown for BOTH HOME-close and
+    pause-quit) so the bottom screen is always re-lit before the process exits.
+
+- **★ 3DS MENU SELECTION HIGHLIGHTER STEREO-SEPARATED ("pulled apart") — FIXED (2026-07-07, branch
+  `stereo-mipmap-battery-review`; same class PD has).** The menu box/bar/text (the selection highlighter) showed
+  doubled/pulled-apart in stereo (3D slider up). The per-eye shear must be skipped for 2D UI, and Turok's
+  `is2d` auto-detect used ONLY vertex `w≈1.0` — which catches `gfx_draw_rectangle` texrects (HUD, exact w=1.0)
+  but MISSES the menu's ortho TRIS: the menu's `guOrtho` ([pause.c](src/PR/tengine/pause.c#L967)) has a
+  **precision scaler of 32**, so its clip `w≈32` → auto-detect said "3D" → sheared → separated. FIX: reuse the
+  existing rotation-invariant ortho classifier `s_proj_is_2d` (L1 norm of the projection's perspective column,
+  `<0.5`=ortho; already used for widescreen), publish it as `g_turok_proj_is_2d` ([gfx_pc.cpp](port/fast3d/gfx_pc.cpp))
+  and OR it into `cmd->is2d` ([gfx_citro3d.cpp](port/fast3d/gfx_citro3d.cpp)) so ALL 2D draws flatten (mono,
+  eyeSign=0) and no 3D is touched (perspective → column norm ≥1). Simpler + game-agnostic vs PD's marker-driven
+  `set_no_stereo` span (`0x2D0057` → `sForceNoStereoDepth`). **LESSON: a stereo "2D is flat" auto-detect keyed on
+  vertex w≈1.0 misses ortho geometry drawn with a guOrtho precision scaler (w≠1) — classify 2D by the PROJECTION
+  (perspective-column norm), which is scaler-invariant AND rotation-invariant, not by a vertex-w magnitude.**
+  Full writeup + PD porting notes: [`docs/3DS_STEREO_BACKLIGHT_PORTING_SPEC.md`](docs/3DS_STEREO_BACKLIGHT_PORTING_SPEC.md) §2.1.
 
 - **★ 3DS SAVE-DIR NOT CREATED on a fresh CIA install (the Perfect Dark "eeprom folder" bug class) — FIXED
   (2026-07-07, branch `pc-port-fixes`).** User asked whether Turok shares PD's bug where the save folder isn't

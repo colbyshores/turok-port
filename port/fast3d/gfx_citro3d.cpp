@@ -2352,7 +2352,11 @@ static void gfx_citro3d_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size
     // ★ 2D HUD/sprite detection: gfx_draw_rectangle emits ortho verts with w==1.0 exactly; 3D world
     // geometry's perspective w spans ~16..1024 and is never 1.0. buf_vbo[3] is vertex-0's clip w
     // (pos is the first 4 floats). Flagged draws are replayed WITHOUT the stereo shear (see replayRange).
-    cmd->is2d = (buf_vbo[3] > 0.99f && buf_vbo[3] < 1.01f);
+    // ★ ALSO flatten when the current projection is a 2D ortho (g_turok_proj_is_2d): the menu box/bar/text
+    // are ortho TRIS whose guOrtho precision-scaler gives w≈32 (not 1.0), so the w-check alone misses them
+    // and the selection highlighter gets "pulled apart" in stereo. The projection signal catches all 2D UI.
+    { extern int g_turok_proj_is_2d;
+      cmd->is2d = (buf_vbo[3] > 0.99f && buf_vbo[3] < 1.01f) || (g_turok_proj_is_2d != 0); }
     cmd->fbBind = sPendingFbBind;   // §7.1 3b: persists across the effect's many line-draws until a
                                     // normal select_texture (or another select_texture_fb) changes it
 #if PD_DEBUG3DS

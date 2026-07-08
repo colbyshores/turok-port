@@ -236,6 +236,11 @@ struct XYWidthHeight gfx_current_native_viewport;
 float gfx_current_native_aspect = 4.f / 3.f;
 #ifdef PLATFORM_PORT
 static bool s_proj_is_2d = false;   /* widescreen: current projection is ortho (2D HUD/menu) vs perspective (3D) */
+/* Published for the 3DS stereo backend: the current projection is a 2D ortho (menu/HUD). The stereo is2d
+ * auto-detect (vertex w≈1.0) only catches gfx_draw_rectangle texrects; the menu's box/bar/text are ortho TRIS
+ * whose guOrtho precision-scaler makes w≈32 (not 1.0), so they'd get the per-eye shear = "pulled apart". OR-ing
+ * this in flattens ALL 2D draws (no parallax), matching the widescreen 2D classification. */
+int g_turok_proj_is_2d = 0;
 #endif
 bool gfx_framebuffers_enabled = true;
 bool gfx_detail_textures_enabled = true;
@@ -1314,7 +1319,7 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
          * column is [0,0,0,1]). That magnitude is rotation-INVARIANT → no flap. (P[2][3] alone, and P[3][3],
          * were both shown unreliable for this combined matrix.) */
         { float persp = fabsf(rsp.P_matrix[0][3]) + fabsf(rsp.P_matrix[1][3]) + fabsf(rsp.P_matrix[2][3]);
-          s_proj_is_2d = (persp < 0.5f); }
+          s_proj_is_2d = (persp < 0.5f); g_turok_proj_is_2d = s_proj_is_2d ? 1 : 0; }
 #endif
     } else { // G_MTX_MODELVIEW
 #ifdef PLATFORM_PORT

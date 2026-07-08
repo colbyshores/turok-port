@@ -143,6 +143,32 @@ is inert, so 2D/HUD draws are unaffected.
 Do **not** blindly flip PD's default without the HW A/B — but expect that you will, because PD shares the
 convention.
 
+### ★ 2.1 — Flatten the 2D UI (menu selection bar "pulled apart" in stereo)
+Symptom: the **menu selection highlighter** (and other menu box/bar/text) renders **doubled / pulled apart**
+with the 3D slider up, while the HUD looks fine. Cause: the per-eye shear must be skipped (drawn mono,
+`eyeSign=0`) for 2D UI, and Turok's auto-detect for "is this draw 2D" used **only** vertex `w ≈ 1.0`. That
+catches `gfx_draw_rectangle` texrects (HUD — exact `w=1.0`) but **misses the menu's ortho TRIS**: Turok's menu
+loads a `guOrtho` with a **precision scaler of 32**, so its clip `w ≈ 32`, not `1.0` → auto-detect says "3D" →
+it gets the shear → separated.
+
+Fix (robust, projection-based): reuse the ortho-vs-perspective projection classifier you already have (Turok's
+`s_proj_is_2d`, computed from the **L1 norm of the projection's perspective column** — `< 0.5` = ortho = 2D;
+this is the same rotation-invariant test the widescreen code uses). Publish it (`g_turok_proj_is_2d`) and OR it
+into the per-draw `is2d`:
+```c
+// gfx_pc.cpp, on every G_MTX_PROJECTION load:
+float persp = fabsf(P[0][3]) + fabsf(P[1][3]) + fabsf(P[2][3]);
+s_proj_is_2d = (persp < 0.5f);  g_turok_proj_is_2d = s_proj_is_2d ? 1 : 0;
+// gfx_citro3d.cpp, where the DrawCmd's is2d/noStereo is set:
+cmd->is2d = (buf_vbo[3] > 0.99f && buf_vbo[3] < 1.01f) || (g_turok_proj_is_2d != 0);
+```
+This flattens ALL 2D draws (menu + HUD) with zero parallax, and never touches 3D (perspective → the column
+norm is ≥1). **PD note:** PD solves the same "menu pulled apart" with an explicit `set_no_stereo` SPAN driven
+by a `0x2D0057` GBI marker (`gfx_citro3d_set_force_no_stereo` / `sForceNoStereoDepth`) — that works but needs
+the game to emit/detect the marker around the menu. The **projection-column test above is simpler and
+game-agnostic** (no marker needed); consider switching PD to it, or at least verify PD's marker actually
+brackets every menu element (the selection bar is the one that slips through).
+
 ---
 
 ## 3. Change C — Stereo strength multiplier. *PD: scale both shear terms.*

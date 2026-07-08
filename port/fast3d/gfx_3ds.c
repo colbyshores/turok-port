@@ -117,7 +117,11 @@ static void gfx_3ds_init(const struct GfxWindowInitSettings *settings) {
 }
 
 static void gfx_3ds_close(void) {
-    aptUnhook(&s_lcd_hook);   // stop re-asserting; HOME/Luma re-lights both panels on exit
+    // Restore the bottom backlight before we exit — the HOME menu / Homebrew Launcher needs it lit, and a
+    // direct exit() (pause-menu "quit game") does NOT fire APTHOOK_ONSUSPEND, so we must power it on here.
+    // Covers every teardown path (HOME-close AND pause-quit, which both call gfx_3ds_close).
+    lcd_set_bottom(1);
+    aptUnhook(&s_lcd_hook);
     C3D_Fini();
     gfxExit();
 }
