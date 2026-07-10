@@ -723,11 +723,125 @@ Three 3DS-only lifecycle facts that bite every port with a top-screen-only HUD:
   — stops the GSP thread) **before** `exit(0)`. ★ And **re-light the bottom backlight in that teardown**: a direct
   `exit()` does NOT fire `APTHOOK_ONSUSPEND`, so put `PowerOnBacklight(BOTTOM)` at the top of the shared close
   function (covers both HOME-close and pause-quit).
+  - **★ EVERY joinable thread must be stopped before `exit()` — including library-internal ones you never
+    spawned.** Joining your *own* worker threads isn't enough: `ndspInit()` (audio DSP) spawns libctru's own
+    internal thread, and without a paired **`ndspExit()`** it's still in its update loop when `svcExitProcess`
+    unmaps memory → data-abort on its own stack. **The diagnostic tell in a Luma dump: `FAR ≈ SP`** (the fault
+    address sits just below the stack pointer = "this thread's stack got freed while it was running"), plus a
+    crash PC that `addr2line` resolves straight into a `libctru/source/<svc>/…` function (`ndsp*`, `gsp*`, `y2r*`,
+    `csnd*`). Each such subsystem needs its `*Exit()` on the teardown path (`ndspInit→ndspExit`,
+    `romfsInit→romfsExit`, …). Diagnose with the Luma-dump loop (§9): parse `exType`/`DFSR`/`FAR`/regs from the
+    binary first (build-independent), then `addr2line` the PC.
 - **The SD save/config/log folder is not auto-created.** `fopen(path,"w")` never makes parent directories, and a
   **CIA that bundles its assets in RomFS** (so the player never hand-creates the SD data folder the way a
   `.3dsx`-with-external-ROM does) will silently fail its first save / settings write. `mkdir` the folder (all
   levels — `mkdir` isn't recursive) once at boot, before any save. (The Perfect Dark "eeprom folder not created"
   bug class.)
+
+## 23. Dual-analog sticks on a ONE-stick N64 game (the second stick can't go through the N64 stick)
+
+The N64 pad has ONE analog stick; a New-3DS / modern controller has two. Wiring the second stick correctly is
+NOT "copy the first stick" — the trap is what the ORIGINAL stick actually does:
+
+- **First grep the actual `CTTYPE_*` / stick bindings — do NOT assume the N64 stick is a MOVE stick.** In a
+  right-handed FPS config it is usually the **LOOK/TURN** stick (`stick_y` = pitch, `stick_x` = turn) and
+  MOVEMENT is on the digital C-buttons. If you feed a new "move forward" into `stick_y`, the player LOOKS up.
+  (This exact wrong assumption cost a whole session of "the nub aims instead of moving".)
+- **A new MOVE stick therefore CANNOT be routed through `stick_x/stick_y`** — that drives look/turn. Inject the
+  analog translation DIRECTLY into the movement code (a port seam consumed inside the move/physics update),
+  matching the sign and form of the engine's own analog-move path. A LOOK stick, by contrast, DOES reuse the
+  native `stick_x/stick_y` (that's what they are).
+- **The direct-inject move seam bypasses the control funnel the engine zeroes to disable input** (no-controller,
+  attract-demo playback, cutscenes/cinematics). Gate the seam on the same predicates the engine uses
+  (attract-active / cinema-mode) or a thumb on the stick desyncs a playing demo or drives a cutscene.
+- **Normalize EACH physical stick by its OWN range.** The New-3DS C-stick nub has a smaller usable deflection
+  than the Circle Pad; reusing the pad's scale caps the nub below full → the classic "moves on flat ground but
+  won't climb slopes" (step-up needs full run speed). Divide each stick by its own max so a firm push on either
+  reaches 1.0.
+- **Provide a "swap sticks" toggle** (which stick moves vs. looks) and **zero-initialise the raw stick read** —
+  a failed/absent read then sees 0, not stack garbage (the "moves with no input" class). Read the second stick's
+  service lazily (on 3DS the C-stick is `irrst`, a SEPARATE service from `hid`).
+
+## 24. User-remappable input: the shared bind-table pattern (keyboard AND pad, PC AND 3DS)
+
+A rebind system that's shared across backends and platforms, built once:
+
+- **The binding table (action → input) lives in the always-linked, backend-free config TU** — the same one that
+  loads/saves the settings file — as human-readable string TOKENS (`bind_fire mouse1`, `pad_jump a`). So the
+  game menu (C), the SDL backend (C++) and the HID backend (C) all reference ONE storage, and it serializes to
+  the settings file for free. The menu code never touches SDL/HID.
+- **Each backend RESOLVES tokens to its native input** (SDL scancode/button, HID key mask) and applies them.
+  Only the trigger is remappable; the action's consumption mechanism is fixed. Weapon-cycle-type actions must
+  stay on the FPS>TICK-safe discrete seam (§8), not a held button, on any platform that renders faster than it
+  ticks.
+- **Interactive capture is a seam**: the menu ARMS an action (`capture_action = N`), the backend FILLS the next
+  raw press (`capture_result` + `capture_done`) and SUPPRESSES that press so it doesn't leak into the game/menu.
+  Cancel and clear-to-none are part of the same seam.
+- **Reserve the pause/menu key so a bad rebind can NEVER lock the player out** (Turok: START on the pad, ESC on
+  PC, both non-remappable). And **put the two meta-actions (cancel / clear-to-none) on NON-gameplay inputs** so
+  every real button stays bindable and a stray input can't destroy a binding — 3DS: bottom-screen touch zones
+  (see §26); PC: keyboard ESC/DEL. Mirror the sibling port's exact scheme for muscle-memory consistency across
+  your ports.
+
+## 25. Adding an options SUBMENU to an N64 menu: FILE-SCOPE STATICS ONLY (never grow the struct)
+
+Proven 3× on Turok (display / controls / gamepad submenus) — the same rule each time:
+
+- **NEVER store menu or slider state in the game's options/app struct.** Growing `COptions` (or any struct the
+  app object embeds) shifts every field after it; a stale incremental build then links two TUs with mismatched
+  layouts → corrupted cache/texture pointers, and it crashes on BOTH PC and 3DS (the same root produced a 3DS
+  Luma crash and a PC "wrong textures"). Use **file-scope statics** backed by the settings file; the struct
+  stays byte-identical, so a stale object can't mis-index.
+- **A submenu is a sub-mode**: one file-scope `s_XActive` flag, branched at the TOP of the menu's Update AND
+  Draw (before the normal rows) → the sub-update/draw; "back" clears the flag + saves.
+- **Grow the menu box by the row count, gated per-platform**, and keep the N64 / other-platform layout
+  byte-identical (`#ifdef`). Respect the font charset — an N64 UI font often lacks punctuation (Turok's
+  LARGE_FONT is lowercase + digits + space only: no `:` `-` `.`), so label with plain words.
+
+## 26. Reusing the game's OWN DL font on the 3DS BOTTOM screen (a second-screen overlay)
+
+To draw the game's native font/UI on the second screen without writing a new renderer, on a Fast3D→citro3d
+backend that already has a bottom render target (`sBottom`, usually just cleared):
+
+- The game emits the bottom-screen content in normal top-screen UI coords (boxes + text via the game's own
+  font routines), **bracketed by a `gDPNoOpTag` marker** with a distinctive high tag value (real NOOPs are
+  small, so no collision). The interpreter decodes the marker at record time and toggles a "recording bottom"
+  flag; each recorded draw command is TAGGED `cmd->bottom`.
+- **★ `gfx_flush()` at the marker BEFORE toggling the flag.** Fast3D BATCHES triangles and flushes the vertex
+  buffer lazily, so the last glyph's (shadow/main) draw is still buffered when the flag flips and gets committed
+  with the NEW value → it lands on the wrong screen. The tell is that ONLY the boundary character leaks (the
+  last char of the top content appears on the bottom, and vice-versa). Flushing commits the pending draw with
+  the correct flag first.
+- At frame end, **replay the tagged commands to the bottom target** (full-bottom viewport + the 2D/mono
+  transform — the bottom uses the SAME panel rotation as the top, so the top's mono transform works), and
+  **SKIP the tagged commands on every top-screen pass** so they never show up top.
+- **Light the second screen's backlight only while the overlay is up** (edge-detect on the state; don't
+  `gspLcdInit/Exit` every frame), then restore the battery-off preference (§22). Touch hit-test against the
+  on-screen button coords — bottom-screen touch coords are landscape (0..319 × 0..239), independent of the
+  rotated GPU framebuffer.
+
+## 27. Cross-cutting POLICIES for future ports
+
+Rules (not just lessons) worth applying by default:
+
+- **Check the sibling ports FIRST when you hit a bug class, and push fixes back.** The same team's other
+  N64→PC/3DS ports (Banjo, Perfect Dark, Forsaken) have almost certainly hit — and fixed — the same class:
+  this week alone the eeprom/save-folder mkdir, the `ndspExit` quit crash, the stereo eye-sign, and the
+  dual-analog default all matched a Perfect Dark commit. `git log` the sibling before diagnosing from scratch,
+  and when you fix something generic, port the fix (or a spec) sideways.
+- **A compiled DEFAULT flip does NOT migrate an existing saved settings file.** When you change a default the
+  user can persist (invert-3d, a sensitivity, a resolution), anyone with a prior settings file keeps the OLD
+  value — the code default only applies to a fresh install. Ship it as a **default-off toggle** first (so it's
+  testable), flip the compiled default once confirmed on HW, and tell the user their saved file may pin the old
+  value (they check/delete it).
+- **MEASURE the delivery path before resizing a buffer.** An audio "truncation / underrun / cut-off" symptom is
+  tempting to fix by doubling the output buffer — but measure first (queue low-water, thread wake cadence,
+  event-queue free-list). Turok's "music truncated" had THREE delivery theories each refuted by measurement; the
+  real cause was upstream and FPS-coupled (a fade running at render rate, §8). A guess that "works" can mask the
+  real bug and waste the next session.
+- **Verify feel / HW-only changes at the USER's real config, on real hardware.** Frame-pacing and respawn bugs
+  only appear at FPS>TICK (§8); stereo only exists with the 3D slider up on real silicon (§21); PICA blend
+  quirks never reproduce on the HLE emulator (§15). A matched-rate or emulator pass gives a FALSE PASS.
 
 ---
 
@@ -739,5 +853,9 @@ the no-catch-up tick clock turns a heavy per-frame cost into slow-mo). §20 adde
 TEV, not the f24 `1/w` FogLut — and the no-free-per-vertex-channel constraint that forces per-vertex + per-draw fog
 paths). §21–§22 added 2026-07-07 (stereoscopic 3D — real-HW-only eye-sign + the default-flip methodology + 2D-flatten
 by projection-column not vertex-w; and the 3DS APT lifecycle — bottom-screen backlight across sleep/HOME + a clean
-quit that never `exit()`s from game code + the CIA-RomFS save-folder mkdir). See `CLAUDE.md` for the project-specific
-log and `docs/REFERENCES.md` for the per-sibling reference notes.*
+quit that never `exit()`s from game code + the CIA-RomFS save-folder mkdir). §22 extended + §23–§27 added 2026-07-10
+(the input/controls batch: `ndspExit` for library-internal threads on quit; dual-analog sticks on a one-stick N64
+game; the shared user-remappable bind-table pattern; the options-submenu file-scope-statics rule; reusing the game's
+DL font on the 3DS bottom screen; and the cross-cutting policies — sibling cross-check, default-flip-doesn't-migrate,
+measure-before-resize, verify-on-real-config). See `CLAUDE.md` for the project-specific log and `docs/REFERENCES.md`
+for the per-sibling reference notes.*
