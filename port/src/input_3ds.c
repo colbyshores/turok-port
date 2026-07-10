@@ -151,16 +151,23 @@ void input3dsScan(void)
     {   extern int turokMenuActive(void);
         extern int g_turok_menu_cancel;
         if (turokMenuActive()) {
-            /* pad rebind CAPTURE (options gamepad submenu armed it): grab the next pressed button; B = cancel.
-             * Suppress nav + movement while armed so the press only rebinds, doesn't navigate. NB B always
-             * cancels, so a binding can't be captured onto B via the menu (keep B's default / edit turok.cfg). */
+            /* pad rebind CAPTURE (options gamepad submenu armed it) — mirrors ../perfect_dark's scheme so the
+             * two meta-actions ride the only non-gameplay inputs and every real button (incl. B) stays bindable:
+             *   TOUCHSCREEN = cancel  (non-destructive back-out; a stray palm-touch cancels, never deletes)
+             *   SELECT      = remove  (clear the binding to none, freeing that button for another action)
+             * Any other digital button is captured as the new binding. START is reserved (it's always pause).
+             * Suppress nav + movement while armed so the press only rebinds. */
             if (g_padbind_capture_action >= 0) {
-                if (kDown & KEY_B) {
+                if (kDown & KEY_TOUCH) {                 /* touchscreen = cancel / back out */
                     g_padbind_capture_cancel = 1; g_padbind_capture_done = 1; g_padbind_capture_action = -1;
+                } else if (kDown & KEY_SELECT) {         /* SELECT = remove binding (set none) */
+                    g_padbind_capture_result = PADBTN_NONE; g_padbind_capture_done = 1; g_padbind_capture_action = -1;
                 } else {
                     int a;
                     for (a = PADBTN_A; a < PADBTN_MAX; a++) {
-                        u32 km = pad_btn_key(a);
+                        u32 km;
+                        if (a == PADBTN_SELECT || a == PADBTN_START) continue;   /* reserved: remove / pause */
+                        km = pad_btn_key(a);
                         if (km && (kDown & km)) { g_padbind_capture_result = a; g_padbind_capture_done = 1; g_padbind_capture_action = -1; break; }
                     }
                 }

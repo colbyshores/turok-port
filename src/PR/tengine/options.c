@@ -195,13 +195,21 @@ static int display_strength_index(void)
  * the struct-growth layout-corruption gotcha). The binding table + capture seam live in config.c
  * (turok_padbinds.h); this menu never touches SDL/HID. LARGE_FONT = lowercase + digits + space only. */
 static char	text_padcontrols[] = {"gamepad"};
+/* Rebind meta-key hint (drawn as a footer under the rows). LARGE_FONT-safe (lowercase + space). On 3DS the two
+ * meta-actions ride the non-gameplay inputs (touch = cancel, SELECT = clear-to-none), mirroring ../perfect_dark;
+ * on PC they're keyboard ESC / DEL. Explains how to back out of / clear a binding, per the user request. */
+#ifdef PLATFORM_3DS
+static char	text_pad_hint[] = {"touch cancel  select clear"};
+#else
+static char	text_pad_hint[] = {"esc cancel  del clear"};
+#endif
 static int	s_PadActive = 0;	/* 1 = the gamepad submenu is showing. */
 static int	s_PadSel    = 0;	/* selected row 0..PAD_ROWS-1. */
 #define PAD_ROWS			(PADACT_MAX + 2)	/* 10 actions + "defaults" + "back" */
 #define PAD_ROW_DEFAULTS	(PADACT_MAX)
 #define PAD_ROW_BACK		(PADACT_MAX + 1)
 #define PAD_WIDTH			(232)
-#define PAD_HEIGHT			(200)
+#define PAD_HEIGHT			(216)			/* rows + a footer hint line */
 #define PAD_X				((320/2) - (PAD_WIDTH/2))
 #define PAD_Y				((240/2) - (PAD_HEIGHT/2))
 #define PAD_ROW_SP			(14)
@@ -1139,6 +1147,10 @@ static void options_pad_draw(COptions *pThis, Gfx **ppDLP)
 		COnScreen__DrawText(ppDLP, line, PAD_X+12, y, (int)(255 * pThis->m_Alpha), FALSE, TRUE) ;
 		y += PAD_ROW_SP ;
 	}
+
+	/* footer hint: how to cancel / clear a binding while capturing (the requested back-out + set-none text). */
+	COnScreen__SetFontColor(ppDLP, 160*.9, 160*.9, 120*.9, 70*.9, 60*.9, 40*.9) ;
+	COnScreen__DrawText(ppDLP, text_pad_hint, PAD_X+12, y+2, (int)(255 * pThis->m_Alpha), FALSE, TRUE) ;
 }
 #endif	/* PLATFORM_PORT */
 

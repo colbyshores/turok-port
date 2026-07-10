@@ -529,18 +529,21 @@ static void turok_sdl_update_input(void) {
      * simultaneously asserts its OLD binding (e.g. Enter=START would 'click' the menu row being rebound). */
     if (g_bind_capture_action >= 0) { inputSetState(0, 0, 0); return; }
 
-    /* PAD rebind capture (options gamepad submenu armed it): grab the first newly-pressed CONTROLLER button;
-     * ESC cancels (works even with no controller connected, so the player can't get stuck on "press a button").
+    /* PAD rebind capture (options gamepad submenu armed it): grab the first newly-pressed CONTROLLER button.
+     * ESC cancels (back out) and DEL/Backspace removes the binding (clear to none) — both work even with no
+     * controller connected, so the player can't get stuck on "press a button". START is reserved (always pause).
      * Push a neutral pad + skip all mapping so the press only rebinds. */
     if (g_padbind_capture_action >= 0) {
         if (k[SDL_SCANCODE_ESCAPE]) {
             g_padbind_capture_cancel = 1; g_padbind_capture_done = 1; g_padbind_capture_action = -1;
+        } else if (k[SDL_SCANCODE_DELETE] || k[SDL_SCANCODE_BACKSPACE]) {
+            g_padbind_capture_result = PADBTN_NONE; g_padbind_capture_done = 1; g_padbind_capture_action = -1;
         } else if (g_sdl_controller && gamepad_on()) {
             static unsigned s_cap_prev = 0;
             unsigned held = pad_held_mask(g_sdl_controller);
             unsigned down = held & ~s_cap_prev; s_cap_prev = held;
             if (down) for (int b = 1; b < PADBTN_MAX; b++)
-                if (down & (1u << b)) { g_padbind_capture_result = b; g_padbind_capture_done = 1; g_padbind_capture_action = -1; break; }
+                if (b != PADBTN_START && (down & (1u << b))) { g_padbind_capture_result = b; g_padbind_capture_done = 1; g_padbind_capture_action = -1; break; }
         }
         inputSetState(0, 0, 0);
         return;
