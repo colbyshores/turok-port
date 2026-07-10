@@ -165,8 +165,16 @@ static void gfx_3ds_handle_events(void) {
         // the quit crash (Luma data-abort, far≈sp). The standard teardown (C3D_Fini + gfxExit) stops the
         // GSP thread cleanly before exit. (Do NOT C3D_FrameSync here — after HOME-close no new frame is
         // submitted, so it blocks forever → the "closing software" hang.)
-        extern void audioThreadStop(void);  // join the audio worker (no-op if PD_AUDIO_THREAD=0); it is
+        extern void audioThreadStop(void);  // join OUR audio worker (no-op if PD_AUDIO_THREAD=0); it is
         audioThreadStop();                  // JOINABLE, so left running it would also crash on svcExitProcess
+        // ★ THEN stop libctru's OWN internal ndsp thread via ndspExit() (audioClose): ndspInit() spawns it,
+        // and if it's still running its update loop when svcExitProcess unmaps memory it data-aborts on its
+        // own stack (Luma quit dump: DFSR=0x805 write/translation, PC in ndspiReadChnState←ndspUpdateCapture,
+        // far≈sp — the exact crash the user hit). audioThreadStop() only joins OUR producer, not this
+        // library-internal thread; audioClose() is idempotent (sReady) and must run AFTER it so we're not
+        // feeding ndsp during teardown. Mirrors ../perfect_dark's §36.5 fix.
+        extern void audioClose(void);
+        audioClose();
         gfx_3ds_close();   // C3D_Fini() + gfxExit() — joins/stops the GSP event thread before we exit
         exit(0);
     }
