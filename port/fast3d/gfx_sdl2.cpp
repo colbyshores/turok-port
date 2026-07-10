@@ -10,7 +10,8 @@
 
 #include "gfx_window_manager_api.h"
 #include "gfx_screen_config.h"
-#include "turok_binds.h"   /* PC-only rebindable input tokens + capture seam (defined in config.c) */
+#include "turok_binds.h"      /* PC-only rebindable key/mouse tokens + capture seam (defined in config.c) */
+#include "turok_padbinds.h"   /* shared gamepad button-remap table + capture seam (defined in config.c) */
 
 static SDL_Window* wnd;
 static SDL_GLContext ctx;
@@ -484,6 +485,39 @@ static void edge_from_wheel(int y) {
             if (s_bind[a][s].kind == want) fire_edge_bind(a, amount);
 }
 
+/* ---- PORT: gamepad button remap (shared table in config.c; see turok_padbinds.h) ----------------------------
+ * Map each abstract PADBTN_* to its SDL controller button / analog trigger, build a held-bitmask over PADBTN,
+ * then apply the bound actions. Held actions assert an N64 bit each frame; weapon-cycle + walk fire on the
+ * rising edge (weapon via g_weapon_cycle, the FPS>TICK-safe seam). START stays hard-wired to pause. */
+extern "C" { extern float g_turok_look_sens; }
+
+static unsigned pad_held_mask(SDL_GameController *c) {
+    unsigned m = 0;
+    #define PADSET(bit, cond) do { if (cond) m |= (1u << (bit)); } while (0)
+    PADSET(PADBTN_A,      SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_A));
+    PADSET(PADBTN_B,      SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_B));
+    PADSET(PADBTN_X,      SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_X));
+    PADSET(PADBTN_Y,      SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_Y));
+    PADSET(PADBTN_L,      SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_LEFTSHOULDER));
+    PADSET(PADBTN_R,      SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER));
+    PADSET(PADBTN_ZL,     SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_TRIGGERLEFT)  > 8000);
+    PADSET(PADBTN_ZR,     SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 8000);
+    PADSET(PADBTN_START,  SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_START));
+    PADSET(PADBTN_SELECT, SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_BACK));
+    PADSET(PADBTN_DUP,    SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_UP));
+    PADSET(PADBTN_DDOWN,  SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_DOWN));
+    PADSET(PADBTN_DLEFT,  SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_LEFT));
+    PADSET(PADBTN_DRIGHT, SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_RIGHT));
+    #undef PADSET
+    return m;
+}
+/* PADACT_* -> the N64 pad bit it asserts while HELD (0 = an EDGE-only action: weapon cycle / walk toggle). */
+static const unsigned s_padact_bit[PADACT_MAX] = {
+    N64_CU, N64_CD, N64_CL, N64_CR,   /* forward, back, strafe_l, strafe_r */
+    N64_Z,  N64_R,  N64_L,  0,        /* fire, jump, map, walk(edge) */
+    0, 0                              /* weap_next(edge), weap_prev(edge) */
+};
+
 static void turok_sdl_update_input(void) {
     unsigned short btn = 0;
     int sx = 0, sy = 0;
@@ -494,6 +528,23 @@ static void turok_sdl_update_input(void) {
     /* While a rebind capture is armed, push a NEUTRAL pad and skip all mapping — otherwise the pressed key
      * simultaneously asserts its OLD binding (e.g. Enter=START would 'click' the menu row being rebound). */
     if (g_bind_capture_action >= 0) { inputSetState(0, 0, 0); return; }
+
+    /* PAD rebind capture (options gamepad submenu armed it): grab the first newly-pressed CONTROLLER button;
+     * ESC cancels (works even with no controller connected, so the player can't get stuck on "press a button").
+     * Push a neutral pad + skip all mapping so the press only rebinds. */
+    if (g_padbind_capture_action >= 0) {
+        if (k[SDL_SCANCODE_ESCAPE]) {
+            g_padbind_capture_cancel = 1; g_padbind_capture_done = 1; g_padbind_capture_action = -1;
+        } else if (g_sdl_controller && gamepad_on()) {
+            static unsigned s_cap_prev = 0;
+            unsigned held = pad_held_mask(g_sdl_controller);
+            unsigned down = held & ~s_cap_prev; s_cap_prev = held;
+            if (down) for (int b = 1; b < PADBTN_MAX; b++)
+                if (down & (1u << b)) { g_padbind_capture_result = b; g_padbind_capture_done = 1; g_padbind_capture_action = -1; break; }
+        }
+        inputSetState(0, 0, 0);
+        return;
+    }
 
     if (!s_bind_resolved) resolve_all_binds();
 
@@ -557,19 +608,33 @@ static void turok_sdl_update_input(void) {
         { extern float g_turok_forward, g_turok_strafe;
           g_turok_forward = -(float)axis_to_n64(ly) / 80.0f;   /* up = forward   */
           g_turok_strafe  =  (float)axis_to_n64(lx) / 80.0f; } /* right = strafe  */
-        float gs = mouse_sens() * 0.00004f;
+        /* right-stick LOOK scales by the "look sensitivity" slider (g_turok_look_sens = m_HAnalog), NOT the
+         * mouse's mouse_sensitivity — so a controller player tunes look feel from the same options slider. The
+         * base gain reproduces the prior default at slider=1.0 (== the old mouse_sens 6.0 * 0.00004). */
+        float gs = g_turok_look_sens * (6.0f * 0.00004f);
         if (rx < -8000 || rx > 8000) g_look_yaw   += (float)rx * gs;
         if (ry < -8000 || ry > 8000) g_look_pitch += (float)ry * gs * (mouse_invert() ? 1.0f : -1.0f);
-        if (SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 8000) btn |= N64_Z;  /* fire */
-        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_A))            btn |= N64_R;      /* jump */
-        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER))btn |= N64_A;      /* next weapon */
-        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) btn |= N64_B;      /* prev weapon */
-        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_BACK))         btn |= N64_L;      /* map */
-        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_START))        btn |= N64_START;
-        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_UP))      btn |= N64_CU;
-        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_DOWN))    btn |= N64_CD;
-        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_LEFT))    btn |= N64_CL;
-        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_RIGHT))   btn |= N64_CR;
+
+        /* buttons: remappable via the options gamepad submenu (config.c g_cfg_padbind). Rebind CAPTURE is
+         * serviced by the early-return block near the top of this function, so here we always apply. Held
+         * actions assert an N64 bit; weapon-cycle + walk fire on the rising edge. */
+        unsigned held = pad_held_mask(c);
+        static unsigned s_pad_prev = 0;
+        unsigned down = held & ~s_pad_prev;      /* rising edges this frame */
+        s_pad_prev = held;
+        for (int a = 0; a < PADACT_MAX; a++) {
+            int pb = g_cfg_padbind[a];
+            if (pb <= PADBTN_NONE || pb >= PADBTN_MAX) continue;
+            unsigned bitm = 1u << pb;
+            if (s_padact_bit[a]) { if (held & bitm) btn |= s_padact_bit[a]; }   /* held N64 bit */
+            else if (down & bitm) {                                             /* edge: weapon / walk */
+                if      (a == PADACT_WEAP_NEXT) { g_weapon_cycle += 1; if (g_weapon_cycle >  12) g_weapon_cycle =  12; }
+                else if (a == PADACT_WEAP_PREV) { g_weapon_cycle -= 1; if (g_weapon_cycle < -12) g_weapon_cycle = -12; }
+                else if (a == PADACT_WALK)      { g_turok_walk_mode = !g_turok_walk_mode; }
+            }
+        }
+        /* START is always pause (never remappable) — the player can't lose access to the menu. */
+        if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_START)) btn |= N64_START;
     }
 
     if (sx > 80) sx = 80; if (sx < -80) sx = -80;

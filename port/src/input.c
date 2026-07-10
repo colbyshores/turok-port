@@ -34,6 +34,13 @@ int g_turok_walk_mode = 0;
  * zeroed by the tengine.c mouse-look hook. Held (no spring back to center), gated PLATFORM_PORT. */
 float g_look_yaw = 0.0f, g_look_pitch = 0.0f;
 
+/* LOOK sensitivity multiplier (the options-menu "look sensitivity" slider = m_HAnalog/128; default 1.0).
+ * Published each frame by tengine.c from m_Options so a backend can read it without the game struct. The PC
+ * SDL2 backend scales its analog CONTROLLER look (right stick) by this, so a controller player can set look
+ * sensitivity from the menu (the mouse keeps its own mouse_sensitivity; the 3DS/arrow-key N64-stick look is
+ * already scaled by m_HAnalog in control.c). Always-linked so headless/EGL builds resolve it. */
+float g_turok_look_sens = 1.0f;
+
 /* Analog MOVEMENT levels for the 3DS dual-analog "move stick" (the nub), -1..+1. In Turok's control config the
  * N64 analog stick is the LOOK stick (stick_y = look up/down, stick_x = turn), so a movement stick CANNOT go
  * through stick_x/stick_y — it must inject translation directly into the movement code:

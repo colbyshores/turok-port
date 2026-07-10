@@ -4935,6 +4935,11 @@ void CEngineApp__UpdateGAME(CEngineApp *pThis)
 	 * accumulate a HELD pitch ADDED on top of the stock spring m_RotXOffset (so the keyboard/gamepad spring-
 	 * look still works as a fallback). MUST run before the interp snapshot below so turn/pitch interpolate.
 	 * Live-player only (not paused/warping/dying). g_look_* live in input.c (always-linked). */
+	/* Publish the "look sensitivity" slider (m_HAnalog/128, default 1.0) so the SDL2 backend can scale its
+	 * analog CONTROLLER look — a controller player then sets look sensitivity from the same options slider. */
+	{ extern float g_turok_look_sens; g_turok_look_sens = (float)pThis->m_Options.m_HAnalog / 128.0f;
+	  if (g_turok_look_sens < 20.0f/128.0f) g_turok_look_sens = 20.0f/128.0f; }
+
 	{ extern float g_look_yaw, g_look_pitch; static float held_pitch = 0.0f;
 	  CGameObjectInstance *_lp = CEngineApp__GetPlayer(pThis);
 	  if (_lp && pThis->m_bPause==FALSE && pThis->m_Warp==WARP_NOT_WARPING && pThis->m_Death==DEATH_NOT_DIEING) {

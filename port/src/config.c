@@ -11,7 +11,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "turok_binds.h"             /* PC-only bind table + capture seam (empty on 3DS/N64) */
+#include "turok_binds.h"             /* PC-only key/mouse bind table + capture seam (empty on 3DS/N64) */
+#include "turok_padbinds.h"          /* shared 3DS+PC gamepad button-remap table + capture seam (empty on N64) */
 
 extern char *getenv(const char *);
 extern int   g_turok_walk_mode;      /* input.c — seeded from walk_default at load */
@@ -193,6 +194,93 @@ static void turokConfigParseBind(const char *bkey, const char *bval)
 }
 #endif  /* PLATFORM_PORT && !PLATFORM_3DS */
 
+#ifdef PLATFORM_PORT
+/* ── Gamepad button remap (3DS + PC controller) ─────────────────────────────────────────────────────────────
+ * Shared by both ports (see turok_padbinds.h). config.c stores the action->button table + serializes it; the
+ * backends (input_3ds.c / gfx_sdl2.cpp) map PADBTN_* to their native buttons and apply the bound actions. */
+int g_cfg_padbind[PADACT_MAX];
+int g_cfg_padbind_dirty      = 0;
+
+/* Capture seam (the options pad submenu arms; the active backend fills). */
+int g_padbind_capture_action = -1;
+int g_padbind_capture_done   = 0;
+int g_padbind_capture_cancel = 0;
+int g_padbind_capture_result = 0;
+
+/* PADBTN_* <-> cfg/display strings (indexed by the PADBTN enum). Tokens are the whitespace-free words written
+ * to turok.cfg; names are the friendlier menu labels (LARGE_FONT-safe: lowercase letters/digits/space only). */
+static const char *s_padbtn_token[PADBTN_MAX] = {
+    "none", "a", "b", "x", "y", "l", "r", "zl", "zr", "start", "select",
+    "dup", "ddown", "dleft", "dright"
+};
+static const char *s_padbtn_name[PADBTN_MAX] = {
+    "none", "a", "b", "x", "y", "l", "r", "zl", "zr", "start", "select",
+    "dpad up", "dpad down", "dpad left", "dpad right"
+};
+
+/* PADACT_* -> cfg key stem (`pad_<key>`) + short menu label. Indexed by the PADACT enum. */
+static const struct { const char *key; const char *label; } s_padact[PADACT_MAX] = {
+    {"forward",     "forward"},   {"back",        "back"},
+    {"strafe_left", "strafe l"},  {"strafe_right","strafe r"},
+    {"fire",        "fire"},      {"jump",        "jump"},
+    {"map",         "map"},       {"walk",        "walk"},
+    {"weapon_next", "weap next"}, {"weapon_prev", "weap prev"},
+};
+
+/* Reset the pad table to the per-platform stock scheme (== each backend's prior hard-coded mapping). 3DS puts
+ * digital movement on the face buttons (Circle Pad = look); the PC controller puts it on the D-pad (left stick
+ * = analog move). */
+void turokPadSetDefaults(void)
+{
+#ifdef PLATFORM_3DS
+    g_cfg_padbind[PADACT_FORWARD]   = PADBTN_X;      /* face-button diamond: X=fwd B=back Y=strafeL A=strafeR */
+    g_cfg_padbind[PADACT_BACK]      = PADBTN_B;
+    g_cfg_padbind[PADACT_STRAFE_L]  = PADBTN_Y;
+    g_cfg_padbind[PADACT_STRAFE_R]  = PADBTN_A;
+    g_cfg_padbind[PADACT_FIRE]      = PADBTN_R;
+    g_cfg_padbind[PADACT_JUMP]      = PADBTN_L;
+    g_cfg_padbind[PADACT_MAP]       = PADBTN_NONE;   /* 3DS has no dedicated map button by default (bind ZL/ZR) */
+    g_cfg_padbind[PADACT_WALK]      = PADBTN_SELECT;
+    g_cfg_padbind[PADACT_WEAP_NEXT] = PADBTN_DUP;
+    g_cfg_padbind[PADACT_WEAP_PREV] = PADBTN_DDOWN;
+#else /* PC controller */
+    g_cfg_padbind[PADACT_FORWARD]   = PADBTN_DUP;    /* D-pad movement; left stick is the analog move stick */
+    g_cfg_padbind[PADACT_BACK]      = PADBTN_DDOWN;
+    g_cfg_padbind[PADACT_STRAFE_L]  = PADBTN_DLEFT;
+    g_cfg_padbind[PADACT_STRAFE_R]  = PADBTN_DRIGHT;
+    g_cfg_padbind[PADACT_FIRE]      = PADBTN_ZR;     /* right trigger */
+    g_cfg_padbind[PADACT_JUMP]      = PADBTN_A;
+    g_cfg_padbind[PADACT_MAP]       = PADBTN_SELECT; /* Back/Select */
+    g_cfg_padbind[PADACT_WALK]      = PADBTN_X;
+    g_cfg_padbind[PADACT_WEAP_NEXT] = PADBTN_R;      /* shoulders cycle weapons */
+    g_cfg_padbind[PADACT_WEAP_PREV] = PADBTN_L;
+#endif
+}
+
+const char *turokPadActionLabel(int action)
+{
+    return (action >= 0 && action < PADACT_MAX) ? s_padact[action].label : "";
+}
+const char *turokPadButtonName(int padbtn)
+{
+    return (padbtn >= 0 && padbtn < PADBTN_MAX) ? s_padbtn_name[padbtn] : "none";
+}
+
+/* Parse a `pad_<action> <buttontoken>` line into g_cfg_padbind. Unknown token -> unbound. */
+static void turokConfigParsePad(const char *pkey, const char *pval)
+{
+    int a, b;
+    const char *name = pkey + 4;                    /* skip "pad_" */
+    for (a = 0; a < PADACT_MAX; a++)
+        if (!strcmp(name, s_padact[a].key)) {
+            for (b = 0; b < PADBTN_MAX; b++)
+                if (!strcmp(pval, s_padbtn_token[b])) { g_cfg_padbind[a] = b; return; }
+            g_cfg_padbind[a] = PADBTN_NONE;
+            return;
+        }
+}
+#endif  /* PLATFORM_PORT */
+
 /* Draw-distance ceiling. PC = up to 3x (the slider is a PC feature). 3DS is locked at stock 1x (draw distance is
  * framerate-gated there); the options menu hides the slider row when the max is 1x. */
 float turok_drawdist_max(void)
@@ -224,6 +312,9 @@ void turokConfigLoad(void)
 #if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
     turokBindsSetDefaults();          /* stock scheme first, so cfg `bind_*` lines override + an absent file = defaults */
 #endif
+#ifdef PLATFORM_PORT
+    turokPadSetDefaults();            /* gamepad remap: stock scheme first, so cfg `pad_*` override + absent = defaults */
+#endif
 
     f = fopen(cfg_path(), "r");
     if (!f)
@@ -237,6 +328,15 @@ void turokConfigLoad(void)
         {   char bkey[64], bval[TUROK_BIND_TOKLEN];
             if (sscanf(line, "%63s %23s", bkey, bval) == 2 && !strncmp(bkey, "bind_", 5)) {
                 turokConfigParseBind(bkey, bval);
+                continue;
+            }
+        }
+#endif
+#ifdef PLATFORM_PORT
+        /* gamepad button binds also have STRING values (`pad_fire zr`) — parse before the numeric parse. */
+        {   char pkey[64], pval[24];
+            if (sscanf(line, "%63s %23s", pkey, pval) == 2 && !strncmp(pkey, "pad_", 4)) {
+                turokConfigParsePad(pkey, pval);
                 continue;
             }
         }
@@ -341,6 +441,16 @@ void turokConfigSave(void)
         for (i = 0; i < N_BIND_KEYS; i++) {
             fprintf(f, "bind_%s %s\n",  s_bind_keys[i].name, g_cfg_bind[s_bind_keys[i].action][0]);
             fprintf(f, "bind_%s2 %s\n", s_bind_keys[i].name, g_cfg_bind[s_bind_keys[i].action][1]);
+        }
+    }
+#endif
+#ifdef PLATFORM_PORT
+    {   int i;
+        fprintf(f, "# gamepad button binds — a b x y l r zl zr start select dup ddown dleft dright none\n");
+        for (i = 0; i < PADACT_MAX; i++) {
+            int b = g_cfg_padbind[i];
+            if (b < 0 || b >= PADBTN_MAX) b = PADBTN_NONE;
+            fprintf(f, "pad_%s %s\n", s_padact[i].key, s_padbtn_token[b]);
         }
     }
 #endif

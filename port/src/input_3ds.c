@@ -18,6 +18,7 @@
 #include <3ds.h>
 #include <PR/ultratypes.h>
 #include "input.h"
+#include "turok_padbinds.h"   /* shared gamepad button-remap table + capture seam (defined in config.c) */
 
 /* N64 OSContPad button bits (match gfx_sdl2.cpp / ultra64 CONT_*). */
 #define N64_A     0x8000u
@@ -39,6 +40,36 @@ extern int   g_turok_walk_mode;        /* input.c — E-equivalent run/walk togg
 extern int   g_cfg_swap_sticks;        /* config.c — 0 (default): nub = analog move; 1: swapped (New 3DS) */
 extern float g_turok_strafe;           /* input.c — analog strafe level (-1..+1, + = right), read by CTMove */
 extern float g_turok_forward;          /* input.c — analog fwd/back level (-1..+1, + = forward), read by CTMove */
+
+/* Map an abstract PADBTN_* to its 3DS HID key mask (ZL/ZR are New-3DS only; never fire on an OG 3DS). */
+static u32 pad_btn_key(int pb)
+{
+    switch (pb) {
+        case PADBTN_A:      return KEY_A;
+        case PADBTN_B:      return KEY_B;
+        case PADBTN_X:      return KEY_X;
+        case PADBTN_Y:      return KEY_Y;
+        case PADBTN_L:      return KEY_L;
+        case PADBTN_R:      return KEY_R;
+        case PADBTN_ZL:     return KEY_ZL;
+        case PADBTN_ZR:     return KEY_ZR;
+        case PADBTN_START:  return KEY_START;
+        case PADBTN_SELECT: return KEY_SELECT;
+        case PADBTN_DUP:    return KEY_DUP;
+        case PADBTN_DDOWN:  return KEY_DDOWN;
+        case PADBTN_DLEFT:  return KEY_DLEFT;
+        case PADBTN_DRIGHT: return KEY_DRIGHT;
+        default:            return 0;
+    }
+}
+/* PADACT_* -> the N64 held bit on 3DS. Weapon cycle is the held A/B bit (the engine's SelectWeaponTimer is
+ * tick-gated at the locked-30Hz 3DS rate, so a held bit is safe — unlike PC's uncapped render, which cycles
+ * via the g_weapon_cycle edge seam). 0 = WALK, an edge (button-DOWN) toggle. */
+static const u16 s_padact_bit3ds[PADACT_MAX] = {
+    N64_CU, N64_CD, N64_CL, N64_CR,   /* forward, back, strafe_l, strafe_r */
+    N64_Z,  N64_R,  N64_L,  0,        /* fire, jump, map, walk(edge) */
+    N64_A,  N64_B                     /* weap_next, weap_prev (held bits) */
+};
 
 static s8 cpad_axis(int v)             /* circle pad ~±156 -> N64 stick ±80, deadzone */
 {
@@ -120,6 +151,24 @@ void input3dsScan(void)
     {   extern int turokMenuActive(void);
         extern int g_turok_menu_cancel;
         if (turokMenuActive()) {
+            /* pad rebind CAPTURE (options gamepad submenu armed it): grab the next pressed button; B = cancel.
+             * Suppress nav + movement while armed so the press only rebinds, doesn't navigate. NB B always
+             * cancels, so a binding can't be captured onto B via the menu (keep B's default / edit turok.cfg). */
+            if (g_padbind_capture_action >= 0) {
+                if (kDown & KEY_B) {
+                    g_padbind_capture_cancel = 1; g_padbind_capture_done = 1; g_padbind_capture_action = -1;
+                } else {
+                    int a;
+                    for (a = PADBTN_A; a < PADBTN_MAX; a++) {
+                        u32 km = pad_btn_key(a);
+                        if (km && (kDown & km)) { g_padbind_capture_result = a; g_padbind_capture_done = 1; g_padbind_capture_action = -1; break; }
+                    }
+                }
+                g_turok_menu_cancel = 0;
+                g_turok_strafe = 0.0f; g_turok_forward = 0.0f;
+                inputSetState(0, 0, 0);
+                return;
+            }
             u16 mb = 0;
             if (kHeld & KEY_DUP)    mb |= N64_DU;      /* menu up    */
             if (kHeld & KEY_DDOWN)  mb |= N64_DD;      /* menu down  */
@@ -135,31 +184,22 @@ void input3dsScan(void)
         g_turok_menu_cancel = 0;
     }
 
-    /* ── User control layout (2026-06-21) ─────────────────────────────────────
-     * Engine right-handed config: movement = C-buttons, Fire=Z_TRIG, Jump=R_TRIG,
-     * WeaponNext=A_BUTTON, WeaponPrev=B_BUTTON. We map the 3DS physical buttons
-     * onto those N64 bits. NB: the 3DS D-pad is NOT mapped to the N64 D-pad (that
-     * IS the engine's run/walk toggle) — it drives the weapon cycle via A/B. */
-
-    /* movement — face buttons -> C-buttons. Natural diamond (user-confirmed on hardware):
-     * X=top=forward, B=bottom=back, Y=left=strafe-left, A=right=strafe-right. */
-    if (kHeld & KEY_X)  btn |= N64_CU;   /* X = move forward   */
-    if (kHeld & KEY_B)  btn |= N64_CD;   /* B = move backward  */
-    if (kHeld & KEY_Y)  btn |= N64_CL;   /* Y = strafe left    */
-    if (kHeld & KEY_A)  btn |= N64_CR;   /* A = strafe right   */
-
-    /* weapon cycle — D-pad -> A/B (next/prev). up & right = up; down & left = down */
-    if (kHeld & (KEY_DUP   | KEY_DRIGHT)) btn |= N64_A;  /* cycle weapons up   (next) */
-    if (kHeld & (KEY_DDOWN | KEY_DLEFT))  btn |= N64_B;  /* cycle weapons down (prev) */
-
-    /* shoulders */
-    if (kHeld & KEY_R)  btn |= N64_Z;    /* R = fire (Z_TRIG) */
-    if (kHeld & KEY_L)  btn |= N64_R;    /* L = jump (R_TRIG) */
-
-    if (kHeld & KEY_START) btn |= N64_START;  /* pause */
-
-    /* SELECT toggles run/walk (the 3DS E-equivalent), edge-triggered. */
-    if (kDown & KEY_SELECT) g_turok_walk_mode = !g_turok_walk_mode;
+    /* ── In-play BUTTONS — remappable via the options gamepad submenu (config.c g_cfg_padbind) ────────────────
+     * Each PADACT_* is bound to an abstract PADBTN_* (-> a KEY_ mask via pad_btn_key). Held actions assert an
+     * N64 bit; weapon-cycle uses the held A/B bit (tick-gated by the engine at the locked 30Hz — safe on 3DS);
+     * WALK toggles on the button DOWN edge. Default scheme (turokPadSetDefaults, PLATFORM_3DS): the natural
+     * face diamond X/B/Y/A = fwd/back/strafeL/strafeR, R=fire, L=jump, D-up/down = weapon next/prev, SELECT =
+     * walk. The N64 D-pad is never asserted (it IS the engine's run/walk toggle); movement is the C-buttons.
+     * START stays hard-wired to pause below (never remappable) so a bad rebind can't lock out the menu. */
+    {   int a;
+        for (a = 0; a < PADACT_MAX; a++) {
+            u32 km = pad_btn_key(g_cfg_padbind[a]);
+            if (!km) continue;
+            if (s_padact_bit3ds[a]) { if (kHeld & km) btn |= s_padact_bit3ds[a]; }              /* held N64 bit */
+            else if ((kDown & km) && a == PADACT_WALK) g_turok_walk_mode = !g_turok_walk_mode;  /* edge toggle  */
+        }
+    }
+    if (kHeld & KEY_START) btn |= N64_START;   /* pause — fixed, never remappable */
 
     inputSetState(btn, sx, sy);
 }

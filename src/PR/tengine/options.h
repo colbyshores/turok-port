@@ -32,6 +32,9 @@ enum OptionSelections
 	OPTIONS_INVERTLOOK,			// 3DS only: toggle vertical-look invert (ON=push up looks down; OFF=normal)
 	OPTIONS_DISPLAY,			// 3DS only: enters the display submenu (3D depth invert/strength + bottom-screen backlight)
 #endif
+#ifdef PLATFORM_PORT
+	OPTIONS_PADCONTROLS,		// PC + 3DS port: enters the gamepad button-remap submenu
+#endif
 	OPTIONS_CONTROL,
 #ifndef GERMAN
 	OPTIONS_BLOOD,

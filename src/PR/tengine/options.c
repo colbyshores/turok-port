@@ -18,18 +18,18 @@
 #define OPTIONS_HEIGHT	(200)
 #define OPTIONSMENU_Y 			(OPTIONS_Y + 48)
 #elif defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
-/* PC: the draw-distance row (24px) plus the two new PC rows (resolution + fullscreen, 12px each) overflow the
- * stock 210-tall box beyond the bottom of the 240px screen — grow the box and tighten the header gap so every
- * row stays on-screen. PC-only, so 3DS/N64 layout is byte-identical (the #else below). */
+/* PC: the draw-distance row (24px) plus the new PC rows (resolution + fullscreen + controls + gamepad, 12px
+ * each) overflow the stock 210-tall box beyond the bottom of the 240px screen — grow the box and tighten the
+ * header gap so every row stays on-screen. PC-only, so 3DS/N64 layout is byte-identical (the #else below). */
 #define OPTIONS_WIDTH	(208)
-#define OPTIONS_HEIGHT	(236)
+#define OPTIONS_HEIGHT	(250)
 #define OPTIONSMENU_Y 			(OPTIONS_Y + 30)
 #elif defined(PLATFORM_3DS)
-/* 3DS: four extra rows vs stock (swap-sticks + recenter + invert + display toggles, ~12px each) — grow the box
- * + tighten the header gap so every row stays on-screen (New-3DS last row lands ~y=226, within 240). 3DS-only;
- * the N64 build keeps the stock 210 box. */
+/* 3DS: five extra rows vs stock (swap-sticks + recenter + invert + display + gamepad toggles, ~12px each) —
+ * grow the box + tighten the header gap so every row stays on-screen (New-3DS last row lands ~y=232, within
+ * 240). 3DS-only; the N64 build keeps the stock 210 box. */
 #define OPTIONS_WIDTH	(208)
-#define OPTIONS_HEIGHT	(264)
+#define OPTIONS_HEIGHT	(278)
 #define OPTIONSMENU_Y 			(OPTIONS_Y + 22)
 #else
 #define OPTIONS_WIDTH	(208)
@@ -154,7 +154,7 @@ static char	text_invert_off[]   = {"normal look"};		// invert_look 0: push up = 
  * toggle takes effect immediately. LARGE_FONT = plain words + digits only (no ':' / '-' / '.'). */
 static char	text_display[]      = {"display"};			// main-menu row -> the display submenu
 static char	text_stswap_off[]   = {"invert 3d off"};	// stereo_swap 0 (default): normal depth
-static char	text_stswap_on[]    = {"invert 3d on"};		// stereo_swap 1: swapped depth (pseudoscopic fix)
+static char	text_stswap_on[]    = {"invert 3d on"};		// stereo_swap 1: the OLD inverted/pseudoscopic sign (escape hatch; 0 is the HW-confirmed fix)
 static char	text_botlight_off[] = {"bottom light off"};	// bottom_backlight 0 (default = off, saves battery)
 static char	text_botlight_on[]  = {"bottom light on"};	// bottom_backlight 1: keep the bottom screen lit
 static char	text_str_low[]      = {"3d depth low"};		// stereo_strength named levels (avoid the font '.' gap)
@@ -184,6 +184,30 @@ static int display_strength_index(void)
 	for (i = 0; i < 4; i++) { float d = g_cfg_stereo_strength - s_str_levels[i]; if (d < 0) d = -d; if (d < bd) { bd = d; best = i; } }
 	return best;
 }
+#endif
+
+#ifdef PLATFORM_PORT
+#include "turok_padbinds.h"
+/* ── GAMEPAD button-remap submenu (PC controller + 3DS) ─────────────────────────────────────────────────────
+ * Shared across both ports: a "gamepad" main-menu row opens a box listing each remappable ACTION + its bound
+ * BUTTON; UP/DOWN select, activate (A / Enter) arms capture (the NEXT controller button becomes the binding;
+ * B / ESC cancels), plus "defaults" and "back" rows. State = FILE-SCOPE STATICS ONLY (never COptions fields —
+ * the struct-growth layout-corruption gotcha). The binding table + capture seam live in config.c
+ * (turok_padbinds.h); this menu never touches SDL/HID. LARGE_FONT = lowercase + digits + space only. */
+static char	text_padcontrols[] = {"gamepad"};
+static int	s_PadActive = 0;	/* 1 = the gamepad submenu is showing. */
+static int	s_PadSel    = 0;	/* selected row 0..PAD_ROWS-1. */
+#define PAD_ROWS			(PADACT_MAX + 2)	/* 10 actions + "defaults" + "back" */
+#define PAD_ROW_DEFAULTS	(PADACT_MAX)
+#define PAD_ROW_BACK		(PADACT_MAX + 1)
+#define PAD_WIDTH			(232)
+#define PAD_HEIGHT			(200)
+#define PAD_X				((320/2) - (PAD_WIDTH/2))
+#define PAD_Y				((240/2) - (PAD_HEIGHT/2))
+#define PAD_ROW_SP			(14)
+#define PAD_MENU_Y			(PAD_Y + 12)
+static INT32 options_pad_update(COptions *pThis) ;
+static void  options_pad_draw(COptions *pThis, Gfx **ppDLP) ;
 #endif
 
 #if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
@@ -280,6 +304,9 @@ t_Option options[]=
 	OPTIONSMENU_SPACING, text_recenter_on,		// recenter-look toggle; String reassigned each Draw
 	OPTIONSMENU_SPACING, text_invert_on,		// invert-look toggle; String reassigned each Draw
 	OPTIONSMENU_SPACING, text_display,			// -> display submenu (3D depth + bottom backlight)
+#endif
+#ifdef PLATFORM_PORT
+	OPTIONSMENU_SPACING, text_padcontrols,		// -> gamepad button-remap submenu (PC controller + 3DS)
 #endif
 	OPTIONSMENU_SPACING, text_control_left,
 #ifndef GERMAN
@@ -493,6 +520,10 @@ INT32 COptions__Update(COptions *pThis)
 	if (s_DisplayActive)
 		return options_display_update(pThis) ;
 #endif
+#ifdef PLATFORM_PORT
+	if (s_PadActive)
+		return options_pad_update(pThis) ;
+#endif
 
 #ifdef EDIT_FOG_AND_LIGHTS
 	// do FOG options
@@ -691,6 +722,14 @@ INT32 COptions__Update(COptions *pThis)
 			CTControl__CTControl(pThis->m_RHControl) ;
 			ReturnValue = -1 ;
 		}
+#ifdef PLATFORM_PORT
+		else if (ReturnValue == OPTIONS_PADCONTROLS)	/* activate enters the gamepad button-remap submenu */
+		{
+			s_PadActive = 1 ;
+			s_PadSel = 0 ;
+			ReturnValue = -1 ;
+		}
+#endif
 #ifdef PLATFORM_3DS
 		else if (ReturnValue == OPTIONS_SWAPSTICKS)	/* activate toggles which stick moves vs looks */
 		{
@@ -980,6 +1019,129 @@ static void options_display_draw(COptions *pThis, Gfx **ppDLP)
 }
 #endif	/* PLATFORM_3DS */
 
+#ifdef PLATFORM_PORT
+//------------------------------------------------------------------------
+// GAMEPAD button-remap submenu (PC controller + 3DS) — a sub-mode of the options screen. Mirrors the PC
+// CONTROLS (key/mouse) submenu, but rebinds abstract PAD buttons and works on both ports. The backend
+// (input_3ds.c / gfx_sdl2.cpp) fills the capture seam on the next pad-button press.
+//------------------------------------------------------------------------
+static INT32 options_pad_update(COptions *pThis)
+{
+	extern void turokConfigSave(void) ;
+
+	// A capture just finished (backend set done, action back to -1): store the captured button into the
+	// selected action's binding, flag the backend to re-read, and persist. (cancel -> leave it unchanged.)
+	if (g_padbind_capture_done)
+	{
+		if (!g_padbind_capture_cancel && s_PadSel >= 0 && s_PadSel < PADACT_MAX)
+		{
+			g_cfg_padbind[s_PadSel] = g_padbind_capture_result ;
+			g_cfg_padbind_dirty = 1 ;
+			turokConfigSave() ;
+		}
+		g_padbind_capture_done = 0 ;
+		g_padbind_capture_cancel = 0 ;
+		return -1 ;
+	}
+	// Capture still armed: waiting for a pad press; suppress navigation.
+	if (g_padbind_capture_action >= 0)
+		return -1 ;
+
+	if (CEngineApp__MenuDown(GetApp()))
+	{
+		BarTimer = 0 ;
+		s_PadSel++ ;
+		if (s_PadSel >= PAD_ROWS) s_PadSel = 0 ;
+	}
+	if (CEngineApp__MenuUp(GetApp()))
+	{
+		BarTimer = 0 ;
+		s_PadSel-- ;
+		if (s_PadSel < 0) s_PadSel = PAD_ROWS-1 ;
+	}
+
+	{	extern int g_turok_menu_cancel ;
+		if (g_turok_menu_cancel) { g_turok_menu_cancel = 0 ;	/* B = back out of the submenu (3DS) */
+			turokConfigSave() ; s_PadActive = 0 ; s_PadSel = 0 ; return -1 ; }
+	}
+
+	if (CTControl__IsUseMenu(pCTControl))
+	{
+		if (s_PadSel < PADACT_MAX)
+		{
+			// arm capture for this action; the backend fills it on the next pad-button press.
+			g_padbind_capture_done = 0 ;
+			g_padbind_capture_cancel = 0 ;
+			g_padbind_capture_result = PADBTN_NONE ;
+			g_padbind_capture_action = s_PadSel ;
+		}
+		else if (s_PadSel == PAD_ROW_DEFAULTS)
+		{
+			turokPadSetDefaults() ;
+			g_cfg_padbind_dirty = 1 ;
+			turokConfigSave() ;
+		}
+		else	// PAD_ROW_BACK
+		{
+			turokConfigSave() ;
+			s_PadActive = 0 ;
+			s_PadSel = 0 ;
+		}
+	}
+
+	return -1 ;
+}
+
+static void options_pad_draw(COptions *pThis, Gfx **ppDLP)
+{
+	int		i, y ;
+	char	line[48] ;
+
+	if (pThis->m_Alpha == 0)
+		return ;
+
+	COnScreen__InitBoxDraw(ppDLP) ;
+	COnScreen__DrawHilightBox(ppDLP,
+							  PAD_X, PAD_Y,
+							  PAD_X+PAD_WIDTH, PAD_Y+PAD_HEIGHT,
+							  1, FALSE, 0,0,0, 180 * pThis->m_Alpha) ;
+
+	// selection bar
+	y = PAD_MENU_Y + s_PadSel * PAD_ROW_SP ;
+	CPause__InitPolygon(ppDLP) ;
+	CPause__DrawBar(ppDLP, PAD_X+8, y-1, PAD_WIDTH-16, PAD_ROW_SP, pThis->m_Alpha) ;
+
+	// rows (LARGE_FONT is lowercase letters + digits + space; no ':' / '-')
+	COnScreen__InitFontDraw(ppDLP) ;
+	COnScreen__SetFontScale(0.8, 0.6) ;
+	y = PAD_MENU_Y ;
+	for (i = 0; i < PAD_ROWS; i++)
+	{
+		if (i < PADACT_MAX)
+		{
+			const char *bn ;
+			if (g_padbind_capture_action == i)
+				bn = "press button" ;
+			else
+				bn = turokPadButtonName(g_cfg_padbind[i]) ;
+			sprintf(line, "%-11s%s", turokPadActionLabel(i), bn) ;
+		}
+		else if (i == PAD_ROW_DEFAULTS)
+			strcpy(line, "defaults") ;
+		else
+			strcpy(line, "back") ;
+
+		if (i == s_PadSel)
+			COnScreen__SetFontColor(ppDLP, 200*1.25, 200*1.25, 138*1.25, 86*1.25, 71*1.25, 47*1.25) ;
+		else
+			COnScreen__SetFontColor(ppDLP, 200*.9, 200*.9, 138*.9, 86*.9, 71*.9, 47*.9) ;
+
+		COnScreen__DrawText(ppDLP, line, PAD_X+12, y, (int)(255 * pThis->m_Alpha), FALSE, TRUE) ;
+		y += PAD_ROW_SP ;
+	}
+}
+#endif	/* PLATFORM_PORT */
+
 #ifdef EDIT_FOG_AND_LIGHTS
 //------------------------------------------------------------------------
 // EDIT FOG
@@ -1218,6 +1380,9 @@ void COptions__Draw(COptions *pThis, Gfx **ppDLP)
 #endif
 #ifdef PLATFORM_3DS
 	if (s_DisplayActive) { options_display_draw(pThis, ppDLP) ; return ; }
+#endif
+#ifdef PLATFORM_PORT
+	if (s_PadActive) { options_pad_draw(pThis, ppDLP) ; return ; }
 #endif
 
 #ifdef EDIT_FOG_AND_LIGHTS
