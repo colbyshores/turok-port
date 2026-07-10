@@ -688,6 +688,21 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
     which does NOT fire `APTHOOK_ONSUSPEND`, so the powered-off bottom backlight stayed dark on the HOME/HBL
     return. Added `lcd_set_bottom(1)` at the top of `gfx_3ds_close` (the common teardown for BOTH HOME-close and
     pause-quit) so the bottom screen is always re-lit before the process exits.
+  - **★★ Follow-up (2026-07-10): QUIT CRASH #2 = libctru's INTERNAL ndsp thread never stopped (ndspExit).** User
+    got a Luma dump on quit: DATA ABORT, `DFSR=0x805` (write/translation), PC in **`ndspiReadChnState` ←
+    `ndspUpdateCapture`**, **`FAR 0x08616440 ≈ SP 0x08616468`** (the §quit "thread-stack-freed-while-running"
+    signature). ROOT: `ndspInit()` (`audio_3ds.c`) spawns libctru's **own internal thread**; the quit block
+    (`gfx_3ds.c handle_events`) called `audioThreadStop()` — which joins only OUR audio worker — but never
+    `audioClose()`/`ndspExit()`, so the library thread was still in its update loop when `svcExitProcess` unmapped
+    memory → data-abort on its own stack. FIX: call `audioClose()` (idempotent via `sReady` → `ndspExit()`) in the
+    quit block **after** `audioThreadStop()` (so our producer is gone first); covers HOME-close AND pause-quit
+    (both route through this block). **`audioClose` already existed but was only wired into the PC/normal exit,
+    not the 3DS quit teardown.** Identical to `../perfect_dark`'s §36.5 fix (same dump signature). Diagnosed by the
+    Luma-dump loop: `arm-none-eabi-addr2line -e build_3ds/turok.elf 0x<pc>` resolved straight to the libctru
+    `ndsp` source. **LESSON: every JOINABLE thread must be stopped before `exit()` — including library-internal
+    threads you didn't spawn (`ndspInit`→`ndspExit`, `romfsInit`→`romfsExit`, …). A quit dump faulting `FAR≈SP`
+    inside a libctru subsystem fn (`ndsp*`/`gsp*`/`y2r*`/`csnd*`) = the app is missing that subsystem's `*Exit()`
+    on the teardown path.**
 
 - **★ 3DS MENU SELECTION HIGHLIGHTER STEREO-SEPARATED ("pulled apart") — FIXED (2026-07-07, branch
   `stereo-mipmap-battery-review`; same class PD has).** The menu box/bar/text (the selection highlighter) showed
