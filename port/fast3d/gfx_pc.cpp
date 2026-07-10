@@ -2951,6 +2951,11 @@ static void gfx_run_dl(Gfx* cmd) {
                 // toggle recording so the gamepad-rebind touch buttons get tagged cmd->bottom → sBottom. Top
                 // 16 bits = 0xB077, low bit = on/off. Real NOOPs are <0x1000, so no collision.
                 if ((cmd->words.w1 & 0xFFFF0000u) == 0xB0770000u) {
+                    // Commit any pending buffered geometry (Fast3D batches tris + flushes lazily) with the
+                    // CURRENT flag BEFORE toggling — otherwise the last glyph's shadow/main draw is still in
+                    // buf_vbo and gets flushed with the NEW flag, so it lands on the wrong screen (the stray
+                    // "R"/"K" that crossed the top↔bottom boundary).
+                    gfx_flush();
                     gfx_citro3d_set_bottom_recording((int)(cmd->words.w1 & 1u));
                 }
 #endif
