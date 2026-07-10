@@ -547,6 +547,44 @@ or a reboot for a hard wedge. Never `rm -rf /tmp/.mount_mandar*` while one is li
 
 ## 10. Port edits to game source (keep this log honest)
 
+- **★★ GAMEPAD BUTTON REMAP (3DS + PC controller) + per-stick SENSITIVITY + controller LOOK-sensitivity
+  (2026-07-09→10, branch `stick-sensitivity-sliders` → master).** A full user-remappable pad-button layer for
+  BOTH ports, plus the sensitivity sliders gated for both.
+  - **Shared remap layer** ([turok_padbinds.h](port/include/turok_padbinds.h), `PLATFORM_PORT` both platforms):
+    an action→button table `g_cfg_padbind[PADACT_MAX]` in [config.c](port/src/config.c) (always-linked, compiled
+    on both), persisted to `turok.cfg` as `pad_<action> <button>` with per-platform defaults (3DS = face-diamond
+    move; PC controller = D-pad move). 10 remappable actions (forward/back/strafe L/R, fire, jump, map, walk,
+    weapon next/prev). PAUSE is hard-wired to START (3DS) / START+ESC (PC) — never remappable, so a bad rebind
+    can't lock out the menu. [input_3ds.c](port/src/input_3ds.c) + [gfx_sdl2.cpp](port/fast3d/gfx_sdl2.cpp) are
+    table-driven (map PADBTN_* → native buttons; held N64 bits + edge weapon-cycle/walk; 3DS keeps held-A/B
+    weapon cycle since it's tick-gated at 30Hz, PC uses the FPS>TICK-safe `g_weapon_cycle` seam).
+  - **"gamepad" options submenu** ([options.c](src/PR/tengine/options.c), `OPTIONS_PADCONTROLS`) with interactive
+    capture (arm a row → next controller/HID button becomes the binding), a defaults row, and back. File-scope
+    statics only (the struct-growth gotcha); box grown one row on PC + 3DS.
+  - **★ Rebind CANCEL / CLEAR-to-none** — on 3DS these ride the BOTTOM SCREEN as two touch buttons (left cancel /
+    right clear) drawn with **Turok's own font** (not a new one): [options.c](src/PR/tengine/options.c)
+    `options_pad_draw_bottom` draws two `COnScreen` boxes + labels bracketed by a `gDPNoOpTag(0xB077…)` marker;
+    [gfx_pc.cpp](port/fast3d/gfx_pc.cpp) decodes it (record-time, after a `gfx_flush()` so the last glyph's
+    shadow/main draw doesn't cross the boundary → the "stray R/K" fix) and toggles
+    `gfx_citro3d_set_bottom_recording`, which tags each `DrawCmd cmd->bottom`; [gfx_citro3d.cpp](port/fast3d/gfx_citro3d.cpp)
+    `replayBottom()` routes the tagged draws to the existing `sBottom` target (full-bottom viewport + mono
+    transform) while `replayRange` skips them on the top passes. Touch hit-test ([input_3ds.c](port/src/input_3ds.c)):
+    `touch.px < 160` = cancel, else clear. Backlight lit only while a capture is armed ([gfx_3ds.c](port/fast3d/gfx_3ds.c)
+    edge-detect), then restored to the user's preference (default off). This freed the physical SELECT button to be
+    bindable again. PC keeps keyboard ESC=cancel / DEL=clear + a fitting top-box footer hint. **LESSON: to reuse
+    an N64 game's DL font on the 3DS BOTTOM screen, tag the draws with a `G_NOOP` marker (flush first — Fast3D
+    batches tris lazily, so an un-flushed glyph crosses the boundary) and replay the tagged `DrawCmd`s to `sBottom`
+    with a full-bottom viewport; no second font/renderer needed.**
+  - **Sensitivity gated for BOTH ports**: the two analog sliders are relabeled "look sensitivity" (m_HAnalog →
+    turn+look-pitch via [control.c](src/PR/tengine/control.c)) and "move sensitivity" (m_VAnalog → g_turok_forward/
+    strafe via [tmove.c](src/PR/tengine/tmove.c)). NEW: [tengine.c](src/PR/tengine/tengine.c) publishes
+    `g_turok_look_sens` (m_HAnalog/128) each frame so the PC SDL2 backend scales its analog CONTROLLER look (right
+    stick) by it — a controller player now sets look sensitivity from the same slider (mouse keeps its own
+    `mouse_sensitivity`). All PC+3DS build clean; **NEEDS INTERACTIVE HW/controller confirm** for feel + layout.
+  - **★★ QUIT CRASH #2 (ndspExit)** — see the follow-up under the PAUSE-MENU "quit game" entry below: the quit path
+    joined our audio worker but not libctru's INTERNAL ndsp thread, so it data-aborted on its own stack (Luma
+    `FAR≈SP`, PC in `ndspiReadChnState`). Fixed by calling `audioClose()`/`ndspExit()` on the quit teardown.
+
 - **★★ NEW-3DS C-STICK NUB = ANALOG MOVE STICK (fwd/back + strafe) + "swap sticks" toggle — ROOT CAUSE was
   "`stick_y` = LOOK, not forward" (2026-07-06, branch `pc-port-fixes`).** User request (verbatim, after MANY
   wrong iterations): the **nub moves fwd(up)/back(down)/strafe-left/strafe-right, ANALOG**, the **main stick
