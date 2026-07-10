@@ -1140,6 +1140,7 @@ static void import_texture_ci8(int tile, const LoadedTexture& loaded_texture, bo
 #ifdef PLATFORM_3DS
 extern "C" void pdFacadeArmUpload(uintptr_t addr); // port/fast3d/gfx_citro3d.cpp (load-time facade bake)
 extern "C" void gfx_citro3d_set_render_phase(int p); // GDL phase marker → backend (record-time)
+extern "C" void gfx_citro3d_set_bottom_recording(int on); // 3DS bottom-screen (rebind touch buttons) marker
 #else
 static inline void pdFacadeArmUpload(uintptr_t addr) { (void)addr; }
 #endif
@@ -2945,6 +2946,12 @@ static void gfx_run_dl(Gfx* cmd) {
                 // artifacts(4) for each draw. (Room-GDL texturenum NOOPs are <0x1000 → no collision.)
                 if ((cmd->words.w1 >> 8) == 0xFACADEu) {
                     gfx_citro3d_set_render_phase((int)(cmd->words.w1 & 0xff));
+                }
+                // ★ BOTTOM-screen marker emitted by options.c (gDPNoOpTag 0xB0770001 begin / 0xB0770000 end):
+                // toggle recording so the gamepad-rebind touch buttons get tagged cmd->bottom → sBottom. Top
+                // 16 bits = 0xB077, low bit = on/off. Real NOOPs are <0x1000, so no collision.
+                if ((cmd->words.w1 & 0xFFFF0000u) == 0xB0770000u) {
+                    gfx_citro3d_set_bottom_recording((int)(cmd->words.w1 & 1u));
                 }
 #endif
                 break;

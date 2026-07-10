@@ -200,6 +200,9 @@ extern "C" void turok3dsRefreshStereo(void) {
 // Top screen target is the portrait framebuffer: 240 wide x 400 tall.
 #define TOP_W 240
 #define TOP_H 400
+// Bottom screen target is the portrait framebuffer: 240 wide x 320 tall (the 320x240 landscape touch screen).
+#define BOTTOM_W 240
+#define BOTTOM_H 320
 
 // ---------------------------------------------------------------------------
 // Shader programs: precomputed TEV per N64 combiner
@@ -304,6 +307,9 @@ typedef struct {
     bool     perDrawFog;       // shade-alpha draws (can't ride PRIMARY.a) instead use the fog TEV stage with a
                                // PER-DRAW constant factor (in stageConst[fog_stage].alpha). Together these two
                                // cover every opt_fog draw, so none falls back to the banding hardware FogLut.
+    bool     bottom;           // ★ 3DS: this draw is BOTTOM-screen content (the gamepad-rebind touch buttons),
+                               // bracketed by the game's G_NOOP 0xB077 marker. Routed to sBottom in end_frame
+                               // (replayBottom) and SKIPPED on every top-screen pass so it never shows up top.
 } DrawCmd;
 
 static DrawCmd sCmds[MAX_DRAW_CMDS];
@@ -450,6 +456,10 @@ static bool      sFacadeRegMode = false;    // pre-warm PASS 1: draw_triangles R
                                             // draws as facades (by source addr) — the render-time
                                             // registration that sees exactly what's drawn (CLAUDE.md §21.9).
 static int       sRenderPhase = 0;          // DIAG: 1=sky 2=bg-rooms 3=props/effects (set from lv.c)
+static int       sBottomRecording = 0;      // ★ 3DS bottom-screen: 1 while recording the rebind touch-button
+                                            // draws (toggled by the game's G_NOOP 0xB077 begin/end marker via
+                                            // gfx_citro3d_set_bottom_recording). Each DrawCmd recorded meanwhile
+                                            // is tagged cmd->bottom. Reset every start_frame.
 static float     sBakeReuseMin = 1.5f;      // min per-draw UV span to redirect to a bake
 static float     sBakeLodBias = -1.0f;      // LOD bias on baked textures (lodbias.txt): negative
                                             // = finer mip = sharper (counters the distance over-blur)
@@ -2349,6 +2359,7 @@ static void gfx_citro3d_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size
     cmd->scissorOn = stScissorOn;
     cmd->clearDepth = false;
     cmd->fbOp = 0;
+    cmd->bottom = sBottomRecording;   // ★ 3DS: tag bottom-screen (rebind touch-button) draws; routed to sBottom
     // ★ 2D HUD/sprite detection: gfx_draw_rectangle emits ortho verts with w==1.0 exactly; 3D world
     // geometry's perspective w spans ~16..1024 and is never 1.0. buf_vbo[3] is vertex-0's clip w
     // (pos is the first 4 floats). Flagged draws are replayed WITHOUT the stereo shear (see replayRange).
@@ -2803,6 +2814,7 @@ static void replayRange(const C3D_Mtx *eyeTf, int start, int end) {
     for (int i = start; i < end; i++) {
         const DrawCmd *cmd = &sCmds[i];
         if (cmd->fbOp == 1) continue;             // copy boundary marker — handled by the caller's chain
+        if (cmd->bottom) continue;                // ★ 3DS bottom-screen content — drawn to sBottom, not the top
         if (cmd->clearDepth) {
             // PD's mid-frame depth reset (before the viewmodel): write window
             // depth = far over the whole target so the gun always draws on top.
@@ -2831,6 +2843,29 @@ static void replayRange(const C3D_Mtx *eyeTf, int start, int end) {
         applyCmdState(cmd);
         C3D_DrawArrays(GPU_TRIANGLES, cmd->vboOffset, cmd->vertCount);
     }
+}
+
+// ★ 3DS bottom screen: replay ONLY the cmd->bottom draws (the rebind touch buttons) to the currently-bound
+// bottom target. The recorded viewport/scissor are baked for the TOP screen, so we force a full-bottom
+// viewport + no scissor and use the mono transform (panel rotation, no stereo shear — the bottom is 2D and
+// non-stereo). The buttons are 2D ortho content, so one viewport covers them all. Returns true if it drew.
+static bool replayBottom(void) {
+    bool any = false;
+    for (int i = 0; i < sCmdCount; i++) if (sCmds[i].bottom) { any = true; break; }
+    if (!any) return false;
+    C3D_SetViewport(0, 0, BOTTOM_W, BOTTOM_H);
+    C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
+    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, sUniTransform, &sMonoTf);
+    sCurFogOn = false;
+    cmdStateInvalidate();
+    for (int i = 0; i < sCmdCount; i++) {
+        const DrawCmd *cmd = &sCmds[i];
+        if (!cmd->bottom || cmd->fbOp == 1 || cmd->clearDepth) continue;
+        if (cmd->tex0 > 0 && !cmd->fbBind && !sTexValid[cmd->tex0]) continue;
+        applyCmdState(cmd);
+        C3D_DrawArrays(GPU_TRIANGLES, cmd->vboOffset, cmd->vertCount);
+    }
+    return true;
 }
 
 // Lazily create the offscreen scene RT-from-tex (sGameFbTex/sGameFbRT). FIX A samples sGameFbTex directly
@@ -3019,6 +3054,9 @@ static int gfxIsNew3ds(void) {
 extern "C" void gfx_citro3d_set_decode_only(int on) { sDecodeOnly = on ? true : false; }
 extern "C" void gfx_citro3d_set_facade_reg_mode(int on) { sFacadeRegMode = on ? true : false; if (on) pdFacadeRegAccReset(); }
 extern "C" void gfx_citro3d_set_render_phase(int p) { sRenderPhase = p; }
+// ★ 3DS bottom-screen recording toggle (the game's G_NOOP 0xB077 begin/end marker; see gfx_pc.cpp). While on,
+// each recorded DrawCmd is tagged cmd->bottom → routed to sBottom in end_frame, skipped on the top passes.
+extern "C" void gfx_citro3d_set_bottom_recording(int on) { sBottomRecording = on ? 1 : 0; }
 
 #if PD_DEBUG3DS
 // ── PERF PROFILE (perf spec, BACKEND-ONLY): per-frame ARM11 macro-phase breakdown, ticks→µs. Pure
@@ -3040,6 +3078,7 @@ static void gfx_citro3d_start_frame(void) {
       sProfStart = _t; }
 #endif
     sBakeFrame++;
+    sBottomRecording = 0;   // ★ 3DS bottom-screen: clear the record flag each frame (matched begin/end anyway)
     // Apply cache invalidations queued by the live PROP-facade registration (phase 5, draw_triangles).
     // Done HERE at the frame boundary — a safe point (no draw in flight) — never mid-record where
     // gfx_texture_cache_delete→gfx_flush would re-enter draw_triangles. The invalidated prop facade
@@ -3334,11 +3373,14 @@ static void gfx_citro3d_end_frame(void) {
         }
     }
 
-    // Bottom screen unused by PD's top-screen HUD layout — keep it cleared.
+    // Bottom screen: normally just cleared (Turok's HUD is all top-screen). During a gamepad rebind the game
+    // draws two touch buttons (cancel / clear) here — cmd->bottom draws routed via replayBottom. Its backlight
+    // is lit only while capturing (gfx_3ds.c), so the clear-to-black is invisible the rest of the time.
     C3D_RenderTarget *bottom = (C3D_RenderTarget *)gfx3dsBottomTarget();
     if (bottom) {
         C3D_RenderTargetClear(bottom, C3D_CLEAR_ALL, 0x000000FF, 0xFFFFFFFF);
         C3D_FrameDrawOn(bottom);
+        replayBottom();   // draws only if this frame recorded any cmd->bottom (the rebind touch buttons)
     }
 #if PD_DEBUG3DS
     sProfReplay += svcGetSystemTick() - sProfEFStart;          // the per-eye replay (C3D submit)

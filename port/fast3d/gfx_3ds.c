@@ -173,6 +173,19 @@ static void gfx_3ds_handle_events(void) {
 
     { extern void input3dsScan(void); input3dsScan(); }   // poll HID -> the inputSetState seam each frame
 
+    // ★ Gamepad-rebind bottom-screen touch buttons: light the bottom backlight ONLY while a capture is armed
+    // (the "press a button" window), then restore the user's preference (normally off = battery). Edge-only so
+    // we don't hit gspLcdInit/Exit every frame. The buttons themselves are drawn by options_pad_draw_bottom.
+    { extern int g_padbind_capture_action;
+      static int s_bl_prev = 0;
+      int active = (g_padbind_capture_action >= 0) ? 1 : 0;
+      if (active != s_bl_prev) {
+          if (active) lcd_set_bottom(1);        // light up for the cancel/clear touch buttons
+          else        lcd_backlight_apply();    // restore the turok.cfg preference (usually off)
+          s_bl_prev = active;
+      }
+    }
+
     // 3D slider: osGet3DSliderState() returns garbage in Mandarine, so clamp.
     float s = osGet3DSliderState();
     if (s < 0.0f || s > 1.0f || s != s /* NaN */) s = 0.0f;

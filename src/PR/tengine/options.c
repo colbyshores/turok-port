@@ -190,17 +190,15 @@ static int display_strength_index(void)
 #include "turok_padbinds.h"
 /* ── GAMEPAD button-remap submenu (PC controller + 3DS) ─────────────────────────────────────────────────────
  * Shared across both ports: a "gamepad" main-menu row opens a box listing each remappable ACTION + its bound
- * BUTTON; UP/DOWN select, activate (A / Enter) arms capture (the NEXT controller button becomes the binding;
- * B / ESC cancels), plus "defaults" and "back" rows. State = FILE-SCOPE STATICS ONLY (never COptions fields —
- * the struct-growth layout-corruption gotcha). The binding table + capture seam live in config.c
+ * BUTTON; UP/DOWN select, activate (A / Enter) arms capture (the NEXT controller/HID button becomes the
+ * binding), plus "defaults" and "back" rows. To CANCEL or CLEAR a capture: 3DS = the two BOTTOM-screen touch
+ * buttons (left cancel / right clear), PC = keyboard ESC / DEL. State = FILE-SCOPE STATICS ONLY (never COptions
+ * fields — the struct-growth layout-corruption gotcha). The binding table + capture seam live in config.c
  * (turok_padbinds.h); this menu never touches SDL/HID. LARGE_FONT = lowercase + digits + space only. */
 static char	text_padcontrols[] = {"gamepad"};
-/* Rebind meta-key hint (drawn as a footer under the rows). LARGE_FONT-safe (lowercase + space). On 3DS the two
- * meta-actions ride the non-gameplay inputs (touch = cancel, SELECT = clear-to-none), mirroring ../perfect_dark;
- * on PC they're keyboard ESC / DEL. Explains how to back out of / clear a binding, per the user request. */
-#ifdef PLATFORM_3DS
-static char	text_pad_hint[] = {"touch cancel  select clear"};
-#else
+#if !defined(PLATFORM_3DS)
+/* PC rebind meta-key hint (footer under the rows; fits the box). On the 3DS this moves to the BOTTOM screen as
+ * two touch buttons (see options_pad_draw_bottom) so the top box stays uncluttered. LARGE_FONT-safe. */
 static char	text_pad_hint[] = {"esc cancel  del clear"};
 #endif
 static int	s_PadActive = 0;	/* 1 = the gamepad submenu is showing. */
@@ -209,11 +207,28 @@ static int	s_PadSel    = 0;	/* selected row 0..PAD_ROWS-1. */
 #define PAD_ROW_DEFAULTS	(PADACT_MAX)
 #define PAD_ROW_BACK		(PADACT_MAX + 1)
 #define PAD_WIDTH			(232)
-#define PAD_HEIGHT			(216)			/* rows + a footer hint line */
+#ifdef PLATFORM_3DS
+#define PAD_HEIGHT			(200)			/* no footer (cancel/clear are bottom-screen touch buttons) */
+#else
+#define PAD_HEIGHT			(216)			/* rows + a footer hint line (esc cancel / del clear) */
+#endif
 #define PAD_X				((320/2) - (PAD_WIDTH/2))
 #define PAD_Y				((240/2) - (PAD_HEIGHT/2))
 #define PAD_ROW_SP			(14)
 #define PAD_MENU_Y			(PAD_Y + 12)
+/* ★ 3DS bottom-screen rebind touch buttons (N64 320x240 coords; the marker routes them to sBottom). Two halves
+ * split at x=160: LEFT = cancel, RIGHT = clear. Matches the touch hit-test in input_3ds.c (touch.px < 160). */
+#ifdef PLATFORM_3DS
+#define PADBTM_Y0			(78)
+#define PADBTM_Y1			(162)
+#define PADBTM_LX0			(14)
+#define PADBTM_LX1			(150)
+#define PADBTM_RX0			(170)
+#define PADBTM_RX1			(306)
+static char	text_btm_cancel[] = {"cancel"};
+static char	text_btm_clear[]  = {"clear"};
+static void  options_pad_draw_bottom(COptions *pThis, Gfx **ppDLP) ;
+#endif
 static INT32 options_pad_update(COptions *pThis) ;
 static void  options_pad_draw(COptions *pThis, Gfx **ppDLP) ;
 #endif
@@ -1148,10 +1163,46 @@ static void options_pad_draw(COptions *pThis, Gfx **ppDLP)
 		y += PAD_ROW_SP ;
 	}
 
-	/* footer hint: how to cancel / clear a binding while capturing (the requested back-out + set-none text). */
+#if !defined(PLATFORM_3DS)
+	/* PC footer hint: how to cancel / clear a binding while capturing (fits the box). On 3DS this is on the
+	 * bottom screen as two touch buttons instead (options_pad_draw_bottom). */
 	COnScreen__SetFontColor(ppDLP, 160*.9, 160*.9, 120*.9, 70*.9, 60*.9, 40*.9) ;
 	COnScreen__DrawText(ppDLP, text_pad_hint, PAD_X+12, y+2, (int)(255 * pThis->m_Alpha), FALSE, TRUE) ;
+#endif
+
+#ifdef PLATFORM_3DS
+	/* 3DS: while a capture is armed, draw the two touch buttons (cancel / clear) on the BOTTOM screen. The
+	 * bottom backlight is lit for the capture window by gfx_3ds.c; here we just emit the marked draws. */
+	if (g_padbind_capture_action >= 0)
+		options_pad_draw_bottom(pThis, ppDLP) ;
+#endif
 }
+
+#ifdef PLATFORM_3DS
+/* ★ Draw the two bottom-screen rebind touch buttons, bracketed by the G_NOOP 0xB077 begin/end marker so the
+ * Fast3D→citro3d backend routes these draws to sBottom (not the top screen). Content is in N64 320x240 coords;
+ * the backend maps it full-screen onto the 320x240 bottom panel. LEFT half = cancel, RIGHT half = clear —
+ * matched to the touch hit-test in input_3ds.c (touch.px < 160 = cancel). Reuses Turok's box + font drawing. */
+static void options_pad_draw_bottom(COptions *pThis, Gfx **ppDLP)
+{
+	int a = (int)(255 * pThis->m_Alpha) ;
+
+	gDPNoOpTag((*ppDLP)++, 0xB0770001u) ;	/* begin bottom-screen content */
+
+	COnScreen__InitBoxDraw(ppDLP) ;
+	COnScreen__DrawHilightBox(ppDLP, PADBTM_LX0, PADBTM_Y0, PADBTM_LX1, PADBTM_Y1, 1, FALSE, 24, 40, 72, 220 * pThis->m_Alpha) ;
+	COnScreen__DrawHilightBox(ppDLP, PADBTM_RX0, PADBTM_Y0, PADBTM_RX1, PADBTM_Y1, 1, FALSE, 72, 32, 24, 220 * pThis->m_Alpha) ;
+
+	COnScreen__InitFontDraw(ppDLP) ;
+	COnScreen__SetFontScale(1.0, 0.8) ;
+	COnScreen__SetFontColor(ppDLP, 230, 230, 200, 120, 110, 80) ;
+	/* labels roughly centred in each half (6 chars "cancel" ~ 72px, 5 chars "clear" ~ 60px at this scale). */
+	COnScreen__DrawText(ppDLP, text_btm_cancel, PADBTM_LX0 + 30, PADBTM_Y0 + 34, a, FALSE, TRUE) ;
+	COnScreen__DrawText(ppDLP, text_btm_clear,  PADBTM_RX0 + 34, PADBTM_Y0 + 34, a, FALSE, TRUE) ;
+
+	gDPNoOpTag((*ppDLP)++, 0xB0770000u) ;	/* end bottom-screen content */
+}
+#endif
 #endif	/* PLATFORM_PORT */
 
 #ifdef EDIT_FOG_AND_LIGHTS
