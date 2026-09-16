@@ -86,6 +86,7 @@ int   g_cfg_widescreen   = 1;        /* 1 = Hor+ widescreen (project at the outp
 float g_cfg_nearclip     = 4.0f;
 int   g_cfg_memlog       = 0;        /* 3DS: 1 = emit the per-second MEM heartbeat (linFreeKB/linMinKB/texOOM) to boot.log (needs `debug 1`). Diagnostic for the FCRAM/linear-heap pressure that drops alpha textures then wedges the GPU. */
 int   g_cfg_fogclamp     = 6;        /* 3DS: max combiner stages that still get the appended TEV fog stage. 6 = stock (fog on any draw with a free stage, can hit the 6-stage PICA ceiling). Lower (e.g. 4) clamps busy combiners back to the hardware FogLut so dense fogged levels (Lost City) can't run the GPU to the stage limit. turok.cfg `fogclamp`. */
+char  g_cfg_rom_path[4096] = "";
 
 #if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
 /* ── User-remappable input bindings (PC only) ───────────────────────────────────────────────────────────────
@@ -306,7 +307,7 @@ static const char *cfg_path(void)
 void turokConfigLoad(void)
 {
     FILE  *f;
-    char   line[160], key[64];
+    char   line[4096], key[64];
     double val;
 
 #if defined(PLATFORM_PORT) && !defined(PLATFORM_3DS)
@@ -341,6 +342,20 @@ void turokConfigLoad(void)
             }
         }
 #endif
+        { char *romval = line;
+            while (*romval == ' ' || *romval == '\t') romval++;
+            if (!strncmp(romval, "rom", 3) && (romval[3] == ' ' || romval[3] == '\t')) {
+                char *end;
+                romval += 3;
+                while (*romval == ' ' || *romval == '\t') romval++;
+                end = romval + strlen(romval);
+                while (end > romval && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' ' || end[-1] == '\t')) end--;
+                *end = 0;
+                strncpy(g_cfg_rom_path, romval, sizeof g_cfg_rom_path - 1);
+                g_cfg_rom_path[sizeof g_cfg_rom_path - 1] = 0;
+                continue;
+            }
+        }
         if (sscanf(line, "%63s %lf", key, &val) != 2)
             continue;
         if      (!strcmp(key, "mouse_sensitivity")) g_cfg_mouse_sens   = (float)val;
@@ -407,6 +422,8 @@ void turokConfigSave(void)
         return;
     }
     fprintf(f, "# Turok PC settings — edit by hand or via the in-game options menu\n");
+    fprintf(f, "# ROM path: absolute/relative path, or `none` to use the development cartdata.dat\n");
+    if (g_cfg_rom_path[0]) fprintf(f, "rom %s\n", g_cfg_rom_path);
     fprintf(f, "mouse_sensitivity %.2f\n", g_cfg_mouse_sens);
     fprintf(f, "mouse_invert %d\n",        g_cfg_mouse_invert);
     fprintf(f, "walk_default %d\n",        g_cfg_walk_default);

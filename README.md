@@ -21,6 +21,7 @@ milestones, every seam and port edit). Source-only; **no game data is committed.
 This repository is **source only**. Copy your own legally-obtained files in before building:
 
 - `baserom.us.v12.z64` — retail US v1.2 ROM (repo root)
+- `Turok - Dinosaur Hunter (Germany) (Rev B).n64` — optional German Rev B ROM; `.v64` byte-swapped images are accepted
 - `src/PR/cartdata.dat` — cartridge asset blob
 
 ## Build & run (PC)
@@ -34,6 +35,10 @@ TUROK_CARTDATA=$PWD/src/PR/cartdata.dat TUROK_WARP=0 TUROK_FPS=0 \
 
 # Windowed, first level, on your desktop (SDL2):
 ./play_level.sh        # DISPLAY=:0 ./play_level.sh  if your desktop is elsewhere
+
+# Select a region ROM from the command line:
+./play_level.sh --rom "Turok - Dinosaur Hunter (Germany) (Rev B).n64"
+# Or set `rom <path>` in turok.cfg; `rom none` uses the development cartdata.dat.
 ```
 
 Useful env vars: `TUROK_WARP=<0|1000|…|8000>` (level entry point), `TUROK_FPS` (pacing),

@@ -25,6 +25,26 @@
 #define BSW16(x) ((s16)__builtin_bswap16((u16)(x)))
 #define BSW32(x) ((s32)__builtin_bswap32((u32)(x)))
 
+static int turok_rom_is_v64(FILE *f)
+{
+    unsigned char magic[4];
+    long pos = ftell(f);
+    int v64 = 0;
+    if (fseek(f, 0, SEEK_SET) == 0 && fread(magic, 1, sizeof magic, f) == sizeof magic)
+        v64 = magic[0] == 0x37 && magic[1] == 0x80 && magic[2] == 0x40 && magic[3] == 0x12;
+    fseek(f, pos, SEEK_SET);
+    return v64;
+}
+
+static void turok_swap_v64(void *data, u32 size)
+{
+    unsigned char *p = (unsigned char *)data;
+    u32 i;
+    for (i = 0; i + 1 < size; i += 2) {
+        unsigned char b = p[i]; p[i] = p[i + 1]; p[i + 1] = b;
+    }
+}
+
 static void turok_patch_bank(ALBank *bank, s32 offset, s32 table);
 static void turok_patch_inst(ALInstrument *inst, s32 offset, s32 table);
 static void turok_patch_sound(ALSound *s, s32 offset, s32 table);
@@ -167,13 +187,16 @@ u8 *turokAudioLoadBankFromROM(const char *rompath, long offset, u32 size, int ex
 {
     FILE *f = fopen(rompath, "rb");
     u8 *buf;
+    int v64;
     if (!f) { fprintf(stderr, "[audio] ROM not found: %s\n", rompath); return NULL; }
+    v64 = turok_rom_is_v64(f);
     buf = (u8 *)malloc(size);
     if (!buf) { fclose(f); return NULL; }
     if (fseek(f, offset, SEEK_SET) != 0 || fread(buf, 1, size, f) != size) {
         free(buf); fclose(f); fprintf(stderr, "[audio] ROM read failed @0x%lx\n", offset); return NULL;
     }
     fclose(f);
+    if (v64) turok_swap_v64(buf, size);
     if (expectBank && !(buf[0] == 0x42 && buf[1] == 0x31)) {   /* not "B1" -> wrong offset/ROM version */
         fprintf(stderr, "[audio] ROM @0x%lx is not an ALBankFile (got %02x%02x) — using dev bank\n",
                 offset, buf[0], buf[1]);

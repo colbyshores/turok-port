@@ -9,7 +9,7 @@
  *
  * Path A uses the source tree's own matched cartdata.dat (drift-free). Override with
  * TUROK_CARTDATA=<path> to point at a different blob (e.g. one extracted from the
- * retail ROM for Path B).
+ * selected region ROM for Path B).
  */
 #include <stddef.h>
 #include <stdio.h>
@@ -23,7 +23,45 @@
 #define memcpy __builtin_memcpy
 
 #define TUROK_CARTDATA_SIZE  6489336
+#define TUROK_ROM_OFFSET     0x1F00
 extern u8 _staticSegmentRomStart[];
+extern char g_cfg_rom_path[];
+extern const char *sysArgGetString(const char *arg);
+
+static int turok_rom_is_v64(FILE *f)
+{
+    unsigned char magic[4];
+    long pos = ftell(f);
+    int v64 = 0;
+    if (fseek(f, 0, SEEK_SET) == 0 && fread(magic, 1, sizeof magic, f) == sizeof magic)
+        v64 = magic[0] == 0x37 && magic[1] == 0x80 && magic[2] == 0x40 && magic[3] == 0x12;
+    fseek(f, pos, SEEK_SET);
+    return v64;
+}
+
+static void turok_swap_v64(void *data, size_t size)
+{
+    unsigned char *p = (unsigned char *)data;
+    size_t i;
+    for (i = 0; i + 1 < size; i += 2) {
+        unsigned char b = p[i]; p[i] = p[i + 1]; p[i + 1] = b;
+    }
+}
+
+int turokRomIsGerman(const char *path)
+{
+    FILE *f;
+    unsigned char header[0x40];
+    int v64;
+    if (!path || !(f = fopen(path, "rb"))) return 0;
+    v64 = turok_rom_is_v64(f);
+    if (fseek(f, 0, SEEK_SET) != 0 || fread(header, 1, sizeof header, f) != sizeof header) {
+        fclose(f); return 0;
+    }
+    fclose(f);
+    if (v64) turok_swap_v64(header, sizeof header);
+    return header[0x3b] == 'N' && header[0x3c] == 'T' && header[0x3d] == 'U' && header[0x3e] == 'D';
+}
 
 static const char *DEFAULT_CARTDATA[] = {
     "cartdata.dat",                   /* next to the binary / in the CWD (a normal install) */
@@ -67,18 +105,36 @@ extern int romfsMountSelf(const char *name);
 const char *turokRomPath(void)
 {
     const char *rom = getenv("TUROK_ROM");
-    if (rom && *rom) return rom;            /* explicit override always wins */
+    const char *arg = sysArgGetString("--rom");
+    if (arg && *arg) return arg;
+    if (rom && *rom) return rom;
 #ifdef PLATFORM_3DS
-    /* A CIA install carries baserom.us.v12.z64 inside its RomFS, so the game is fully
-     * self-contained on ANY console (no SD-card ROM needed). Mount it once and read from
-     * romfs:/; fall back to the SD card for .3dsx dev runs, which have no RomFS appended. */
+    /* A CIA install carries the selected ROM inside RomFS; a config path may select a
+     * different staged filename or an SD-card override. */
     {
-        static int s_romfs = -1;            /* -1 untried, 1 mounted, 0 failed */
+        static int s_romfs = -1;
         if (s_romfs < 0) s_romfs = (romfsMountSelf("romfs") == 0) ? 1 : 0;
-        if (s_romfs == 1) return "romfs:/baserom.us.v12.z64";
+        if (g_cfg_rom_path[0] && __builtin_strcmp(g_cfg_rom_path, "none")) {
+            static char cfg_path[4096];
+            if (!__builtin_strncmp(g_cfg_rom_path, "romfs:/", 7) ||
+                !__builtin_strncmp(g_cfg_rom_path, "sdmc:/", 6))
+                return g_cfg_rom_path;
+            if (s_romfs == 1) {
+                snprintf(cfg_path, sizeof cfg_path, "romfs:/%s", g_cfg_rom_path);
+                return cfg_path;
+            }
+            snprintf(cfg_path, sizeof cfg_path, "sdmc:/3ds/turok/%s", g_cfg_rom_path);
+            return cfg_path;
+        }
+        if (s_romfs == 1) return "romfs:/turok.rom";
     }
-    return "sdmc:/3ds/turok/baserom.us.v12.z64";
+    return "sdmc:/3ds/turok/turok.rom";
 #else
+    if (g_cfg_rom_path[0]) {
+        if (!__builtin_strcmp(g_cfg_rom_path, "none")) return NULL;
+        return g_cfg_rom_path;
+    }
+
     /* PC: with no explicit $TUROK_ROM, AUTO-DISCOVER the retail ROM so the game runs as a plain
      * `./turok` (or an installed `turok`) with the ROM sitting alongside it — no env var / launcher
      * script needed. Search the executable's own directory first (a normal install: turok + the ROM
@@ -117,20 +173,22 @@ int romdataInit(void)
      * cartdata.dat (root word 0x0b, index size 0x38), so the whole cart cache / offset / RNC
      * path works unchanged — but it's the RETAIL v1.2 content, not the v49 dev cartdata.dat
      * (the two share a root header but their data is ~99% different). */
-    { const char *rom = turokRomPath(); FILE *rf;   /* PC: $TUROK_ROM (NULL->dev path). 3DS: romfs:/ or SD. */
+    { const char *rom = turokRomPath(); FILE *rf; int v64 = 0;   /* PC: CLI/config/env. 3DS: romfs:/ or SD. */
       if (rom && *rom) {
         rf = fopen(rom, "rb");
-        if (!rf) { fprintf(stderr, "[romdata] FATAL: TUROK_ROM=%s not found\n", rom); return -1; }
-        if (fseek(rf, 0x1F00, SEEK_SET) != 0 ||
+        if (!rf) { fprintf(stderr, "[romdata] FATAL: ROM=%s not found\n", rom); return -1; }
+        v64 = turok_rom_is_v64(rf);
+        if (fseek(rf, TUROK_ROM_OFFSET, SEEK_SET) != 0 ||
             fread(_staticSegmentRomStart, 1, TUROK_CARTDATA_SIZE, rf) != (size_t)TUROK_CARTDATA_SIZE) {
             fprintf(stderr, "[romdata] FATAL: short read of asset blob from %s @0x1F00\n", rom);
             fclose(rf); return -1;
         }
         fclose(rf);
+        if (v64) turok_swap_v64(_staticSegmentRomStart, TUROK_CARTDATA_SIZE);
         { u32 root = ((u32)_staticSegmentRomStart[0]<<24)|((u32)_staticSegmentRomStart[1]<<16)
                    | ((u32)_staticSegmentRomStart[2]<<8) | (u32)_staticSegmentRomStart[3];
-          fprintf(stderr, "[romdata] Path B: RETAIL v1.2 assets from %s @0x1F00 (%d bytes); root items=%u %s\n",
-                  rom, TUROK_CARTDATA_SIZE, root, root==11?"(OK)":"(UNEXPECTED)"); }
+          fprintf(stderr, "[romdata] Path B: RETAIL assets from %s @0x%X (%d bytes, %s); root items=%u %s\n",
+                  rom, TUROK_ROM_OFFSET, TUROK_CARTDATA_SIZE, v64 ? "v64 normalized" : "z64", root, root==11?"(OK)":"(UNEXPECTED)"); }
         return 0;
       }
     }
@@ -146,7 +204,7 @@ int romdataInit(void)
         f = fopen(path, "rb");
     }
     if (!f) {
-        fprintf(stderr, "[romdata] FATAL: no retail ROM (baserom.us.v12.z64) or cartdata.dat found "
+        fprintf(stderr, "[romdata] FATAL: no selected ROM or cartdata.dat found "
                         "next to the executable or in the current directory "
                         "(or set TUROK_ROM=<path> / TUROK_CARTDATA=<path>)\n");
         return -1;

@@ -32,6 +32,7 @@ extern void mainproc(void *);
 
 /* romdata seam */
 extern int romdataInit(void);
+extern void sysInitArgs(long argc, const char **argv);
 
 /* gfx bridge (turok_gfx.c -> Fast3D/OSMesa) */
 extern void turokGfxInit(int w, int h);
@@ -277,7 +278,7 @@ int main(int argc, char **argv)
     const char *mf = getenv("TUROK_MAX_FRAMES");
     const char *cf = getenv("TUROK_CAPTURE_FRAME");
     const char *cp = getenv("TUROK_CAPTURE_PATH");
-    (void)argc; (void)argv;
+    sysInitArgs((long)argc, (const char **)argv);
 
     /* Unbuffer stderr so a crash doesn't swallow the last (most diagnostic) lines —
      * release builds otherwise buffer it and lose the location on a segfault. */
@@ -293,6 +294,11 @@ int main(int argc, char **argv)
     setvbuf(stderr, NULL, _IONBF, 0);
     BL("main: start");
     { extern void turokConfigLoad(void); turokConfigLoad(); }   /* load turok.cfg before gfx/input init */
+#ifdef PLATFORM_3DS
+    /* Arm the UDP telemetry sink (TUROK_NETLOG). AFTER turokConfigLoad so the `debug` gate is known,
+     * and after libctru init because socInit needs the heap + soc:U — never earlier (see sys_3ds.c). */
+    { extern void plat3dsNetLogInit(void); plat3dsNetLogInit(); }
+#endif
     turok_crash_capture_install();   /* always-on in release: catch a fatal fault -> turok_crash.log */
     turok_watchdog_start();          /* opt-in (TUROK_WATCHDOG=1): catch a freeze/spin */
     if (mf) g_max_frames = strtol(mf, NULL, 10);

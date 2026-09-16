@@ -9,6 +9,7 @@
 #   WARP=menu ./play_level.sh        # boot the NORMAL front-end: legal screen -> Acclaim/Iguana logos ->
 #                                     # title menu -> attract demo (skips the dev level-warp entirely)
 #   ROM=/path/to/other.z64 ./play_level.sh   # use a specific ROM
+#   ./play_level.sh --rom /path/to/other.n64 # pass the ROM directly to the PC binary
 #   ROM=none ./play_level.sh         # force the v49 dev assets (cartdata.dat) instead of retail
 #   DEBUG=1 ./play_level.sh          # crash-diagnosis build: prints fault addr + backtrace on segfault
 #
@@ -22,6 +23,13 @@
 #    WARP=0 (default) is fast. WARP=menu boots the title/attract flow instead of a level.
 set -e
 cd "$(dirname "$0")"
+
+CLI_ROM=""
+if [ "${1:-}" = "--rom" ]; then
+    [ -n "${2:-}" ] || { echo "[play_level] --rom requires a path"; exit 2; }
+    CLI_ROM="$2"
+    shift 2
+fi
 
 : "${DISPLAY:=:1}"
 : "${WARP:=0}"
@@ -40,6 +48,7 @@ if [ -n "${DEBUG:-}" ] && [ "$DEBUG" != "0" ]; then BUILD_MODE=debug; OUT=/tmp/t
 # level-1 walkway over the water at the fire-pit start — that the v49 leak's cartdata.dat is MISSING
 # (walk forward on v49 assets and you drop into a blue void). Pass ROM=<path> to use a specific ROM, or
 # ROM=none to force the v49 dev assets.
+if [ -n "$CLI_ROM" ]; then ROM="$CLI_ROM"; fi
 if [ -z "${ROM:-}" ] && [ -f "$PWD/baserom.us.v12.z64" ]; then ROM="baserom.us.v12.z64"; fi
 if [ "${ROM:-}" = "none" ]; then ROM=""; fi
 
@@ -49,7 +58,7 @@ if [ -n "${ROM:-}" ]; then
     case "$ROM" in /*) ROM_ABS="$ROM";; *) ROM_ABS="$PWD/$ROM";; esac
     if [ ! -f "$ROM_ABS" ]; then echo "[play_level] ROM not found: $ROM_ABS"; exit 1; fi
     ROM_ARG=(TUROK_ROM="$ROM_ABS")
-    echo "[play_level] Path B: streaming RETAIL v1.2 assets from $ROM_ABS"
+    echo "[play_level] Path B: streaming selected-region assets from $ROM_ABS"
 fi
 
 echo "[play_level] building SDL2 windowed $BUILD_MODE -> $OUT ..."

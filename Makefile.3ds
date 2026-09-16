@@ -11,7 +11,7 @@
 #   make -f Makefile.3ds             # full link -> build_3ds/turok.3dsx
 #
 # Run in Mandarine:  ~/Desktop/citra/mandarine.AppImage build_3ds/turok.3dsx
-# Assets on SD:      sdmc:/3ds/turok/baserom.us.v12.z64
+# Assets on SD:      sdmc:/3ds/turok/turok.rom (select with `rom <path>` in turok.cfg)
 
 ifeq ($(strip $(DEVKITPRO)),)
 DEVKITPRO := /opt/devkitpro
@@ -43,6 +43,7 @@ CIA_ICON   ?= turok.ico
 CIA_AUDIO  ?= turok.wav
 CIA_ROM    ?= baserom.us.v12.z64
 CIA_ROMFS  := $(CIA_DIR)/romfs
+CIA_ROMFS_FILE := $(CIA_ROMFS)/turok.rom
 APP_TITLE        ?= Turok
 APP_DESC         ?= Turok: Dinosaur Hunter
 APP_AUTHOR       ?= Acclaim / Iguana
@@ -64,6 +65,23 @@ PORT_DEFINES := -DPLATFORM_PORT=1 -DPLATFORM_3DS=1 -D__3DS__ -D_3DS -DPD_BAKE_TH
 # Mirror tools/build_port.sh GAME_D exactly (minus host-only bits).
 GAME_DEFINES := -D_LANGUAGE_C=1 -D_MIPS_SZLONG=32 -DF3DEX_GBI -DN_MICRO -D_FINALROM -DNDEBUG -DSHIP_IT
 DEFINES      := $(PORT_DEFINES) $(GAME_DEFINES)
+
+# ★★★ TUROK_NETLOG — send boot.log over UDP to the netload_stub daemon instead of the SD card.
+# See port/src/net3ds_log.h and the SHARED WIRE CONTRACT in the Obsidian vault,
+# 20-runbooks/3ds-network-telemetry-contract-udp-log-blob-command.md. That format is shared with the
+# netload_stub repo AND the Perfect Dark port — changing it in one repo only is the exact drift the
+# contract exists to prevent.
+#
+# WHY IT MATTERS HERE SPECIFICALLY: this port's plat3dsBootLog still does fopen/fputs/fflush/fclose
+# PER LINE, deliberately, so a data abort cannot lose the trail. That costs ~1-4 ms per line on real
+# hardware — which is exactly how the sibling PD port ended up mistaking its own logging for a
+# renderer regression, twice. The net sink keeps the "every line is out of the process immediately"
+# property (a UDP datagram has already left) while removing the SD stall.
+#
+# Default 0: the daemon is never required, and a network path adds run-to-run variance to a harness
+# whose value is that arms are comparable. Host address: sdmc:/3ds/turok/netlog.txt, else broadcast.
+TUROK_NETLOG ?= 0
+DEFINES      += -DTUROK_NETLOG=$(TUROK_NETLOG)
 
 # Game-tree includes (mirror GAME_I) + libctru/citro3d.
 GAME_INC := -Isrc/PR/tengine -Ilib/ultralib/include -Ilib/ultralib/include/PR -Iport/include \
@@ -192,11 +210,12 @@ $(CIA_DIR)/banner_audio.wav: $(CIA_AUDIO)
 	$(FFMPEG) -y -loglevel error -i $(CIA_AUDIO) -ac 2 -ar 32000 -c:a pcm_s16le $@
 $(CIA_DIR)/banner.bnr: $(CIA_DIR)/banner.png $(CIA_DIR)/banner_audio.wav
 	$(BANNERTOOL) makebanner -i $(CIA_DIR)/banner.png -a $(CIA_DIR)/banner_audio.wav -o $@
-# stage the retail ROM into the CIA RomFS so the install is self-contained on any console
-$(CIA_ROMFS)/baserom.us.v12.z64: $(CIA_ROM)
+# stage the selected region ROM into the CIA RomFS so the install is self-contained on any console
+$(CIA_ROMFS_FILE):
+	@test -f "$(CIA_ROM)" || { echo "[3ds] ROM not found: $(CIA_ROM)"; exit 1; }
 	@mkdir -p $(CIA_ROMFS)
-	cp -f $(CIA_ROM) $@
-$(OUTPUT).cia: $(OUTPUT).elf $(CIA_DIR)/icon.smdh $(CIA_DIR)/banner.bnr $(CIA_ROMFS)/baserom.us.v12.z64 port/3ds/turok.rsf
+	cp -f "$(CIA_ROM)" $@
+$(OUTPUT).cia: $(OUTPUT).elf $(CIA_DIR)/icon.smdh $(CIA_DIR)/banner.bnr $(CIA_ROMFS_FILE) port/3ds/turok.rsf
 	$(MAKEROM) -f cia -target t -exefslogo -elf $(OUTPUT).elf -rsf port/3ds/turok.rsf \
 		-icon $(CIA_DIR)/icon.smdh -banner $(CIA_DIR)/banner.bnr -o $@ \
 		-DAPP_TITLE="$(APP_TITLE)" -DAPP_PRODUCT_CODE="$(APP_PRODUCT_CODE)" -DAPP_UNIQUE_ID="$(APP_UNIQUE_ID)" \
@@ -214,7 +233,7 @@ clean:
 #   make -f Makefile.3ds archive-upload    # push those artifacts to archive.org/details/turok3ds-port
 #   make -f Makefile.3ds archive           # release + archive-upload in one shot.
 #
-# The CIA embeds the retail ROM in its RomFS (self-contained install, no SD-card ROM
+# The CIA embeds the selected region ROM in its RomFS (self-contained install, no SD-card ROM
 # needed) per the project decision; the release .3dsx bundles the same ROM via --romfs
 # so the HBL binary is equally self-contained. Upload uses the `ia` CLI (internetarchive
 # module) with the S3 keys in ~/.config/internetarchive/ia.ini — same as forsaken3ds.
@@ -226,7 +245,7 @@ RELEASE_3DSX := $(OUTPUT).3dsx
 
 # Self-contained HBL binary: the ELF + SMDH icon + the ROM bundled as RomFS (so the
 # .3dsx needs no SD-card ROM either), overwriting the plain dev .3dsx from `all`.
-release-3dsx: $(OUTPUT).elf $(CIA_DIR)/icon.smdh $(CIA_ROMFS)/baserom.us.v12.z64
+release-3dsx: $(OUTPUT).elf $(CIA_DIR)/icon.smdh $(CIA_ROMFS_FILE)
 	@rm -f $(RELEASE_3DSX)
 	$(TDSXTOOL) $(OUTPUT).elf $(RELEASE_3DSX) --smdh=$(CIA_DIR)/icon.smdh --romfs=$(CIA_ROMFS)
 	@echo "[release] self-contained 3dsx (ROM bundled): $(RELEASE_3DSX)"

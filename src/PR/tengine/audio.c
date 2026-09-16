@@ -161,15 +161,19 @@ void initAudio(void)
       extern u8 *turokAudioLoadBank(const char *path, u32 *outLen);
       extern u8 *turokAudioLoadBankFromROM(const char *rompath, long offset, u32 size, int expectBank);
       extern void turokBnkfNew(ALBankFile *file, u8 *table);
-      u32 seqtblLen; u8 *seqtbl = 0; extern const char *turokRomPath(void); const char *rom = turokRomPath();
-      seqbankPtr = 0;
-      if (rom && *rom) {
-         seqbankPtr = (ALBankFile *)turokAudioLoadBankFromROM(rom, 0x626dd0, 0x1580, 1);
-         if (seqbankPtr) {
-            seqtbl = turokAudioLoadBankFromROM(rom, 0x628350, 0x3ef00, 0);
-            if (!seqtbl) seqbankPtr = 0;
-         }
-      }
+       u32 seqtblLen; u8 *seqtbl = 0; extern const char *turokRomPath(void); const char *rom = turokRomPath();
+       int german = 0; extern int turokRomIsGerman(const char *path); if (rom) german = turokRomIsGerman(rom);
+       long seqctl = german ? 0x6091f0 : 0x626dd0;
+       long seqtbl_off = german ? 0x60a770 : 0x628350;
+       seqbankPtr = 0;
+       if (rom && *rom) {
+          seqbankPtr = (ALBankFile *)turokAudioLoadBankFromROM(rom, seqctl, 0x1580, 1);
+          if (seqbankPtr) {
+             seqtbl = turokAudioLoadBankFromROM(rom, seqtbl_off, 0x3ef00, 0);
+             if (!seqtbl) seqbankPtr = 0;
+          }
+       }
+
       if (!seqbankPtr) {
          seqbankPtr = (ALBankFile *)turokAudioLoadBank("src/PR/testbank.ctl", &bankLen);
          seqtbl     = turokAudioLoadBank("src/PR/testbank.tbl", &seqtblLen);
@@ -273,11 +277,15 @@ void initAudio(void)
 		extern u8 *turokAudioLoadBankFromROM(const char *rompath, long offset, u32 size, int expectBank);
 		extern void turokBnkfNew(ALBankFile *file, u8 *table);
 		u32 sfxtblLen; u8 *sfxtbl = 0; extern const char *turokRomPath(void); const char *rom = turokRomPath();
+		int german = 0; extern int turokRomIsGerman(const char *path); if (rom) german = turokRomIsGerman(rom);
+		long sfxctl = german ? 0x649650 : 0x667230;
+		long sfxtbl_off = german ? 0x654730 : 0x672500;
+		long sfxtbl_size = 0x111200;
 		AW.SndPlayerList.sfxBankPtr = 0;
 		if (rom && *rom) {
-			AW.SndPlayerList.sfxBankPtr = turokAudioLoadBankFromROM(rom, 0x667230, 0xb2d0, 1);
+			AW.SndPlayerList.sfxBankPtr = turokAudioLoadBankFromROM(rom, sfxctl, german ? 0xb0e0 : 0xb2d0, 1);
 			if (AW.SndPlayerList.sfxBankPtr) {
-				sfxtbl = turokAudioLoadBankFromROM(rom, 0x672500, 0x111200, 0);
+				sfxtbl = turokAudioLoadBankFromROM(rom, sfxtbl_off, sfxtbl_size, 0);
 				if (!sfxtbl) AW.SndPlayerList.sfxBankPtr = 0;   /* tbl failed -> fall back fully */
 			}
 		}
